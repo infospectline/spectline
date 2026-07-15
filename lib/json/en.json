@@ -1,0 +1,252 @@
+{
+  "scrollHint": "SCROLL DOWN ↓",
+  "language": {
+    "ariaLabel": "Switch language"
+  },
+  "nav": {
+    "home": "Home",
+    "process": "Process",
+    "pricing": "Services",
+    "security": "Portfolio",
+    "reviews": "References",
+    "contact": "Contact",
+    "login": "Showreel",
+    "signup": "Start a project"
+  },
+    "signup": {
+    "homeAriaLabel": "Home",
+    "logoAlt": "Spectline logo",
+    "title": "Registration",
+    "sections": {
+      "client": "Client",
+      "company": "Company",
+      "password": "Password"
+    },
+    "fields": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "address": "Address",
+      "city": "City",
+      "phone": "Phone number",
+      "email": "E-mail",
+      "company": "Company name",
+      "website": "Website",
+      "password": "Password",
+      "confirmPassword": "Confirm password"
+    },
+    "validation": {
+      "nameRequired": "Enter your first and last name.",
+      "emailRequired": "Enter your e-mail address.",
+      "addressRequired": "Enter your address and city.",
+      "passwordLength": "The password must contain at least 8 characters.",
+      "passwordMismatch": "The passwords do not match.",
+      "signupFailed": "Registration failed."
+    },
+    "submit": "Create account",
+    "existingAccount": "Already have an account?",
+    "login": "Sign in"
+  },
+    "login": {
+    "homeAriaLabel": "Home",
+    "logoAlt": "Spectline logo",
+    "title": "Sign in",
+    "fields": {
+      "email": "E-mail",
+      "password": "Password"
+    },
+    "validation": {
+      "fieldsRequired": "Enter your e-mail address and password.",
+      "loginFailed": "Sign-in failed."
+    },
+    "submit": "Sign in",
+    "noAccount": "Don't have an account?",
+    "signup": "Register"
+  },
+    "dashboard": {
+    "logoAlt": "Spectline logo",
+    "loading": "Loading account...",
+    "userFallback": "User",
+    "header": {
+      "notificationsAriaLabel": "Open notifications",
+      "menuAriaLabel": "Open sidebar"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "empty": "You do not have any notifications yet.",
+      "closeAriaLabel": "Close notifications"
+    },
+    "sidebar": {
+      "title": "Control panel",
+      "closeAriaLabel": "Close sidebar",
+      "account": "Account",
+      "settings": "Settings",
+      "logout": "Sign out",
+      "loggingOut": "Signing out..."
+    }
+  },
+  "hero": {
+    "brand": "Spectline",
+    "desc": "A creative studio for VFX, animation, 3D and post-production.",
+    "primaryCta": "Start a project",
+    "secondaryCta": "View our work",
+    "card": "VFX, animation, 3D and editing for films, brands and digital content"
+  },
+  "process": {
+    "title": "Process",
+    "subtitle": "Clear workflow. Strong visuals. Reliable delivery.",
+    "steps": [
+      {
+        "n": 1,
+        "title": "Brief and concept",
+        "text": "We define the goals, visual direction and scope."
+      },
+      {
+        "n": 2,
+        "title": "Production",
+        "text": "We create, refine and review every visual."
+      },
+      {
+        "n": 3,
+        "title": "Final delivery",
+        "text": "You receive polished assets in the required formats."
+      }
+    ]
+  },
+  "pricing": {
+    "title": "Services",
+    "subtitle": "Creative production tailored to each project.",
+    "order": "Request a quote",
+    "plans": [
+      {
+        "name": "Visual Production",
+        "price": "Custom quote",
+        "desc": "Complete visual production from concept to final delivery.",
+        "details": [
+          "VFX and compositing",
+          "2D and 3D animation",
+          "3D modelling and assets",
+          "Motion design",
+          "Creative direction"
+        ]
+      },
+      {
+        "name": "Post-Production",
+        "price": "Custom quote",
+        "desc": "Professional editing and finishing for digital content.",
+        "details": [
+          "Video editing",
+          "Colour grading",
+          "Retouching and cleanup",
+          "Titles and graphics",
+          "Final exports"
+        ]
+      }
+    ]
+  },
+  "security": {
+    "title": "Portfolio",
+    "subtitle": "Selected work across VFX, animation, 3D and post-production.",
+    "mediaTitle": "Showreel",
+    "mediaText": "Add your showreel, project breakdowns or selected visuals here.",
+    "panelTitle": "What we create",
+    "items": [
+      "Visual effects and compositing",
+      "2D and 3D animation",
+      "3D models and digital assets",
+      "Video editing and post-production",
+      "Motion graphics and titles",
+      "Product and architectural visuals"
+    ],
+    "cta": "Start a project"
+  },
+  "reviews": {
+    "title": "References",
+    "subtitle": "Creative support for teams that need polished visual content.",
+    "items": [
+      {
+        "name": "Film and TV",
+        "role": "VFX and post-production",
+        "text": "Visual effects, cleanup, compositing and finishing."
+      },
+      {
+        "name": "Brands",
+        "role": "Campaign content",
+        "text": "High-quality visuals for advertising and social media."
+      },
+      {
+        "name": "Creative agencies",
+        "role": "Production support",
+        "text": "Flexible visual production for client campaigns."
+      },
+      {
+        "name": "Game studios",
+        "role": "3D assets",
+        "text": "Models, environments and promotional visuals."
+      },
+      {
+        "name": "Music artists",
+        "role": "Visual content",
+        "text": "Music videos, motion graphics and visual effects."
+      },
+      {
+        "name": "Product teams",
+        "role": "Product visuals",
+        "text": "3D renders, animation and launch content."
+      },
+      {
+        "name": "Architects",
+        "role": "Visualisation",
+        "text": "Realistic renders and animated presentations."
+      },
+      {
+        "name": "Independent creators",
+        "role": "Custom production",
+        "text": "Professional creative support for original projects."
+      }
+    ]
+  },
+  "contact": {
+    "title": "Contact",
+    "desc": "Tell us about your project, timeline and creative goals.",
+    "emailLine": "E-mail: info.spectline@gmail.com",
+    "supportLine": "Business hours: Mon – Fri, 9:00 – 16:00",
+    "fields": {
+      "name": {
+        "label": "Name",
+        "placeholder": "Name"
+      },
+      "system": {
+        "label": "Project type",
+        "placeholder": "e.g. VFX, animation or 3D model"
+      },
+      "email": {
+        "label": "E-mail",
+        "placeholder": "E-mail"
+      },
+      "message": {
+        "label": "Project details",
+        "placeholder": "Project scope, deadline and budget"
+      }
+    },
+    "submit": "Send inquiry"
+  },
+  "footer": {
+    "infoTitle": "Information",
+    "infoLinks": {
+      "terms": "Terms and Conditions",
+      "privacy": "Privacy Policy",
+      "complaint": "Complaints",
+      "invoice": "Billing details"
+    },
+    "socialTitle": "Social media",
+    "socialLinks": {
+      "instagram": "Instagram",
+      "youtube": "YouTube",
+      "tiktok": "TikTok"
+    },
+    "newsletterTitle": "Studio updates",
+    "newsletterLabel": "E-mail",
+    "newsletterPlaceholder": "E-mail",
+    "newsletterButton": "Subscribe"
+  }
+}

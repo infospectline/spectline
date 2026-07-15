@@ -1,0 +1,252 @@
+{
+  "scrollHint": "POSUŇTE SA NIŽŠIE ↓",
+  "language": {
+    "ariaLabel": "Zmeniť jazyk"
+  },
+  "nav": {
+    "home": "Domov",
+    "process": "Proces",
+    "pricing": "Služby",
+    "security": "Portfólio",
+    "reviews": "Referencie",
+    "contact": "Kontakt",
+    "login": "Showreel",
+    "signup": "Začať projekt"
+  },
+    "signup": {
+    "homeAriaLabel": "Domov",
+    "logoAlt": "Logo Spectline",
+    "title": "Registrácia",
+    "sections": {
+      "client": "Klient",
+      "company": "Firma",
+      "password": "Heslo"
+    },
+    "fields": {
+      "firstName": "Meno",
+      "lastName": "Priezvisko",
+      "address": "Adresa",
+      "city": "Mesto",
+      "phone": "Telefónne číslo",
+      "email": "E-mail",
+      "company": "Názov firmy",
+      "website": "Webová stránka",
+      "password": "Heslo",
+      "confirmPassword": "Potvrdenie hesla"
+    },
+    "validation": {
+      "nameRequired": "Zadajte meno a priezvisko.",
+      "emailRequired": "Zadajte e-mail.",
+      "addressRequired": "Zadajte adresu a mesto.",
+      "passwordLength": "Heslo musí mať aspoň 8 znakov.",
+      "passwordMismatch": "Heslá sa nezhodujú.",
+      "signupFailed": "Registrácia sa nepodarila."
+    },
+    "submit": "Zaregistrovať sa",
+    "existingAccount": "Už máte účet?",
+    "login": "Prihlásiť sa"
+  },
+  "login": {
+    "homeAriaLabel": "Domov",
+    "logoAlt": "Logo Spectline",
+    "title": "Prihlásenie",
+    "fields": {
+      "email": "E-mail",
+      "password": "Heslo"
+    },
+    "validation": {
+      "fieldsRequired": "Zadajte e-mail aj heslo.",
+      "loginFailed": "Prihlásenie sa nepodarilo."
+    },
+    "submit": "Prihlásiť sa",
+    "noAccount": "Nemáte účet?",
+    "signup": "Registrácia"
+  },
+    "dashboard": {
+    "logoAlt": "Logo Spectline",
+    "loading": "Načítavam účet...",
+    "userFallback": "Používateľ",
+    "header": {
+      "notificationsAriaLabel": "Otvoriť notifikácie",
+      "menuAriaLabel": "Otvoriť bočný panel"
+    },
+    "notifications": {
+      "title": "Notifikácie",
+      "empty": "Zatiaľ nemáte žiadne notifikácie.",
+      "closeAriaLabel": "Zavrieť notifikácie"
+    },
+    "sidebar": {
+      "title": "Ovládací panel",
+      "closeAriaLabel": "Zavrieť bočný panel",
+      "account": "Účet",
+      "settings": "Nastavenia",
+      "logout": "Odhlásiť sa",
+      "loggingOut": "Odhlasujem..."
+    }
+  },
+  "hero": {
+    "brand": "Spectline",
+    "desc": "Kreatívne štúdio pre VFX, animáciu, 3D a postprodukciu.",
+    "primaryCta": "Začať projekt",
+    "secondaryCta": "Pozrieť tvorbu",
+    "card": "VFX, animácia, 3D a strih pre filmy, značky a digitálny obsah"
+  },
+  "process": {
+    "title": "Proces",
+    "subtitle": "Jasný postup. Silný vizuál. Spoľahlivé dodanie.",
+    "steps": [
+      {
+        "n": 1,
+        "title": "Zadanie a koncept",
+        "text": "Definujeme ciele, vizuálny smer a rozsah projektu."
+      },
+      {
+        "n": 2,
+        "title": "Produkcia",
+        "text": "Tvoríme, upravujeme a priebežne konzultujeme každý vizuál."
+      },
+      {
+        "n": 3,
+        "title": "Finálne dodanie",
+        "text": "Hotové výstupy dodáme v požadovaných formátoch."
+      }
+    ]
+  },
+  "pricing": {
+    "title": "Služby",
+    "subtitle": "Kreatívna produkcia prispôsobená každému projektu.",
+    "order": "Vyžiadať cenovú ponuku",
+    "plans": [
+      {
+        "name": "Vizuálna produkcia",
+        "price": "Individuálna cena",
+        "desc": "Kompletná vizuálna produkcia od konceptu po finálny výstup.",
+        "details": [
+          "VFX a compositing",
+          "2D a 3D animácia",
+          "3D modelovanie a assety",
+          "Motion dizajn",
+          "Kreatívna réžia"
+        ]
+      },
+      {
+        "name": "Postprodukcia",
+        "price": "Individuálna cena",
+        "desc": "Profesionálny strih a finálne spracovanie digitálneho obsahu.",
+        "details": [
+          "Strih videa",
+          "Color grading",
+          "Retušovanie a cleanup",
+          "Titulky a grafika",
+          "Finálne exporty"
+        ]
+      }
+    ]
+  },
+  "security": {
+    "title": "Portfólio",
+    "subtitle": "Vybrané práce z oblasti VFX, animácie, 3D a postprodukcie.",
+    "mediaTitle": "Showreel",
+    "mediaText": "Sem môžete pridať showreel, ukážky projektov alebo vybrané vizuály.",
+    "panelTitle": "Čo tvoríme",
+    "items": [
+      "Vizuálne efekty a compositing",
+      "2D a 3D animácie",
+      "3D modely a digitálne assety",
+      "Strih videa a postprodukcia",
+      "Motion grafika a titulky",
+      "Produktové a architektonické vizualizácie"
+    ],
+    "cta": "Začať projekt"
+  },
+  "reviews": {
+    "title": "Referencie",
+    "subtitle": "Kreatívna podpora pre tímy, ktoré potrebujú profesionálny vizuálny obsah.",
+    "items": [
+      {
+        "name": "Film a televízia",
+        "role": "VFX a postprodukcia",
+        "text": "Vizuálne efekty, cleanup, compositing a finálne spracovanie."
+      },
+      {
+        "name": "Značky",
+        "role": "Kampaňový obsah",
+        "text": "Kvalitné vizuály pre reklamu a sociálne siete."
+      },
+      {
+        "name": "Kreatívne agentúry",
+        "role": "Produkčná podpora",
+        "text": "Flexibilná vizuálna produkcia pre klientské kampane."
+      },
+      {
+        "name": "Herné štúdiá",
+        "role": "3D assety",
+        "text": "Modely, prostredia a propagačné vizuály."
+      },
+      {
+        "name": "Hudobní interpreti",
+        "role": "Vizuálny obsah",
+        "text": "Videoklipy, motion grafika a vizuálne efekty."
+      },
+      {
+        "name": "Produktové tímy",
+        "role": "Produktové vizuály",
+        "text": "3D rendery, animácie a obsah pre uvedenie produktov."
+      },
+      {
+        "name": "Architekti",
+        "role": "Vizualizácie",
+        "text": "Realistické rendery a animované prezentácie."
+      },
+      {
+        "name": "Nezávislí tvorcovia",
+        "role": "Produkcia na mieru",
+        "text": "Profesionálna kreatívna podpora pre originálne projekty."
+      }
+    ]
+  },
+  "contact": {
+    "title": "Kontakt",
+    "desc": "Napíšte nám o svojom projekte, termíne a kreatívnych cieľoch.",
+    "emailLine": "E-mail: info.spectline@gmail.com",
+    "supportLine": "Pracovné hodiny: Po – Pi, 9:00 – 16:00",
+    "fields": {
+      "name": {
+        "label": "Meno",
+        "placeholder": "Meno"
+      },
+      "system": {
+        "label": "Typ projektu",
+        "placeholder": "napr. VFX, animácia alebo 3D model"
+      },
+      "email": {
+        "label": "E-mail",
+        "placeholder": "E-mail"
+      },
+      "message": {
+        "label": "Detaily projektu",
+        "placeholder": "Rozsah projektu, termín a rozpočet"
+      }
+    },
+    "submit": "Odoslať dopyt"
+  },
+  "footer": {
+    "infoTitle": "Informácie",
+    "infoLinks": {
+      "terms": "Obchodné podmienky",
+      "privacy": "Ochrana osobných údajov",
+      "complaint": "Reklamácie",
+      "invoice": "Fakturačné údaje"
+    },
+    "socialTitle": "Sociálne siete",
+    "socialLinks": {
+      "instagram": "Instagram",
+      "youtube": "YouTube",
+      "tiktok": "TikTok"
+    },
+    "newsletterTitle": "Novinky zo štúdia",
+    "newsletterLabel": "E-mail",
+    "newsletterPlaceholder": "E-mail",
+    "newsletterButton": "Prihlásiť sa"
+  }
+}
