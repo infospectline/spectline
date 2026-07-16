@@ -87,7 +87,7 @@ function RadialMenu({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] pointer-events-auto"
+      className="radial-menu__overlay fixed inset-0 z-[9999] pointer-events-auto"
       onPointerDown={(e) => {
         const t = e.target as HTMLElement | null;
         if (!t) return;
@@ -222,6 +222,13 @@ export default function AndroidBasic({
     setRadial({ open: true, x, y });
   };
 
+  const openMobileRadial = () => {
+    openRadialAt(
+      window.innerWidth / 2,
+      window.innerHeight / 2
+    );
+  };
+
   const onBackgroundPointerDownCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== "mouse") return;
 
@@ -259,6 +266,7 @@ export default function AndroidBasic({
   };
 
   const [isMobile, setIsMobile] = useState(false);
+  const [isMobileNav, setIsMobileNav] = useState(false);
   const isMobileRef = useRef(false);
   const [scrollT, setScrollT] = useState(0);
   const [isProcessStacked, setIsProcessStacked] = useState(false);
@@ -848,6 +856,21 @@ export default function AndroidBasic({
   }, []);
 
   useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+
+    const apply = () => {
+      setIsMobileNav(mq.matches);
+    };
+
+    apply();
+    mq.addEventListener?.("change", apply);
+
+    return () => {
+      mq.removeEventListener?.("change", apply);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
     const mq = window.matchMedia("(max-width: 1300px)");
     const apply = () => setIsProcessStacked(mq.matches);
     apply();
@@ -940,6 +963,18 @@ export default function AndroidBasic({
   const invertFactor = clamp01(clamp01((t - 1.8) / 0.4) * clamp01((5.2 - t) / 0.4));
 
   const introControlOpacity = ready ? clamp01(1 - scrollT / 0.22) : 0;
+
+  const showMobileHamburger =
+    isMobileNav &&
+    ready &&
+    scrollT >= 0.22;
+
+  const topControlOpacity = isMobileNav
+    ? ready
+      ? 1
+      : 0
+    : introControlOpacity;
+
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--scrollbar-invert-factor",
@@ -1006,20 +1041,84 @@ export default function AndroidBasic({
         <div
           className="absolute right-[18px] top-[18px] md:right-[clamp(20px,6vw,80px)] md:top-auto md:bottom-[clamp(22px,4vh,42px)] z-[5]"
           style={{
-            opacity: introControlOpacity,
-            pointerEvents: introControlOpacity > 0.05 ? "auto" : "none",
-            transition: "opacity 600ms ease",
+            opacity: topControlOpacity,
+            pointerEvents: topControlOpacity > 0.05 ? "auto" : "none",
+            transition: "opacity 400ms ease",
           }}
         >
           <button
+            data-no-radial
             type="button"
-            aria-label={copy.language.ariaLabel}
-            onClick={toggleLang}
-            className="rounded-xl border border-[#19191A]/15 bg-[#F4F4F4]/75 backdrop-blur-md px-4 py-2 text-sm font-semibold tracking-[0.16em] text-[#19191A] transition hover:border-[#19191A]/25 hover:bg-[#E7E7E7]/85 shadow-[0_8px_26px_rgba(0,0,0,0.08)]"
+            aria-label={
+              showMobileHamburger
+                ? lang === "sk"
+                  ? "Otvoriť navigáciu"
+                  : "Open navigation"
+                : copy.language.ariaLabel
+            }
+            aria-expanded={
+              showMobileHamburger
+                ? radial.open
+                : undefined
+            }
+            onClick={
+              showMobileHamburger
+                ? openMobileRadial
+                : toggleLang
+            }
+            className={[
+              "mobile-nav-trigger",
+              "rounded-xl border border-[#19191A]/15",
+              "bg-[#F4F4F4]/75 backdrop-blur-md",
+              "px-4 py-2 text-sm font-semibold",
+              "tracking-[0.16em] text-[#19191A]",
+              "hover:border-[#19191A]/25",
+              "hover:bg-[#E7E7E7]/85",
+              "shadow-[0_8px_26px_rgba(0,0,0,0.08)]",
+              showMobileHamburger
+                ? "mobile-nav-trigger--menu"
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
-            <span className={lang === "sk" ? "text-[#19191A]" : "text-[#19191A]/45"}>SK</span>
-            <span className="px-2 text-[#19191A]/35">/</span>
-            <span className={lang === "en" ? "text-[#19191A]" : "text-[#19191A]/45"}>EN</span>
+            <span
+              className="mobile-nav-trigger__language"
+              aria-hidden={showMobileHamburger}
+            >
+              <span
+                className={
+                  lang === "sk"
+                    ? "text-[#19191A]"
+                    : "text-[#19191A]/45"
+                }
+              >
+                SK
+              </span>
+
+              <span className="px-2 text-[#19191A]/35">
+                /
+              </span>
+
+              <span
+                className={
+                  lang === "en"
+                    ? "text-[#19191A]"
+                    : "text-[#19191A]/45"
+                }
+              >
+                EN
+              </span>
+            </span>
+
+            <span
+              className="mobile-nav-trigger__hamburger"
+              aria-hidden={!showMobileHamburger}
+            >
+              <span />
+              <span />
+              <span />
+            </span>
           </button>
         </div>
 
