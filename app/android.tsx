@@ -969,7 +969,7 @@ export default function AndroidBasic({
           left: 0,
           top: 0,
           width: "100vw",
-          height: "100dvh",
+          height: "100svh",
           opacity: hydrated ? 1 : 0,
           transition: "opacity 500ms ease",
         }}
