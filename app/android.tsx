@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -41,6 +41,8 @@ const COPY_BY_LANG: Record<Lang, SiteCopy> = {
 
 const SECTION_IDS = ["home", "process", "pricing", "demo", "reviews", "contact", "footer"] as const;
 const SECTION_COUNT = SECTION_IDS.length;
+const CONTACT_INDEX = 5;
+const CONTACT_T = CONTACT_INDEX + 0.5;
 
 type RadialState = { open: boolean; x: number; y: number };
 type SectionId = (typeof SECTION_IDS)[number];
@@ -175,10 +177,13 @@ export default function AndroidBasic({
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setHydrated(true);
+    const frame = window.requestAnimationFrame(() => {
+      const saved = window.localStorage.getItem("spectline-lang");
+      if (saved === "sk" || saved === "en") setLang(saved);
+      setHydrated(true);
+    });
 
-    const saved = window.localStorage.getItem("spectline-lang");
-    if (saved === "sk" || saved === "en") setLang(saved);
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const toggleLang = () => {
@@ -268,6 +273,12 @@ export default function AndroidBasic({
   const [openPlan, setOpenPlan] = useState<number | null>(0);
   const [openProcessStep, setOpenProcessStep] = useState<number | null>(0);
 
+  const maxPlanIndex = Math.max(0, pricingPlans.length - 1);
+  const displayedActivePlan = Math.min(activePlan, maxPlanIndex);
+  const displayedOpenPlan = isPricingAccordion
+    ? Math.min(openPlan ?? 0, maxPlanIndex)
+    : null;
+
   const swipeRef = useRef<{ x: number; y: number; id: number | null; fired: boolean }>({
     x: 0,
     y: 0,
@@ -288,9 +299,6 @@ export default function AndroidBasic({
     });
   };
 
-  const CONTACT_INDEX = 5;
-  const CONTACT_T = CONTACT_INDEX + 0.5;
-
   const [contactLock, setContactLock] = useState(false);
   const contactLockRef = useRef(false);
   const lockScrollYRef = useRef(0);
@@ -301,13 +309,18 @@ export default function AndroidBasic({
   }, [contactLock]);
 
   const [reviewsPaused, setReviewsPaused] = useState(false);
-
-  useEffect(() => {
-    const lastPlan = Math.max(0, pricingPlans.length - 1);
-
-    setActivePlan((p) => Math.min(p, lastPlan));
-    setOpenPlan((p) => (p === null ? p : Math.min(p, lastPlan)));
-  }, [pricingPlans.length]);
+  const [activeSecurityIndex, setActiveSecurityIndex] = useState(1);
+  const securityDragRef = useRef<{
+    startX: number;
+    startY: number;
+    pointerId: number | null;
+    fired: boolean;
+  }>({
+    startX: 0,
+    startY: 0,
+    pointerId: null,
+    fired: false,
+  });
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -333,11 +346,6 @@ export default function AndroidBasic({
       window.removeEventListener("resize", apply);
     };
   }, []);
-
-  useEffect(() => {
-    if (!isPricingAccordion) setOpenPlan(null);
-    else setOpenPlan((p) => (p === null ? 0 : p));
-  }, [isPricingAccordion]);
 
   useEffect(() => {
     if (isPricingAccordion) return;
@@ -601,12 +609,11 @@ export default function AndroidBasic({
       internalLineartPass.uniforms.resolution.value.set(renderW, renderH);
       outlinePass.resolution.set(w, h);
 
-      const camAny = activeCamera as any;
-      if (camAny?.isPerspectiveCamera) {
-        camAny.aspect = w / h;
-        camAny.updateProjectionMatrix();
-      } else if (camAny?.isOrthographicCamera) {
-        camAny.updateProjectionMatrix();
+      if (activeCamera instanceof THREE.PerspectiveCamera) {
+        activeCamera.aspect = w / h;
+        activeCamera.updateProjectionMatrix();
+      } else if (activeCamera instanceof THREE.OrthographicCamera) {
+        activeCamera.updateProjectionMatrix();
       }
     };
 
@@ -628,8 +635,13 @@ export default function AndroidBasic({
 
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.6/");
-    (loader as any).setDRACOLoader(dracoLoader);
+
+    dracoLoader.setDecoderPath(
+      "https://www.gstatic.com/draco/versioned/decoders/1.5.6/"
+    );
+
+    loader.setDRACOLoader(dracoLoader);
+
     loader.load(
       glbUrl,
       (gltf) => {
@@ -659,7 +671,7 @@ export default function AndroidBasic({
           scene.add(root);
 
           if (gltf.animations?.length) {
-          const camName = (activeCamera as any)?.name as string | undefined;
+          const camName = activeCamera.name || undefined;
 
           modelMixer = new THREE.AnimationMixer(root);
 
@@ -798,15 +810,16 @@ export default function AndroidBasic({
       }
 
       if (model) {
-        model.traverse((o) => {
-          const mesh = o as THREE.Mesh;
+        model.traverse((object) => {
+          if (!(object instanceof THREE.Mesh)) return;
 
-          const g = (mesh as any).geometry;
-          if (g?.dispose) g.dispose();
+          object.geometry.dispose();
 
-          const m = (mesh as any).material;
-          if (Array.isArray(m)) m.forEach((x) => x?.dispose?.());
-          else m?.dispose?.();
+          const materials = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+
+          materials.forEach((material) => material.dispose());
         });
         scene.remove(model);
         model = null;
@@ -892,10 +905,6 @@ export default function AndroidBasic({
     body.style.left = "0";
     body.style.right = "0";
     body.style.width = "100%";
-
-    scrollTRef.current = CONTACT_T;
-    setScrollT(CONTACT_T);
-    scrollPRef.current = CONTACT_T / SECTION_COUNT;
 
     return () => {
       const y = lockScrollYRef.current;
@@ -1184,7 +1193,7 @@ export default function AndroidBasic({
           data-layer="pricing"
           className={[
             "absolute inset-0 z-[3] grid px-[clamp(20px,6vw,80px)] py-[clamp(20px,6vw,80px)]",
-            isPricingAccordion && !isPricingSlider && openPlan !== null ? "place-items-center" : "place-items-center",
+            "place-items-center",
           ].join(" ")}
           style={{
             opacity: pricingOpacity,
@@ -1207,7 +1216,7 @@ export default function AndroidBasic({
             {isPricingAccordion ? (
               isPricingSlider ? (
                 (() => {
-                  const pricingSliderIdx = openPlan ?? 0;
+                  const pricingSliderIdx = displayedOpenPlan ?? 0;
                   const pricingSliderPlan = pricingPlans[pricingSliderIdx] ?? pricingPlans[0];
 
                   if (!pricingSliderPlan) return null;
@@ -1297,7 +1306,7 @@ export default function AndroidBasic({
               ) : (
                 <div className="space-y-3">
                   {pricingPlans.map((p, i) => {
-                    const open = openPlan === i;
+                    const open = displayedOpenPlan === i;
 
                     return (
                       <div
@@ -1369,7 +1378,7 @@ export default function AndroidBasic({
                 ].join(" ")}
               >
                 {pricingPlans.map((p, i) => {
-                  const active = hoveredPlan !== null ? i === hoveredPlan : i === activePlan;
+                  const active = hoveredPlan !== null ? i === hoveredPlan : i === displayedActivePlan;
 
                   return (
                     <div
@@ -1443,15 +1452,6 @@ export default function AndroidBasic({
             </div>
 
             {(() => {
-              const [activeIndex, setActiveIndex] = useState(1);
-
-              const dragRef = useRef({
-                startX: 0,
-                startY: 0,
-                pointerId: null as number | null,
-                fired: false,
-              });
-
               const cards = [
                 {
                   title: copy.security.mediaTitle,
@@ -1471,11 +1471,11 @@ export default function AndroidBasic({
               ];
 
               const nextSlide = () => {
-                setActiveIndex((prev) => (prev + 1) % cards.length);
+                setActiveSecurityIndex((prev) => (prev + 1) % cards.length);
               };
 
               const prevSlide = () => {
-                setActiveIndex((prev) => (prev - 1 + cards.length) % cards.length);
+                setActiveSecurityIndex((prev) => (prev - 1 + cards.length) % cards.length);
               };
 
               return (
@@ -1485,7 +1485,7 @@ export default function AndroidBasic({
                     className="relative w-full h-[460px] md:h-[720px] flex items-center justify-center overflow-hidden perspective-1000 select-none cursor-grab active:cursor-grabbing"
                     style={{ touchAction: "pan-y" }}
                     onPointerDown={(e) => {
-                      dragRef.current = {
+                      securityDragRef.current = {
                         startX: e.clientX,
                         startY: e.clientY,
                         pointerId: e.pointerId,
@@ -1495,7 +1495,7 @@ export default function AndroidBasic({
                       e.currentTarget.setPointerCapture(e.pointerId);
                     }}
                     onPointerMove={(e) => {
-                      const drag = dragRef.current;
+                      const drag = securityDragRef.current;
 
                       if (drag.pointerId !== e.pointerId || drag.fired) return;
 
@@ -1515,24 +1515,24 @@ export default function AndroidBasic({
                       }
                     }}
                     onPointerUp={(e) => {
-                      if (dragRef.current.pointerId === e.pointerId) {
-                        dragRef.current.pointerId = null;
+                      if (securityDragRef.current.pointerId === e.pointerId) {
+                        securityDragRef.current.pointerId = null;
                       }
                     }}
                     onPointerCancel={(e) => {
-                      if (dragRef.current.pointerId === e.pointerId) {
-                        dragRef.current.pointerId = null;
+                      if (securityDragRef.current.pointerId === e.pointerId) {
+                        securityDragRef.current.pointerId = null;
                       }
                     }}
                   >
                     {cards.map((card, index) => {
                       let position = "center";
 
-                      if (index === (activeIndex - 1 + cards.length) % cards.length) {
+                      if (index === (activeSecurityIndex - 1 + cards.length) % cards.length) {
                         position = "left";
                       }
 
-                      if (index === (activeIndex + 1) % cards.length) {
+                      if (index === (activeSecurityIndex + 1) % cards.length) {
                         position = "right";
                       }
 
@@ -1542,8 +1542,8 @@ export default function AndroidBasic({
                         <div
                           key={index}
                           onClick={() => {
-                            if (dragRef.current.fired) return;
-                            setActiveIndex(index);
+                            if (securityDragRef.current.fired) return;
+                            setActiveSecurityIndex(index);
                           }}
                           className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden cursor-pointer select-none transition-all duration-500 ease-out shadow-none ${
                             isCenter
@@ -1554,10 +1554,12 @@ export default function AndroidBasic({
                           }`}
                         >
                           <div className="relative aspect-square md:aspect-video w-full bg-black/50 flex items-center justify-center border-b border-[#F4F4F4]/15">
-                            <img
+                            <Image
                               src={card.imgSrc}
                               alt={card.title}
-                              className="h-full w-full object-contain pointer-events-none"
+                              fill
+                              sizes="(max-width: 768px) 85vw, 1000px"
+                              className="object-contain pointer-events-none"
                               draggable={false}
                             />
                           </div>
@@ -1670,6 +1672,10 @@ export default function AndroidBasic({
                 ref={contactFormRef}
                 onFocusCapture={() => {
                   if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+
+                  scrollTRef.current = CONTACT_T;
+                  scrollPRef.current = CONTACT_T / SECTION_COUNT;
+                  setScrollT(CONTACT_T);
                   setContactLock(true);
                 }}
                 onBlurCapture={() => {

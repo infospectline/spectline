@@ -123,13 +123,17 @@ export default function SignupPage() {
   });
 
   useEffect(() => {
-    const savedLanguage = window.localStorage.getItem("spectline-lang");
+    const frameId = window.requestAnimationFrame(() => {
+      const savedLanguage = window.localStorage.getItem("spectline-lang");
 
-    if (savedLanguage === "sk" || savedLanguage === "en") {
-      setLang(savedLanguage);
-    }
+      if (savedLanguage === "sk" || savedLanguage === "en") {
+        setLang(savedLanguage);
+      }
 
-    setHydrated(true);
+      setHydrated(true);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
 
   const copy = COPY_BY_LANG[lang].signup;
