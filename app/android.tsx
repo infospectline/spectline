@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Home as HomeIcon,
-  GitBranch,
-  Tag,
-  ShieldCheck,
+  Settings,
+  Monitor,
+  Images,
   Star,
   Mail,
   LogIn,
@@ -57,9 +57,9 @@ type RadialItemConfig =
 
 const RADIAL_ITEM_CONFIG: readonly RadialItemConfig[] = [
   { key: "home", kind: "section", id: "home", labelKey: "home", icon: HomeIcon },
-  { key: "process", kind: "section", id: "process", labelKey: "process", icon: GitBranch },
-  { key: "pricing", kind: "section", id: "pricing", labelKey: "pricing", icon: Tag },
-  { key: "demo", kind: "section", id: "demo", labelKey: "security", icon: ShieldCheck },
+  { key: "process", kind: "section", id: "process", labelKey: "process", icon: Settings },
+  { key: "pricing", kind: "section", id: "pricing", labelKey: "pricing", icon: Monitor },
+  { key: "demo", kind: "section", id: "demo", labelKey: "security", icon: Images },
   { key: "reviews", kind: "section", id: "reviews", labelKey: "reviews", icon: Star },
   { key: "contact", kind: "section", id: "contact", labelKey: "contact", icon: Mail },
   { key: "login", kind: "route", href: "/login", labelKey: "login", icon: LogIn },
@@ -625,19 +625,44 @@ export default function AndroidBasic({
       }
     };
 
+    let lastViewportWidth = window.innerWidth;
+
     const onResize = () => {
-      if (!rafSize) rafSize = requestAnimationFrame(setSize);
+      const nextWidth = window.innerWidth;
+
+      const mobileViewport = window.matchMedia(
+        "(max-width: 900px)"
+      ).matches;
+
+      const widthChanged =
+        Math.abs(nextWidth - lastViewportWidth) > 2;
+
+      if (mobileViewport && !widthChanged) {
+        return;
+      }
+
+      lastViewportWidth = nextWidth;
+
+      if (!rafSize) {
+        rafSize = requestAnimationFrame(setSize);
+      }
+    };
+
+    const onOrientationChange = () => {
+      window.setTimeout(() => {
+        lastViewportWidth = window.innerWidth;
+        setSize();
+      }, 250);
     };
 
     const ro = new ResizeObserver(onResize);
     ro.observe(canvas);
 
     window.addEventListener("resize", onResize);
-    window.addEventListener("orientationchange", onResize);
-
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", onResize);
-    vv?.addEventListener("scroll", onResize);
+    window.addEventListener(
+      "orientationchange",
+      onOrientationChange
+    );
 
     setSize();
 
@@ -794,11 +819,10 @@ export default function AndroidBasic({
       ro.disconnect();
 
       window.removeEventListener("resize", onResize);
-      window.removeEventListener("orientationchange", onResize);
-
-      const vv = window.visualViewport;
-      vv?.removeEventListener("resize", onResize);
-      vv?.removeEventListener("scroll", onResize);
+      window.removeEventListener(
+        "orientationchange",
+        onOrientationChange
+      );
 
       if (modelMixer) {
         modelMixer.stopAllAction();
@@ -991,9 +1015,20 @@ export default function AndroidBasic({
       {/* REAL scroll targets for #hash */}
       {Array.from({ length: SECTION_COUNT + 1 }).map((_, i) =>
         i < SECTION_COUNT ? (
-          <div key={SECTION_IDS[i]} id={SECTION_IDS[i]} style={{ height: "100svh" }} />
+          <div
+            key={SECTION_IDS[i]}
+            id={SECTION_IDS[i]}
+            style={{
+              height: "var(--spectline-viewport-height, 100svh)",
+            }}
+          />
         ) : (
-          <div key="spacer" style={{ height: "100svh" }} />
+          <div
+            key="spacer"
+            style={{
+              height: "var(--spectline-viewport-height, 100svh)",
+            }}
+          />
         )
       )}
 
@@ -1004,7 +1039,7 @@ export default function AndroidBasic({
           left: 0,
           top: 0,
           width: "100vw",
-          height: "100svh",
+          height: "var(--spectline-viewport-height, 100svh)",
           opacity: hydrated ? 1 : 0,
           transition: "opacity 500ms ease",
         }}

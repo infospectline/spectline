@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+:root {
+  --spectline-viewport-height: 100svh;
+}
+
+@media (max-width: 900px) {
+  @supports (height: 100lvh) {
+    :root {
+      --spectline-viewport-height: 100lvh;
+    }
+  }
+}
+
 html {
   scrollbar-color:
     color-mix(in srgb, #A7A7A7, #2A2A2A calc(var(--scrollbar-invert-factor, 0) * 100%))
@@ -380,7 +392,7 @@ body {
   left: 0;
   top: 0;
   width: 100vw;
-  height: 100svh;
+  height: var(--spectline-viewport-height, 100svh);
   z-index: 0;
   pointer-events: none;
 }
@@ -483,7 +495,7 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
 
 .first_section--mobile {
   width: 100%;
-  height: 100svh;
+  height: var(--spectline-viewport-height, 100svh);
   padding: 0;
   display: grid;
   place-items: center;
