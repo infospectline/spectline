@@ -228,7 +228,12 @@
         "placeholder": "Project scope, deadline and budget"
       }
     },
-    "submit": "Send inquiry"
+    "submit": "Send inquiry",
+    "status": {
+      "submitting": "Sending...",
+      "success": "Your message was sent successfully. We will get back to you soon.",
+      "error": "The message could not be sent. Please try again."
+    }
   },
   "footer": {
     "infoTitle": "Information",

@@ -48,6 +48,18 @@ const CONTACT_T = CONTACT_INDEX + 0.5;
 type RadialState = { open: boolean; x: number; y: number };
 type SectionId = (typeof SECTION_IDS)[number];
 
+type ContactFormStatus =
+  | "idle"
+  | "submitting"
+  | "success"
+  | "error";
+
+type ContactStatusCopy = {
+  submitting: string;
+  success: string;
+  error: string;
+};
+
 type RadialItem =
   | { key: string; kind: "section"; id: SectionId; label: string; icon: LucideIcon }
   | { key: string; kind: "route"; href: string; label: string; icon: LucideIcon };
@@ -141,6 +153,12 @@ export default function AndroidBasic({
   const router = useRouter();
   const [lang, setLang] = useState<Lang>("sk");
   const copy = COPY_BY_LANG[lang];
+
+  const contactStatusCopy = (
+    copy.contact as SiteCopy["contact"] & {
+      status?: ContactStatusCopy;
+    }
+  ).status;
 
   const documentHref = (
     document: "terms" | "gdpr" | "complaint" | "invoice"
@@ -312,6 +330,49 @@ export default function AndroidBasic({
   const contactLockRef = useRef(false);
   const lockScrollYRef = useRef(0);
   const contactFormRef = useRef<HTMLFormElement | null>(null);
+
+  const [contactFormStatus, setContactFormStatus] =
+  useState<ContactFormStatus>("idle");
+
+  const handleContactSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+
+    if (contactFormStatus === "submitting") return;
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    setContactFormStatus("submitting");
+
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | {
+            success?: boolean;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || result?.success !== true) {
+        throw new Error(
+          result?.error ||
+            `Contact form request failed with status ${response.status}.`
+        );
+      }
+
+      form.reset();
+      setContactFormStatus("success");
+    } catch (error) {
+      console.error("Contact form submission failed.", error);
+      setContactFormStatus("error");
+    }
+  };
 
   useEffect(() => {
     contactLockRef.current = contactLock;
@@ -1803,6 +1864,16 @@ export default function AndroidBasic({
 
               <form
                 ref={contactFormRef}
+                onSubmit={handleContactSubmit}
+                aria-busy={contactFormStatus === "submitting"}
+                onChangeCapture={() => {
+                  if (
+                    contactFormStatus === "success" ||
+                    contactFormStatus === "error"
+                  ) {
+                    setContactFormStatus("idle");
+                  }
+                }}
                 onFocusCapture={() => {
                   if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
 
@@ -1821,8 +1892,6 @@ export default function AndroidBasic({
                   }, 0);
                 }}
                 className="w-full space-y-4 rounded-2xl border border-[#19191A]/15 bg-[#F4F4F4]/75 p-6 sm:p-8 backdrop-blur-md text-left text-[#19191A] shadow-[0_18px_60px_rgba(0,0,0,0.10)]"
-                action="/api/contact"
-                method="post"
               >
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
@@ -1883,10 +1952,45 @@ export default function AndroidBasic({
 
                 <button
                   type="submit"
-                  className="w-full rounded-2xl bg-[#E7E7E7]/90 border border-[#19191A]/15 px-8 py-3 text-lg font-semibold text-[#19191A] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[rgba(59,130,246,0.34)] hover:border-[rgba(147,197,253,0.38)] hover:text-[#F4F4F4] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_26px_rgba(59,130,246,0.12)]"
+                  disabled={contactFormStatus === "submitting"}
+                  className={[
+                    "w-full rounded-2xl bg-[#E7E7E7]/90",
+                    "border border-[#19191A]/15 px-8 py-3",
+                    "text-lg font-semibold text-[#19191A]",
+                    "transition-all duration-300",
+                    "hover:-translate-y-0.5",
+                    "hover:bg-[rgba(59,130,246,0.34)]",
+                    "hover:border-[rgba(147,197,253,0.38)]",
+                    "hover:text-[#F4F4F4]",
+                    "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_26px_rgba(59,130,246,0.12)]",
+                    "disabled:cursor-not-allowed",
+                    "disabled:opacity-60",
+                    "disabled:hover:translate-y-0",
+                  ].join(" ")}
                 >
-                  {copy.contact.submit}
+                  {contactFormStatus === "submitting"
+                    ? contactStatusCopy?.submitting ?? copy.contact.submit
+                    : copy.contact.submit}
                 </button>
+                <div
+                  aria-live="polite"
+                  aria-atomic="true"
+                  className="min-h-6 text-center text-sm"
+                >
+                  {contactFormStatus === "success" &&
+                  contactStatusCopy?.success ? (
+                    <p role="status" className="text-emerald-700">
+                      {contactStatusCopy.success}
+                    </p>
+                  ) : null}
+
+                  {contactFormStatus === "error" &&
+                  contactStatusCopy?.error ? (
+                    <p role="alert" className="text-red-700">
+                      {contactStatusCopy.error}
+                    </p>
+                  ) : null}
+                </div>
               </form>
             </div>
           </div>

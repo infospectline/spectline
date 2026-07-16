@@ -228,7 +228,12 @@
         "placeholder": "Rozsah projektu, termín a rozpočet"
       }
     },
-    "submit": "Odoslať dopyt"
+    "submit": "Odoslať",
+    "status": {
+      "submitting": "Odosielam...",
+      "success": "Správa bola úspešne odoslaná. Ozveme sa vám čo najskôr.",
+      "error": "Správu sa nepodarilo odoslať. Skúste to znova."
+    }
   },
   "footer": {
     "infoTitle": "Informácie",
