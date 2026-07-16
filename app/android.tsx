@@ -12,6 +12,7 @@ import {
   Mail,
   LogIn,
   UserPlus,
+  Menu,
   type LucideIcon,
 } from "lucide-react";
 import * as THREE from "three";
@@ -1150,9 +1151,7 @@ export default function AndroidBasic({
               className="mobile-nav-trigger__hamburger"
               aria-hidden={!showMobileHamburger}
             >
-              <span />
-              <span />
-              <span />
+              <Menu className="h-6 w-6" strokeWidth={1.8} />
             </span>
           </button>
         </div>
