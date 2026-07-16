@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   title: "Spectline",
   description: "Automatizovaný systém AI reportov pre firmy",
   metadataBase: new URL("http://localhost:3000"),
+
+  icons: {
+    icon: "/images/favicon.ico",
+    shortcut: "/images/favicon.ico",
+    apple: "/images/favicon.ico",
+  },
 };
 
 export default function RootLayout({
