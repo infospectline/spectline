@@ -231,8 +231,24 @@
     "submit": "Odoslať",
     "status": {
       "submitting": "Odosielam...",
-      "success": "Správa bola úspešne odoslaná. Ozveme sa vám čo najskôr.",
-      "error": "Správu sa nepodarilo odoslať. Skúste to znova."
+      "success": "Správa bola úspešne odoslaná.",
+      "error": "Správu sa nepodarilo odoslať."
+    }
+  },
+  "newsletterEmail": {
+    "confirmation": {
+      "subject": "Potvrďte odber newslettera Spectline",
+      "heading": "Potvrďte odber newslettera",
+      "text": "Kliknutím na tlačidlo nižšie potvrďte, že chcete dostávať novinky zo štúdia Spectline.",
+      "button": "Potvrdiť odber",
+      "expiration": "Tento potvrdzovací odkaz je platný 24 hodín. Ak ste o odber nepožiadali, tento e-mail môžete ignorovať."
+    },
+    "welcome": {
+      "subject": "Odber newslettera Spectline je aktívny",
+      "heading": "Odber bol úspešne potvrdený",
+      "text": "Ďakujeme za potvrdenie. Odteraz vám môžeme posielať novinky, projekty a aktuality zo štúdia Spectline.",
+      "unsubscribeText": "Ak už nechcete dostávať naše novinky, odber môžete kedykoľvek zrušiť pomocou odkazu nižšie.",
+      "unsubscribeButton": "Zrušiť odber"
     }
   },
   "footer": {
@@ -252,6 +268,12 @@
     "newsletterTitle": "Novinky zo štúdia",
     "newsletterLabel": "E-mail",
     "newsletterPlaceholder": "E-mail",
-    "newsletterButton": "Prihlásiť sa"
+    "newsletterButton": "Prihlásiť sa",
+    "newsletterStatus": {
+      "pending": "Pre dokončenie odberu newslettera potvrďte svoju e-mailovú adresu.",
+      "confirmed": "Odber newslettera bol úspešne potvrdený.",
+      "unsubscribed": "Odber newslettera bol úspešne zrušený.",
+      "invalid": "Odkaz je neplatný, použitý alebo už vypršal."
+    }
   }
 }

@@ -29,6 +29,7 @@ import en from "@/lib/json/en.json";
 type AndroidBasicProps = {
   glbUrl?: string;
   background?: number | string;
+  launcherFinished?: boolean;
 };
 
 type Lang = "sk" | "en";
@@ -53,6 +54,13 @@ type ContactFormStatus =
   | "submitting"
   | "success"
   | "error";
+
+type NewsletterNotificationStatus =
+  | "idle"
+  | "pending"
+  | "confirmed"
+  | "unsubscribed"
+  | "invalid";
 
 type ContactStatusCopy = {
   submitting: string;
@@ -149,6 +157,7 @@ function RadialMenu({
 export default function AndroidBasic({
   glbUrl = "/android.glb",
   background = 0x0b0b0c,
+  launcherFinished = true,
 }: AndroidBasicProps) {
   const router = useRouter();
   const [lang, setLang] = useState<Lang>("sk");
@@ -333,6 +342,173 @@ export default function AndroidBasic({
 
   const [contactFormStatus, setContactFormStatus] =
   useState<ContactFormStatus>("idle");
+
+  const [
+    newsletterNotificationStatus,
+    setNewsletterNotificationStatus,
+  ] = useState<NewsletterNotificationStatus>("idle");
+
+  const [
+    queuedNewsletterNotificationStatus,
+    setQueuedNewsletterNotificationStatus,
+  ] = useState<NewsletterNotificationStatus>("idle");
+
+  const [newsletterSubmitting, setNewsletterSubmitting] =
+    useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    const newsletterStatus = params.get("newsletter");
+
+    let nextStatus: NewsletterNotificationStatus = "idle";
+
+    if (newsletterStatus === "confirmed") {
+      nextStatus = "confirmed";
+    } else if (newsletterStatus === "unsubscribed") {
+      nextStatus = "unsubscribed";
+    } else if (
+      newsletterStatus === "invalid_confirmation" ||
+      newsletterStatus === "invalid_or_expired" ||
+      newsletterStatus === "invalid_unsubscribe" ||
+      newsletterStatus === "invalid_or_used_unsubscribe"
+    ) {
+      nextStatus = "invalid";
+    }
+
+    if (nextStatus === "idle") {
+      return;
+    }
+
+    setQueuedNewsletterNotificationStatus(nextStatus);
+
+    params.delete("newsletter");
+
+    const cleanUrl = `${window.location.pathname}${
+      params.toString() ? `?${params.toString()}` : ""
+    }${window.location.hash}`;
+
+    window.history.replaceState(
+      null,
+      "",
+      cleanUrl
+    );
+  }, []);
+
+  useEffect(() => {
+    if (
+      !launcherFinished ||
+      queuedNewsletterNotificationStatus === "idle"
+    ) {
+      return;
+    }
+
+    setNewsletterNotificationStatus(
+      queuedNewsletterNotificationStatus
+    );
+
+    setQueuedNewsletterNotificationStatus("idle");
+  }, [
+    launcherFinished,
+    queuedNewsletterNotificationStatus,
+  ]);
+
+  useEffect(() => {
+    if (newsletterNotificationStatus === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNewsletterNotificationStatus("idle");
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [newsletterNotificationStatus]);
+
+  useEffect(() => {
+    if (
+      contactFormStatus !== "success" &&
+      contactFormStatus !== "error"
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setContactFormStatus("idle");
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [contactFormStatus]);
+
+  const handleNewsletterSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+
+    if (newsletterSubmitting) return;
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    const email = String(
+      formData.get("email") ?? ""
+    ).trim();
+
+    if (!email) return;
+    
+    setNewsletterNotificationStatus("idle");
+
+    setNewsletterSubmitting(true);
+
+    try {
+      const response = await fetch("/api/newsletter", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          language: lang,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | {
+            success?: boolean;
+            status?: string;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || result?.success !== true) {
+        throw new Error(
+          result?.error ||
+            `Newsletter request failed with status ${response.status}.`
+        );
+      }
+
+      form.reset();
+
+      if (result?.status === "already_active") {
+        setNewsletterNotificationStatus("confirmed");
+      } else {
+        setNewsletterNotificationStatus("pending");
+      }
+    } catch (error) {
+      console.error(
+        "Newsletter subscription request failed.",
+        error
+      );
+    } finally {
+      setNewsletterSubmitting(false);
+    }
+  };
 
   const handleContactSubmit = async (
     event: React.FormEvent<HTMLFormElement>
@@ -1119,6 +1295,36 @@ export default function AndroidBasic({
           }}
         />
 
+        {newsletterNotificationStatus !== "idle" ? (
+        <div
+          role={
+            newsletterNotificationStatus === "invalid"
+              ? "alert"
+              : "status"
+          }
+          aria-live={
+            newsletterNotificationStatus === "invalid"
+              ? "assertive"
+              : "polite"
+          }
+          aria-atomic="true"
+          className={[
+            "fixed inset-x-0 top-6 z-[10000]",
+            "mx-auto w-[calc(100%-32px)] max-w-[520px]",
+            "rounded-2xl border border-[#19191A]/20",
+            "bg-[#C7C7C7]/95 px-6 py-4",
+            "text-center text-sm font-medium text-[#19191A]",
+            "shadow-[0_18px_50px_rgba(0,0,0,0.18)]",
+            "backdrop-blur-md",
+            "animate-[contactPopupIn_220ms_ease-out]",
+          ].join(" ")}
+        >
+          {copy.footer.newsletterStatus[
+            newsletterNotificationStatus
+          ]}
+        </div>
+      ) : null}
+
         <div
           className="first_section__canvas_wrap"
           aria-hidden
@@ -1829,6 +2035,17 @@ export default function AndroidBasic({
             </div>
           </div>
           <style jsx global>{`
+            @keyframes contactPopupIn {
+              from {
+                opacity: 0;
+                transform: translateY(-12px) scale(0.97);
+              }
+
+              to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+              }
+            }
             @keyframes reviews-marquee {
               from { transform: translateX(0); }
               to   { transform: translateX(-50%); }
@@ -1972,26 +2189,48 @@ export default function AndroidBasic({
                     ? contactStatusCopy?.submitting ?? copy.contact.submit
                     : copy.contact.submit}
                 </button>
+              </form>
+              {contactFormStatus === "success" &&
+              contactStatusCopy?.success ? (
                 <div
+                  role="status"
                   aria-live="polite"
                   aria-atomic="true"
-                  className="min-h-6 text-center text-sm"
+                  className={[
+                    "fixed inset-x-0 top-6 z-[10000]",
+                    "mx-auto w-[calc(100%-32px)] max-w-[520px]",
+                    "rounded-2xl border border-[#19191A]/20",
+                    "bg-[#C7C7C7]/95 px-6 py-4",
+                    "text-center text-sm font-medium text-[#19191A]",
+                    "shadow-[0_18px_50px_rgba(0,0,0,0.18)]",
+                    "backdrop-blur-md",
+                    "animate-[contactPopupIn_220ms_ease-out]",
+                  ].join(" ")}
                 >
-                  {contactFormStatus === "success" &&
-                  contactStatusCopy?.success ? (
-                    <p role="status" className="text-emerald-700">
-                      {contactStatusCopy.success}
-                    </p>
-                  ) : null}
-
-                  {contactFormStatus === "error" &&
-                  contactStatusCopy?.error ? (
-                    <p role="alert" className="text-red-700">
-                      {contactStatusCopy.error}
-                    </p>
-                  ) : null}
+                  {contactStatusCopy.success}
                 </div>
-              </form>
+              ) : null}
+
+              {contactFormStatus === "error" &&
+              contactStatusCopy?.error ? (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  aria-atomic="true"
+                  className={[
+                    "fixed inset-x-0 top-6 z-[10000]",
+                    "mx-auto w-[calc(100%-32px)] max-w-[520px]",
+                    "rounded-2xl border border-[#19191A]/30",
+                    "bg-[#C7C7C7]/95 px-6 py-4",
+                    "text-center text-sm font-medium text-[#19191A]",
+                    "shadow-[0_18px_50px_rgba(0,0,0,0.18)]",
+                    "backdrop-blur-md",
+                    "animate-[contactPopupIn_220ms_ease-out]",
+                  ].join(" ")}
+                >
+                  {contactStatusCopy.error}
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
@@ -2097,9 +2336,9 @@ export default function AndroidBasic({
                 <div>
                   <h3 className="text-lg font-semibold text-[#19191A]">{copy.footer.newsletterTitle}</h3>
                   <form
+                    onSubmit={handleNewsletterSubmit}
+                    aria-busy={newsletterSubmitting}
                     className="mt-4 flex flex-col sm:flex-row gap-3 justify-center md:justify-start"
-                    action="/api/newsletter"
-                    method="post"
                   >
                     <label htmlFor="nl-email" className="sr-only">{copy.footer.newsletterLabel}</label>
                     <input
@@ -2112,10 +2351,12 @@ export default function AndroidBasic({
                     />
                     <button
                       type="submit"
+                      disabled={newsletterSubmitting}
                       className={[
                         "shrink-0 rounded-xl border px-5 py-3 font-semibold transition",
                         "border-[#19191A]/15 bg-[#E7E7E7]/90 text-[#19191A]",
                         "hover:-translate-y-0.5 hover:bg-[rgba(34,197,94,0.34)] hover:border-[rgba(134,239,172,0.38)] hover:text-[#F4F4F4] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_26px_rgba(34,197,94,0.12)]",
+                        "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0",
                       ].join(" ")}
                     >
                       {copy.footer.newsletterButton}

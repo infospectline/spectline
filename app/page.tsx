@@ -9,7 +9,10 @@ export default function Home() {
 
   return (
     <div className="bg-[#0A0A0A] text-white">
-      <Android glbUrl="/android.glb" />
+      <Android
+        glbUrl="/android.glb"
+        launcherFinished={!showLauncher}
+      />
 
       {showLauncher ? (
         <Launcher
