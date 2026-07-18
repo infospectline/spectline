@@ -1861,7 +1861,7 @@ export default function AndroidBasic({
                 {
                   title: copy.security.panelTitle,
                   desc: copy.security.items[0],
-                  imgSrc: "/images/logo.png",
+                  imgSrc: "/images/2D_animation.webp",
                 },
                 {
                   title: copy.security.cta,
