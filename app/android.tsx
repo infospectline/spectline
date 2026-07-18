@@ -1856,7 +1856,7 @@ export default function AndroidBasic({
                 {
                   title: copy.security.mediaTitle,
                   desc: copy.security.mediaText,
-                  imgSrc: "/images/logo.png",
+                  imgSrc: "/images/mercedes_amg.webp",
                 },
                 {
                   title: copy.security.panelTitle,
