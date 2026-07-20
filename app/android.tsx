@@ -1866,7 +1866,7 @@ export default function AndroidBasic({
                 {
                   title: copy.security.cta,
                   desc: copy.security.items[1],
-                  imgSrc: "/images/logo.png",
+                  imgSrc: "/images/ironman.webp",
                 },
               ];
 

@@ -151,57 +151,47 @@
     "panelTitle": "Medieval Archer",
     "items": [
       "Visual adaptation of medieval fantasy in a 2D animation style",
-      "2D and 3D animation",
+      "Visual Effects (VFX) for Film Props and Models",
       "3D models and digital assets",
       "Video editing and post-production",
       "Motion graphics and titles",
       "Product and architectural visuals"
     ],
-    "cta": "Start a project"
+    "cta": "Iron man"
   },
   "reviews": {
     "title": "References",
-    "subtitle": "Creative support for teams that need polished visual content.",
+    "subtitle": "Read the experiences of clients who have used our services.",
     "items": [
       {
-        "name": "Film and TV",
-        "role": "VFX and post-production",
-        "text": "Visual effects, cleanup, compositing and finishing."
+        "name": "Film & Television",
+        "role": "Production Manager",
+        "text": "Professional approach and strict adherence to deadlines in VFX and post-production."
       },
       {
-        "name": "Brands",
-        "role": "Campaign content",
-        "text": "High-quality visuals for advertising and social media."
+        "name": "Commercial Brand",
+        "role": "Marketing Specialist",
+        "text": "3D animations and visuals took our campaign to a new level."
       },
       {
-        "name": "Creative agencies",
-        "role": "Production support",
-        "text": "Flexible visual production for client campaigns."
+        "name": "Creative Agency",
+        "role": "Art Director",
+        "text": "A reliable partner for external production with a great eye for detail."
       },
       {
-        "name": "Game studios",
-        "role": "3D assets",
-        "text": "Models, environments and promotional visuals."
+        "name": "Construction Company",
+        "role": "Director",
+        "text": "The collaboration helped us immensely, and the 3D visualizations were delivered quickly and professionally."
       },
       {
-        "name": "Music artists",
-        "role": "Visual content",
-        "text": "Music videos, motion graphics and visual effects."
+        "name": "Game Studio",
+        "role": "Lead Artist",
+        "text": "Great technical support and high quality in 3D asset creation."
       },
       {
-        "name": "Product teams",
-        "role": "Product visuals",
-        "text": "3D renders, animation and launch content."
-      },
-      {
-        "name": "Architects",
-        "role": "Visualisation",
-        "text": "Realistic renders and animated presentations."
-      },
-      {
-        "name": "Independent creators",
-        "role": "Custom production",
-        "text": "Professional creative support for original projects."
+        "name": "Independent Creator",
+        "role": "Director",
+        "text": "The visual effects gave the project the exact atmosphere we were looking for."
       }
     ]
   },

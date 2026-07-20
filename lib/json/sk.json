@@ -151,57 +151,47 @@
     "panelTitle": "Medieval Archer",
     "items": [
       "Vizuálne spracovanie stredovekej fantasy v štýle 2D animácie",
-      "2D a 3D animácie",
+      "Tvorba vizuálnych efektov (VFX) pre filmové rekvizity a modely",
       "3D modely a digitálne assety",
       "Strih videa a postprodukcia",
       "Motion grafika a titulky",
       "Produktové a architektonické vizualizácie"
     ],
-    "cta": "Začať projekt"
+    "cta": "Iron man"
   },
   "reviews": {
     "title": "Referencie",
-    "subtitle": "Kreatívna podpora pre tímy, ktoré potrebujú profesionálny vizuálny obsah.",
+    "subtitle": "Prečítajte si skúsenosti klientov, ktorí využili naše služby.",
     "items": [
       {
         "name": "Film a televízia",
-        "role": "VFX a postprodukcia",
-        "text": "Vizuálne efekty, cleanup, compositing a finálne spracovanie."
+        "role": "Produkčný manažér",
+        "text": "Profesionálny prístup a dodržanie termínov pri VFX a postprodukcii."
       },
       {
-        "name": "Značky",
-        "role": "Kampaňový obsah",
-        "text": "Kvalitné vizuály pre reklamu a sociálne siete."
+        "name": "Komerčná značka",
+        "role": "Marketingový špecialista",
+        "text": "3D animácie a vizuály posunuli našu kampaň na novú úroveň."
       },
       {
-        "name": "Kreatívne agentúry",
-        "role": "Produkčná podpora",
-        "text": "Flexibilná vizuálna produkcia pre klientské kampane."
+        "name": "Kreatívna agentúra",
+        "role": "Art Director",
+        "text": "Spoľahlivý partner pre externú produkciu s citom pre detail."
       },
       {
-        "name": "Herné štúdiá",
-        "role": "3D assety",
-        "text": "Modely, prostredia a propagačné vizuály."
+        "name": "Stavebná firma",
+        "role": "Riaditeľ",
+        "text": "Veľmi nám pomohla spolupráca a 3D vizualizácie boli vytvorené rýchlo a profesionálne."
       },
       {
-        "name": "Hudobní interpreti",
-        "role": "Vizuálny obsah",
-        "text": "Videoklipy, motion grafika a vizuálne efekty."
+        "name": "Herné štúdio",
+        "role": "Lead Artist",
+        "text": "Skvelá technická podpora a vysoká kvalita pri tvorbe 3D assetov."
       },
       {
-        "name": "Produktové tímy",
-        "role": "Produktové vizuály",
-        "text": "3D rendery, animácie a obsah pre uvedenie produktov."
-      },
-      {
-        "name": "Architekti",
-        "role": "Vizualizácie",
-        "text": "Realistické rendery a animované prezentácie."
-      },
-      {
-        "name": "Nezávislí tvorcovia",
-        "role": "Produkcia na mieru",
-        "text": "Profesionálna kreatívna podpora pre originálne projekty."
+        "name": "Nezávislý tvorca",
+        "role": "Režisér",
+        "text": "Vizuálne efekty dodali projektu presne takú atmosféru, akú sme hľadali."
       }
     ]
   },
