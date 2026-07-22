@@ -6,8 +6,8 @@
   "nav": {
     "home": "Home",
     "process": "Process",
-    "pricing": "Services",
-    "security": "Portfolio",
+    "services": "Services",
+    "portfolio": "Portfolio",
     "reviews": "References",
     "contact": "Contact",
     "login": "Showreel",
@@ -112,7 +112,7 @@
       }
     ]
   },
-  "pricing": {
+  "services": {
     "title": "Services",
     "subtitle": "Creative production tailored to each project.",
     "order": "Request a quote",
@@ -143,7 +143,7 @@
       }
     ]
   },
-  "security": {
+  "portfolio": {
     "title": "Portfolio",
     "subtitle": "Selected work across VFX, animation, 3D and post-production.",
     "mediaTitle": "Mercedes AMG GT",

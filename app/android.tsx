@@ -41,7 +41,7 @@ const COPY_BY_LANG: Record<Lang, SiteCopy> = {
   en,
 };
 
-const SECTION_IDS = ["home", "process", "pricing", "demo", "reviews", "contact", "footer"] as const;
+const SECTION_IDS = ["home", "process", "services", "portfolio", "reviews", "contact", "footer"] as const;
 const SECTION_COUNT = SECTION_IDS.length;
 const CONTACT_INDEX = 5;
 const CONTACT_T = CONTACT_INDEX + 0.5;
@@ -79,8 +79,8 @@ type RadialItemConfig =
 const RADIAL_ITEM_CONFIG: readonly RadialItemConfig[] = [
   { key: "home", kind: "section", id: "home", labelKey: "home", icon: HomeIcon },
   { key: "process", kind: "section", id: "process", labelKey: "process", icon: Settings },
-  { key: "pricing", kind: "section", id: "pricing", labelKey: "pricing", icon: Monitor },
-  { key: "demo", kind: "section", id: "demo", labelKey: "security", icon: Images },
+  { key: "services", kind: "section", id: "services", labelKey: "services", icon: Monitor },
+  { key: "portfolio", kind: "section", id: "portfolio", labelKey: "portfolio", icon: Images },
   { key: "reviews", kind: "section", id: "reviews", labelKey: "reviews", icon: Star },
   { key: "contact", kind: "section", id: "contact", labelKey: "contact", icon: Mail },
   { key: "login", kind: "route", href: "/login", labelKey: "login", icon: LogIn },
@@ -174,7 +174,7 @@ export default function AndroidBasic({
   ) => `/documents/${document}_${lang}.pdf`;
 
   const processSteps = copy.process.steps;
-  const pricingPlans = copy.pricing.plans;
+  const servicesPlans = copy.services.plans;
   const reviews = copy.reviews.items;
 
   const radialItems = useMemo<readonly RadialItem[]>(() => {
@@ -239,7 +239,12 @@ export default function AndroidBasic({
     const FADE = 0.25;
     const sweet = Math.max(0, Math.min(1, 1 - FADE - 0.02));
 
-    window.scrollTo({ top: (idx + sweet) * vh, behavior: "smooth" });
+    const sectionOffset = id === "reviews" ? -0.18 : 0;
+
+    window.scrollTo({
+      top: (idx + sweet + sectionOffset) * vh,
+      behavior: "smooth",
+    });
     history.replaceState(null, "", `#${id}`);
   };
 
@@ -304,14 +309,14 @@ export default function AndroidBasic({
   const [activePlan, setActivePlan] = useState(0);
   const [hoveredPlan, setHoveredPlan] = useState<number | null>(null);
 
-  const [isPricingAccordion, setIsPricingAccordion] = useState(false);
-  const [isPricingSlider, setIsPricingSlider] = useState(false);
+  const [isservicesAccordion, setIsservicesAccordion] = useState(false);
+  const [isservicesSlider, setIsservicesSlider] = useState(false);
   const [openPlan, setOpenPlan] = useState<number | null>(0);
   const [openProcessStep, setOpenProcessStep] = useState<number | null>(0);
 
-  const maxPlanIndex = Math.max(0, pricingPlans.length - 1);
+  const maxPlanIndex = Math.max(0, servicesPlans.length - 1);
   const displayedActivePlan = Math.min(activePlan, maxPlanIndex);
-  const displayedOpenPlan = isPricingAccordion
+  const displayedOpenPlan = isservicesAccordion
     ? Math.min(openPlan ?? 0, maxPlanIndex)
     : null;
 
@@ -322,12 +327,12 @@ export default function AndroidBasic({
     fired: false,
   });
 
-  const [pricingSlideDir, setPricingSlideDir] = useState<1 | -1>(1);
+  const [servicesSlideDir, setservicesSlideDir] = useState<1 | -1>(1);
 
   const swipePlan = (dir: 1 | -1) => {
-    setPricingSlideDir(dir);
+    setservicesSlideDir(dir);
     setOpenPlan((p) => {
-      const count = pricingPlans.length;
+      const count = servicesPlans.length;
       if (!count) return 0;
 
       const cur = p ?? 0;
@@ -555,8 +560,8 @@ export default function AndroidBasic({
   }, [contactLock]);
 
   const [reviewsPaused, setReviewsPaused] = useState(false);
-  const [activeSecurityIndex, setActiveSecurityIndex] = useState(1);
-  const securityDragRef = useRef<{
+  const [activeportfolioIndex, setActiveportfolioIndex] = useState(1);
+  const portfolioDragRef = useRef<{
     startX: number;
     startY: number;
     pointerId: number | null;
@@ -577,8 +582,8 @@ export default function AndroidBasic({
       const portrait = mqPortrait.matches;
       const smallH = window.innerHeight < 740;
 
-      setIsPricingAccordion(smallW);
-      setIsPricingSlider(smallW && portrait && smallH);
+      setIsservicesAccordion(smallW);
+      setIsservicesSlider(smallW && portrait && smallH);
     };
 
     apply();
@@ -594,16 +599,16 @@ export default function AndroidBasic({
   }, []);
 
   useEffect(() => {
-    if (isPricingAccordion) return;
+    if (isservicesAccordion) return;
     if (hoveredPlan !== null) return;
-    if (pricingPlans.length <= 1) return;
+    if (servicesPlans.length <= 1) return;
 
     const id = window.setInterval(() => {
-      setActivePlan((p) => (p + 1) % pricingPlans.length);
+      setActivePlan((p) => (p + 1) % servicesPlans.length);
     }, 2200);
 
     return () => window.clearInterval(id);
-  }, [hoveredPlan, isPricingAccordion, pricingPlans.length]);
+  }, [hoveredPlan, isservicesAccordion, servicesPlans.length]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1216,13 +1221,18 @@ export default function AndroidBasic({
 
   const heroOpacity = sectionOpacity(t, 0);
   const processOpacity = sectionOpacity(t, 1);
-  const pricingOpacity = sectionOpacity(t, 2);
-  const demoOpacity = sectionOpacity(t, 3);
+  const servicesOpacity = sectionOpacity(t, 2);
+  const portfolioOpacity = sectionOpacity(t, 3);
   const reviewsOpacity = sectionOpacity(t, 4);
   const contactOpacity = sectionOpacity(t, 5);
   const footerOpacity = clamp01((t - 6) / FADE);
 
-  const invertFactor = clamp01(clamp01((t - 1.8) / 0.4) * clamp01((5.2 - t) / 0.4));
+  const backgroundFadeIn = clamp01((t - 1.8) / 0.4);
+  const backgroundFadeOut = clamp01((5 - t) / 0.4);
+
+  const invertFactor = clamp01(
+    backgroundFadeIn * backgroundFadeOut
+  );
 
   const introControlOpacity = ready ? clamp01(1 - scrollT / 0.22) : 0;
 
@@ -1452,11 +1462,11 @@ export default function AndroidBasic({
 
                 <div className="first_section__actions">
                   <a
-                    href="#pricing"
+                    href="#services"
                     className="first_section__btn first_section__btn--primary"
                     onClick={(e) => {
                       e.preventDefault();
-                      scrollToSection("pricing");
+                      scrollToSection("services");
                     }}
                   >
                     {copy.hero.primaryCta}
@@ -1590,44 +1600,44 @@ export default function AndroidBasic({
         </section>
 
         <section
-          data-layer="pricing"
+          data-layer="services"
           className={[
             "absolute inset-0 z-[3] grid px-[clamp(20px,6vw,80px)] py-[clamp(20px,6vw,80px)]",
             "place-items-center",
           ].join(" ")}
           style={{
-            opacity: pricingOpacity,
-            pointerEvents: pricingOpacity > 0.05 ? "auto" : "none",
+            opacity: servicesOpacity,
+            pointerEvents: servicesOpacity > 0.05 ? "auto" : "none",
             transition: "opacity 120ms linear",
-            overflowY: isPricingAccordion ? "auto" : "visible",
+            overflowY: isservicesAccordion ? "auto" : "visible",
           }}
-          aria-hidden={pricingOpacity < 0.05}
+          aria-hidden={servicesOpacity < 0.05}
         >
           <div className="w-full max-w-[1200px]">
             <div className="text-center mb-8">
               <h2 className="text-[#19191A] text-3xl md:text-5xl tracking-[0.12em] uppercase opacity-95">
-                {copy.pricing.title}
+                {copy.services.title}
               </h2>
               <p className="text-[#F4F4F4]/70 mt-3 max-w-[60ch] mx-auto">
-                {copy.pricing.subtitle}
+                {copy.services.subtitle}
               </p>
             </div>
 
-            {isPricingAccordion ? (
-              isPricingSlider ? (
+            {isservicesAccordion ? (
+              isservicesSlider ? (
                 (() => {
-                  const pricingSliderIdx = displayedOpenPlan ?? 0;
-                  const pricingSliderPlan = pricingPlans[pricingSliderIdx] ?? pricingPlans[0];
+                  const servicesSliderIdx = displayedOpenPlan ?? 0;
+                  const servicesSliderPlan = servicesPlans[servicesSliderIdx] ?? servicesPlans[0];
 
-                  if (!pricingSliderPlan) return null;
+                  if (!servicesSliderPlan) return null;
 
                   return (
                     <div>
                       <div
-                        key={pricingSliderIdx}
+                        key={servicesSliderIdx}
                         className={[
                           "rounded-2xl border border-[#F4F4F4]/15 bg-[#19191A]/70 backdrop-blur-md select-none",
-                          pricingSlideDir === 1
+                          servicesSlideDir === 1
                             ? "animate-[planInRight_260ms_ease-out]"
                             : "animate-[planInLeft_260ms_ease-out]",
                         ].join(" ")}
@@ -1659,13 +1669,13 @@ export default function AndroidBasic({
                         }}
                       >
                         <div className="p-4">
-                          <div className="text-[#F4F4F4] font-semibold text-lg">{pricingSliderPlan.name}</div>
-                          <div className="text-[#F4F4F4]/90 mt-1">{pricingSliderPlan.price}</div>
+                          <div className="text-[#F4F4F4] font-semibold text-lg">{servicesSliderPlan.name}</div>
+                          <div className="text-[#F4F4F4]/90 mt-1">{servicesSliderPlan.price}</div>
 
-                          <div className="text-[#F4F4F4]/80 leading-relaxed mt-3">{pricingSliderPlan.desc}</div>
+                          <div className="text-[#F4F4F4]/80 leading-relaxed mt-3">{servicesSliderPlan.desc}</div>
 
                           <ul className="mt-4 space-y-2 text-[#F4F4F4]/85">
-                            {pricingSliderPlan.details.map((d) => (
+                            {servicesSliderPlan.details.map((d) => (
                               <li key={d} className="flex gap-3 items-start">
                                 <span className="opacity-70">•</span>
                                 <span>{d}</span>
@@ -1678,24 +1688,24 @@ export default function AndroidBasic({
                               type="button"
                               onClick={() => scrollToSection("contact")}
                               className={[
-                                "pricing-contact-btn", "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition cursor-pointer",
+                                "services-contact-btn", "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition cursor-pointer",
                                 "border-[#F4F4F4]/20 bg-[#19191A]/55 text-[#F4F4F4]",
                                 "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/45",
                               ].join(" ")}
                             >
-                              {copy.pricing.order}
+                              {copy.services.order}
                             </button>
                           </div>
                         </div>
                       </div>
 
                       <div className="mt-4 flex justify-center gap-2" aria-hidden>
-                        {pricingPlans.map((_, idx) => (
+                        {servicesPlans.map((_, idx) => (
                           <span
                             key={idx}
                             className={[
                               "h-2 rounded-full transition-all duration-200",
-                              pricingSliderIdx === idx ? "w-8 bg-[#F4F4F4]/80" : "w-2 bg-[#F4F4F4]/30",
+                              servicesSliderIdx === idx ? "w-8 bg-[#F4F4F4]/80" : "w-2 bg-[#F4F4F4]/30",
                             ].join(" ")}
                           />
                         ))}
@@ -1705,7 +1715,7 @@ export default function AndroidBasic({
                 })()
               ) : (
                 <div className="space-y-3">
-                  {pricingPlans.map((p, i) => {
+                  {servicesPlans.map((p, i) => {
                     const open = displayedOpenPlan === i;
 
                     return (
@@ -1750,13 +1760,13 @@ export default function AndroidBasic({
                                 type="button"
                                 onClick={() => scrollToSection("contact")}
                                 className={[
-                                  "pricing-contact-btn",
+                                  "services-contact-btn",
                                   "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition cursor-pointer",
                                   "border-[#F4F4F4]/20 bg-[#19191A]/55 text-[#F4F4F4]",
                                   "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/45",
                                 ].join(" ")}
                               >
-                                {copy.pricing.order}
+                                {copy.services.order}
                               </button>
                             </div>
                           </div>
@@ -1770,14 +1780,14 @@ export default function AndroidBasic({
               <div
                 className={[
                   "grid gap-6 items-stretch",
-                  pricingPlans.length === 1
+                  servicesPlans.length === 1
                     ? "md:grid-cols-1 max-w-[430px] mx-auto"
-                    : pricingPlans.length === 2
+                    : servicesPlans.length === 2
                     ? "md:grid-cols-2 max-w-[900px] mx-auto"
                     : "md:grid-cols-3",
                 ].join(" ")}
               >
-                {pricingPlans.map((p, i) => {
+                {servicesPlans.map((p, i) => {
                   const active = hoveredPlan !== null ? i === hoveredPlan : i === displayedActivePlan;
 
                   return (
@@ -1813,14 +1823,14 @@ export default function AndroidBasic({
                           type="button"
                           onClick={() => scrollToSection("contact")}
                           className={[
-                            "pricing-contact-btn",
+                            "services-contact-btn",
                             "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition",
                             "border-[#F4F4F4]/20 bg-[#19191A]/70 backdrop-blur-md text-[#F4F4F4] cursor-pointer",
                             "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/55",
                             active ? "border-[#F4F4F4]/35 bg-[#19191A]/55" : "",
                           ].join(" ")}
                         >
-                          {copy.pricing.order}
+                          {copy.services.order}
                         </button>
                       </div>
                     </div>
@@ -1832,50 +1842,50 @@ export default function AndroidBasic({
         </section>
 
         <section
-          data-layer="demo"
+          data-layer="portfolio"
           className="absolute inset-0 z-[3] grid px-[clamp(20px,6vw,80px)] py-[clamp(18px,4svh,52px)] place-items-center overflow-hidden max-[900px]:overflow-y-auto"
           style={{
-            opacity: demoOpacity,
-            pointerEvents: demoOpacity > 0.05 ? "auto" : "none",
+            opacity: portfolioOpacity,
+            pointerEvents: portfolioOpacity > 0.05 ? "auto" : "none",
             transition: "opacity 120ms linear",
           }}
-          aria-hidden={demoOpacity < 0.05}
+          aria-hidden={portfolioOpacity < 0.05}
         >
           <div className="w-full max-w-[1600px] flex flex-col items-center">
             <div className="text-center mb-12">
               <h2 className="text-[#F4F4F4] text-3xl md:text-5xl tracking-[0.12em] uppercase opacity-95">
-                {copy.security.title}
+                {copy.portfolio.title}
               </h2>
               <p className="text-[#F4F4F4]/70 mt-3 max-w-[70ch] mx-auto">
-                {copy.security.subtitle}
+                {copy.portfolio.subtitle}
               </p>
             </div>
 
             {(() => {
               const cards = [
                 {
-                  title: copy.security.mediaTitle,
-                  desc: copy.security.mediaText,
+                  title: copy.portfolio.mediaTitle,
+                  desc: copy.portfolio.mediaText,
                   imgSrc: "/images/mercedes_amg.webp",
                 },
                 {
-                  title: copy.security.panelTitle,
-                  desc: copy.security.items[0],
+                  title: copy.portfolio.panelTitle,
+                  desc: copy.portfolio.items[0],
                   imgSrc: "/images/2D_animation.webp",
                 },
                 {
-                  title: copy.security.cta,
-                  desc: copy.security.items[1],
+                  title: copy.portfolio.cta,
+                  desc: copy.portfolio.items[1],
                   imgSrc: "/images/ironman.webp",
                 },
               ];
 
               const nextSlide = () => {
-                setActiveSecurityIndex((prev) => (prev + 1) % cards.length);
+                setActiveportfolioIndex((prev) => (prev + 1) % cards.length);
               };
 
               const prevSlide = () => {
-                setActiveSecurityIndex((prev) => (prev - 1 + cards.length) % cards.length);
+                setActiveportfolioIndex((prev) => (prev - 1 + cards.length) % cards.length);
               };
 
               return (
@@ -1885,7 +1895,7 @@ export default function AndroidBasic({
                     className="relative w-full h-[460px] md:h-[720px] flex items-center justify-center overflow-hidden perspective-1000 select-none cursor-grab active:cursor-grabbing"
                     style={{ touchAction: "pan-y" }}
                     onPointerDown={(e) => {
-                      securityDragRef.current = {
+                      portfolioDragRef.current = {
                         startX: e.clientX,
                         startY: e.clientY,
                         pointerId: e.pointerId,
@@ -1895,7 +1905,7 @@ export default function AndroidBasic({
                       e.currentTarget.setPointerCapture(e.pointerId);
                     }}
                     onPointerMove={(e) => {
-                      const drag = securityDragRef.current;
+                      const drag = portfolioDragRef.current;
 
                       if (drag.pointerId !== e.pointerId || drag.fired) return;
 
@@ -1915,24 +1925,24 @@ export default function AndroidBasic({
                       }
                     }}
                     onPointerUp={(e) => {
-                      if (securityDragRef.current.pointerId === e.pointerId) {
-                        securityDragRef.current.pointerId = null;
+                      if (portfolioDragRef.current.pointerId === e.pointerId) {
+                        portfolioDragRef.current.pointerId = null;
                       }
                     }}
                     onPointerCancel={(e) => {
-                      if (securityDragRef.current.pointerId === e.pointerId) {
-                        securityDragRef.current.pointerId = null;
+                      if (portfolioDragRef.current.pointerId === e.pointerId) {
+                        portfolioDragRef.current.pointerId = null;
                       }
                     }}
                   >
                     {cards.map((card, index) => {
                       let position = "center";
 
-                      if (index === (activeSecurityIndex - 1 + cards.length) % cards.length) {
+                      if (index === (activeportfolioIndex - 1 + cards.length) % cards.length) {
                         position = "left";
                       }
 
-                      if (index === (activeSecurityIndex + 1) % cards.length) {
+                      if (index === (activeportfolioIndex + 1) % cards.length) {
                         position = "right";
                       }
 
@@ -1942,8 +1952,8 @@ export default function AndroidBasic({
                         <div
                           key={index}
                           onClick={() => {
-                            if (securityDragRef.current.fired) return;
-                            setActiveSecurityIndex(index);
+                            if (portfolioDragRef.current.fired) return;
+                            setActiveportfolioIndex(index);
                           }}
                           className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden cursor-pointer select-none transition-all duration-500 ease-out shadow-none ${
                             isCenter

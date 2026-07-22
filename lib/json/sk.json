@@ -6,8 +6,8 @@
   "nav": {
     "home": "Domov",
     "process": "Proces",
-    "pricing": "Služby",
-    "security": "Portfólio",
+    "services": "Služby",
+    "portfolio": "Portfólio",
     "reviews": "Referencie",
     "contact": "Kontakt",
     "login": "Showreel",
@@ -112,7 +112,7 @@
       }
     ]
   },
-  "pricing": {
+  "services": {
     "title": "Služby",
     "subtitle": "Kreatívna produkcia prispôsobená každému projektu.",
     "order": "Vyžiadať cenovú ponuku",
@@ -143,7 +143,7 @@
       }
     ]
   },
-  "security": {
+  "portfolio": {
     "title": "Portfólio",
     "subtitle": "Vybrané práce z oblasti VFX, animácie, 3D a postprodukcie.",
     "mediaTitle": "Mercedes AMG GT",
