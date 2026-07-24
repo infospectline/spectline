@@ -119,6 +119,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [sections, setSections] = useState({
     client: true,
@@ -158,7 +159,7 @@ export default function SignupPage() {
   async function handleSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!copy) return;
+    if (!copy || isSubmitting) return;
 
     setError("");
 
@@ -187,6 +188,7 @@ export default function SignupPage() {
       return;
     }
 
+    setIsSubmitting(true);
     const { error: signupError } = await authClient.signUp.email({
       name: `${firstName.trim()} ${lastName.trim()}`,
       email: email.trim(),
@@ -205,6 +207,7 @@ export default function SignupPage() {
 
     if (signupError) {
       setError(copy.validation.signupFailed);
+      setIsSubmitting(false);
       return;
     }
 
@@ -449,6 +452,8 @@ export default function SignupPage() {
 
           <button
             type="submit"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
             className="
               w-full mt-6 px-8 py-3 rounded-2xl
               bg-[#E7E7E7]/90
@@ -466,6 +471,8 @@ export default function SignupPage() {
               focus-visible:ring-[rgba(239,68,68,0.25)]
               focus-visible:ring-offset-2
               focus-visible:ring-offset-[#F4F4F4]
+              disabled:cursor-not-allowed
+              disabled:opacity-60
             "
           >
             {copy.submit}
