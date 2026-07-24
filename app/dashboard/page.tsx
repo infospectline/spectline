@@ -13,8 +13,10 @@ import {
   LoaderCircle,
   LogOut,
   Menu,
+  Moon,
   Save,
   Settings,
+  Sun,
   UserRound,
   X,
 } from "lucide-react";
@@ -29,6 +31,7 @@ const authClient = createAuthClient({
 });
 
 type Lang = "sk" | "en";
+type DashboardTheme = "light" | "dark";
 
 type DashboardCopy = {
   logoAlt: string;
@@ -108,6 +111,11 @@ export default function DashboardPage() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [isSavingAccount, setIsSavingAccount] = useState(false);
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const [theme, setTheme] =
+    useState<DashboardTheme>("light");
+
   const [accountForm, setAccountForm] =
     useState<AccountFormState>({
       firstName: "",
@@ -123,11 +131,135 @@ export default function DashboardPage() {
   const copy = COPY_BY_LANG[lang].dashboard;
   const signupCopy = COPY_BY_LANG[lang].signup;
 
-  useEffect(() => {
-    const savedLanguage = window.localStorage.getItem("spectline-lang");
+  const isDark = theme === "dark";
 
-    if (savedLanguage === "sk" || savedLanguage === "en") {
+  // Centralized dashboard palette.
+  // Light mode keeps the original dashboard colors.
+  // Dark mode mirrors the dark palette used on the main Android scene.
+  const pageThemeClass = isDark
+    ? "bg-[#0A0A0A] text-[#F4F4F4]"
+    : "bg-[#C7C7C7] text-[#19191A]";
+
+  const headerThemeClass = isDark
+    ? `
+        border-[#F4F4F4]/10
+        bg-[#19191A]/65
+        shadow-[0_8px_28px_rgba(0,0,0,0.28)]
+      `
+    : `
+        border-[#19191A]/10
+        bg-[#E7E7E7]/55
+        shadow-[0_8px_28px_rgba(25,25,26,0.06)]
+      `;
+
+  const panelThemeClass = isDark
+    ? `
+        border-[#F4F4F4]/10
+        bg-[#19191A]/95
+      `
+    : `
+        border-[#19191A]/10
+        bg-[#E7E7E7]/95
+      `;
+
+  const accountPanelThemeClass = isDark
+    ? `
+        border-[#F4F4F4]/10
+        bg-[#19191A]/92
+      `
+    : `
+        border-[#19191A]/10
+        bg-[#E7E7E7]/92
+      `;
+
+  const iconTileThemeClass = isDark
+    ? `
+        border-[#F4F4F4]/12
+        bg-[#252526]/65
+        text-[#F4F4F4]/75
+      `
+    : `
+        border-[#19191A]/12
+        bg-[#F4F4F4]/65
+        text-[#19191A]/75
+      `;
+
+  const softButtonThemeClass = isDark
+    ? `
+        border-[#F4F4F4]/12
+        bg-[#252526]/70
+        text-[#F4F4F4]/65
+      `
+    : `
+        border-[#19191A]/12
+        bg-[#F4F4F4]/70
+        text-[#19191A]/65
+      `;
+
+  const softMutedThemeClass = isDark
+    ? `
+        border-[#F4F4F4]/10
+        bg-[#252526]/55
+        text-[#F4F4F4]/55
+      `
+    : `
+        border-[#19191A]/10
+        bg-[#F4F4F4]/55
+        text-[#19191A]/55
+      `;
+
+  const dividerThemeClass = isDark
+    ? "border-[#F4F4F4]/10"
+    : "border-[#19191A]/10";
+
+  const textThemeClass = isDark
+    ? "text-[#F4F4F4]"
+    : "text-[#19191A]";
+
+  const mutedTextThemeClass = isDark
+    ? "text-[#F4F4F4]/60"
+    : "text-[#19191A]/60";
+
+  const labelTextThemeClass = isDark
+    ? "text-[#F4F4F4]/65"
+    : "text-[#19191A]/65";
+
+  const logoThemeClass = isDark
+    ? "brightness-0 invert"
+    : "brightness-0";
+
+  const backdropThemeClass = isDark
+    ? "bg-black/40"
+    : "bg-[#19191A]/28";
+
+  const themeToggleTrackClass = isDark
+    ? "border-[#F4F4F4]/15 bg-[#252526]/90"
+    : "border-[#19191A]/15 bg-[#F4F4F4]/70";
+
+  const themeToggleThumbClass = isDark
+    ? "translate-x-14 bg-[#19191A] text-[#F4F4F4]"
+    : "translate-x-0 bg-[#E7E7E7] text-[#19191A]";
+
+  useEffect(() => {
+    const savedLanguage =
+      window.localStorage.getItem("spectline-lang");
+
+    if (
+      savedLanguage === "sk" ||
+      savedLanguage === "en"
+    ) {
       setLang(savedLanguage);
+    }
+
+    const savedTheme = window.localStorage.getItem(
+      "spectline-dashboard-theme"
+    );
+
+    if (
+      savedTheme === "light" ||
+      savedTheme === "dark"
+    ) {
+      setTheme(savedTheme);
     }
 
     setHydrated(true);
@@ -176,6 +308,7 @@ export default function DashboardPage() {
       setSidebarOpen(false);
       setNotificationsOpen(false);
       setAccountOpen(false);
+      setSettingsOpen(false);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -198,6 +331,7 @@ export default function DashboardPage() {
 
   function handleAccountToggle() {
     setNotificationsOpen(false);
+    setSettingsOpen(false);
 
     const isMobile = window.matchMedia(
       "(max-width: 900px)"
@@ -219,6 +353,48 @@ export default function DashboardPage() {
   function handleMobileAccountClose() {
     setAccountOpen(false);
     setSidebarOpen(false);
+  }
+
+  function handleSettingsToggle() {
+    setNotificationsOpen(false);
+    setAccountOpen(false);
+
+    const isMobile = window.matchMedia(
+      "(max-width: 900px)"
+    ).matches;
+
+    if (isMobile) {
+      setSettingsOpen(true);
+      return;
+    }
+
+    setSettingsOpen((current) => !current);
+  }
+
+  function handleMobileSettingsBack() {
+    setSettingsOpen(false);
+    setSidebarOpen(true);
+  }
+
+  function handleMobileSettingsClose() {
+    setSettingsOpen(false);
+    setSidebarOpen(false);
+  }
+
+  function handleThemeToggle() {
+    setTheme((current) => {
+      const next =
+        current === "light"
+          ? "dark"
+          : "light";
+
+      window.localStorage.setItem(
+        "spectline-dashboard-theme",
+        next
+      );
+
+      return next;
+    });
   }
 
   async function handleAccountSave(
@@ -309,27 +485,31 @@ export default function DashboardPage() {
   if (isPending) {
     return (
       <main
-        className="
+        className={`
           min-h-screen
-          bg-[#C7C7C7]
-          text-[#19191A]
           grid place-items-center
           px-6
-        "
+          transition-colors duration-300
+          ${pageThemeClass}
+        `}
       >
         <div className="flex flex-col items-center gap-5">
           <div
-            className="
+            className={`
               h-14 w-14
               rounded-full
-              border-4 border-[#19191A]/10
-              border-t-[#19191A]
+              border-4
               animate-spin
-            "
+              ${
+                isDark
+                  ? "border-[#F4F4F4]/10 border-t-[#F4F4F4]"
+                  : "border-[#19191A]/10 border-t-[#19191A]"
+              }
+            `}
             aria-hidden="true"
           />
 
-          <p className="text-sm font-medium text-[#19191A]/60">
+          <p className={`text-sm font-medium ${mutedTextThemeClass}`}>
             {copy.loading}
           </p>
         </div>
@@ -361,9 +541,6 @@ export default function DashboardPage() {
     inline-flex h-11 w-11
     items-center justify-center
     rounded-xl
-    bg-[#E7E7E7]/90
-    border border-[#19191A]/15
-    text-[#19191A]/75
     shadow-sm
     cursor-pointer
     transition-all duration-300
@@ -371,52 +548,91 @@ export default function DashboardPage() {
     focus-visible:ring-2
     focus-visible:ring-[rgba(59,130,246,0.28)]
     focus-visible:ring-offset-2
-    focus-visible:ring-offset-[#C7C7C7]
+      ${
+        isDark
+          ? `
+            bg-[#252526]/90
+            border border-[#F4F4F4]/15
+            text-[#F4F4F4]/75
+            focus-visible:ring-offset-[#0A0A0A]
+          `
+          : `
+            bg-[#E7E7E7]/90
+            border border-[#19191A]/15
+            text-[#19191A]/75
+            focus-visible:ring-offset-[#C7C7C7]
+          `
+      }
   `;
 
   const sidebarButtonClass = `
     w-full
     flex items-center gap-3
     rounded-2xl
-    bg-[#E7E7E7]/90
-    border border-[#19191A]/15
     px-5 py-4
     text-left
     text-base font-semibold
-    text-[#19191A]
     shadow-sm
     cursor-pointer
     transition-all duration-300
     focus:outline-none
     focus-visible:ring-2
     focus-visible:ring-offset-2
-    focus-visible:ring-offset-[#E7E7E7]
+      ${
+        isDark
+          ? `
+            bg-[#252526]/90
+            border border-[#F4F4F4]/15
+            text-[#F4F4F4]
+            focus-visible:ring-offset-[#19191A]
+          `
+          : `
+            bg-[#E7E7E7]/90
+            border border-[#19191A]/15
+            text-[#19191A]
+            focus-visible:ring-offset-[#E7E7E7]
+          `
+      }
   `;
 
   const accountInputClass = `
     w-full
     rounded-xl
-    border border-[#19191A]/15
-    bg-[#F4F4F4]/60
     px-4 py-3
-    text-[#19191A]
     shadow-sm
     outline-none
     transition-all duration-300
-    focus:border-[#19191A]/30
-    focus:ring-2
-    focus:ring-[#19191A]/10
+
+    ${
+      isDark
+        ? `
+          border border-[#F4F4F4]/15
+          bg-[#252526]/80
+          text-[#F4F4F4]
+          focus:border-[#F4F4F4]/30
+          focus:ring-2
+          focus:ring-[#F4F4F4]/10
+        `
+        : `
+          border border-[#19191A]/15
+          bg-[#F4F4F4]/60
+          text-[#19191A]
+          focus:border-[#19191A]/30
+          focus:ring-2
+          focus:ring-[#19191A]/10
+        `
+    }
   `;
 
   return (
     <div
-      className="
+      className={`
         relative
         min-h-screen
         overflow-hidden
-        bg-[#C7C7C7]
-        text-[#19191A]
-      "
+        transition-colors duration-300
+        ${pageThemeClass}
+      `}
     >
       <div
         aria-hidden="true"
@@ -430,25 +646,30 @@ export default function DashboardPage() {
         <img
           src="/images/logo.png"
           alt=""
-          className="
+          className={`
             w-[min(900px,88vw)]
             max-h-[78vh]
             object-contain
-            brightness-0
-            opacity-[0.07]
             select-none
-          "
+            ${logoThemeClass}
+
+            ${
+              isDark
+                ? "opacity-[0.05]"
+                : "opacity-[0.07]"
+            }
+          `}
         />
       </div>
 
       <header
-        className="
+        className={`
           relative z-20
-          border-b border-[#19191A]/10
-          bg-[#E7E7E7]/55
-          shadow-[0_8px_28px_rgba(25,25,26,0.06)]
+          border-b
           backdrop-blur-xl
-        "
+          transition-colors duration-300
+          ${headerThemeClass}
+        `}
       >
         <div
           className="
@@ -464,24 +685,24 @@ export default function DashboardPage() {
             <img
               src="/images/logo.png"
               alt={copy.logoAlt}
-              className="
+              className={`
                 h-12 w-12
                 shrink-0
                 object-contain
-                brightness-0
                 opacity-80
-              "
+                ${logoThemeClass}
+              `}
             />
 
             <div className="min-w-0">
               <p
-                className="
+                className={`
                   truncate
                   text-base font-semibold
                   tracking-[0.04em]
-                  text-[#19191A]
                   sm:text-lg
-                "
+                  ${textThemeClass}
+                `}
               >
                 {userName}
               </p>
@@ -523,25 +744,27 @@ export default function DashboardPage() {
                 id="dashboard-notifications"
                 role="dialog"
                 aria-modal="false"
-                className="
+                className={`
                   absolute right-0 top-[calc(100%+14px)]
                   w-[min(340px,calc(100vw-40px))]
                   overflow-hidden
                   rounded-2xl
-                  border border-[#19191A]/12
-                  bg-[#E7E7E7]/95
+                  border
                   shadow-[0_20px_60px_rgba(25,25,26,0.18)]
                   backdrop-blur-xl
-                "
+                  transition-colors duration-300
+                  ${panelThemeClass}
+                `}
               >
                 <div
-                  className="
+                  className={`
                     flex items-center justify-between
-                    border-b border-[#19191A]/10
+                    border-b
                     px-5 py-4
-                  "
+                    ${dividerThemeClass}
+                  `}
                 >
-                  <h2 className="font-semibold text-[#19191A]">
+                  <h2 className={`font-semibold ${textThemeClass}`}>
                     {copy.notifications.title}
                   </h2>
 
@@ -553,14 +776,13 @@ export default function DashboardPage() {
                       inline-flex h-9 w-9
                       items-center justify-center
                       rounded-xl
-                      border border-[#19191A]/12
-                      bg-[#F4F4F4]/70
-                      text-[#19191A]/65
+                      border
                       cursor-pointer
                       transition-all duration-300
                       focus:outline-none
                       focus-visible:ring-2
                       focus-visible:ring-[rgba(59,130,246,0.28)]
+                      ${softButtonThemeClass}
                       ${blueHoverClass}
                     `}
                   >
@@ -570,14 +792,14 @@ export default function DashboardPage() {
 
                 <div className="px-5 py-6">
                   <p
-                    className="
+                    className={`
                       rounded-xl
-                      border border-[#19191A]/10
-                      bg-[#F4F4F4]/55
+                      border
                       px-4 py-5
                       text-center
-                      text-sm text-[#19191A]/55
-                    "
+                      text-sm
+                      ${softMutedThemeClass}
+                    `}
                   >
                     {copy.notifications.empty}
                   </p>
@@ -598,7 +820,7 @@ export default function DashboardPage() {
       {accountOpen && (
       <section
         id="dashboard-account-panel"
-        className="
+        className={`
           fixed
           left-[calc((100vw-24rem)/2)]
           top-1/2
@@ -609,10 +831,11 @@ export default function DashboardPage() {
           w-[min(720px,calc(100vw-440px))]
           overflow-hidden
           rounded-3xl
-          border border-[#19191A]/10
-          bg-[#E7E7E7]/92
+          border
           shadow-[0_22px_70px_rgba(25,25,26,0.16)]
           backdrop-blur-xl
+          transition-colors duration-300
+          ${accountPanelThemeClass}
 
           max-[900px]:inset-0
           max-[900px]:z-[60]
@@ -622,32 +845,32 @@ export default function DashboardPage() {
           max-[900px]:translate-y-0
           max-[900px]:rounded-none
           max-[900px]:border-0
-        "
+        `}
       >
         <div className="flex h-full flex-col">
           <div
-            className="
+            className={`
               flex
               min-h-[88px]
               shrink-0
               items-center
               justify-between
               gap-4
-              border-b border-[#19191A]/10
+              border-b
               px-6
-            "
+              ${dividerThemeClass}
+            `}
           >
             <div className="flex min-w-0 items-center gap-3">
               <div
-                className="
+                className={`
                   grid h-11 w-11
                   shrink-0
                   place-items-center
                   rounded-xl
-                  border border-[#19191A]/12
-                  bg-[#F4F4F4]/65
-                  text-[#19191A]/75
-                "
+                  border
+                  ${iconTileThemeClass}
+                `}
               >
                 <UserRound
                   className="h-5 w-5"
@@ -656,12 +879,12 @@ export default function DashboardPage() {
               </div>
 
               <h2
-                className="
+                className={`
                   truncate
                   text-xl font-semibold
                   tracking-[0.04em]
-                  text-[#19191A]
-                "
+                  ${textThemeClass}
+                `}
               >
                 {copy.sidebar.account}
               </h2>
@@ -721,11 +944,11 @@ export default function DashboardPage() {
             >
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.firstName}
                 </span>
@@ -746,11 +969,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.lastName}
                 </span>
@@ -771,11 +994,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.address}
                 </span>
@@ -796,11 +1019,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.city}
                 </span>
@@ -821,11 +1044,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.phone}
                 </span>
@@ -846,11 +1069,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.email}
                 </span>
@@ -871,11 +1094,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.company}
                 </span>
@@ -896,11 +1119,11 @@ export default function DashboardPage() {
 
               <label className="block">
                 <span
-                  className="
+                  className={`
                     mb-2 block
                     text-sm font-medium
-                    text-[#19191A]/65
-                  "
+                    ${labelTextThemeClass}
+                  `}
                 >
                   {signupCopy.fields.website}
                 </span>
@@ -951,6 +1174,177 @@ export default function DashboardPage() {
       </section>
     )}
 
+    {settingsOpen && (
+      <section
+        id="dashboard-settings-panel"
+        className={`
+          fixed
+          left-[calc((100vw-24rem)/2)]
+          top-1/2
+          -translate-x-1/2
+          -translate-y-1/2
+          z-[45]
+          h-[calc(100vh-160px)]
+          w-[min(720px,calc(100vw-440px))]
+          overflow-hidden
+          rounded-3xl
+          border
+          ${panelThemeClass}
+          shadow-[0_22px_70px_rgba(25,25,26,0.16)]
+          backdrop-blur-xl
+          transition-colors duration-300
+
+          max-[900px]:inset-0
+          max-[900px]:z-[60]
+          max-[900px]:h-full
+          max-[900px]:w-full
+          max-[900px]:translate-x-0
+          max-[900px]:translate-y-0
+          max-[900px]:rounded-none
+          max-[900px]:border-0
+        `}
+      >
+        <div className="flex h-full flex-col">
+          <div
+            className={`
+              flex
+              min-h-[88px]
+              shrink-0
+              items-center
+              justify-between
+              gap-4
+              border-b
+              px-6
+              ${dividerThemeClass}
+            `}
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className={`
+                  grid h-11 w-11
+                  shrink-0
+                  place-items-center
+                  rounded-xl
+                  border
+                  ${iconTileThemeClass}
+                `}
+              >
+                <Settings
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                />
+              </div>
+
+              <h2
+                className={`
+                  truncate
+                  text-xl font-semibold
+                  tracking-[0.04em]
+                  ${textThemeClass}
+                `}
+              >
+                {copy.sidebar.settings}
+              </h2>
+            </div>
+
+            <div
+              className="
+                hidden
+                shrink-0
+                items-center
+                gap-2
+                max-[900px]:flex
+              "
+            >
+              <button
+                type="button"
+                aria-label={copy.sidebar.title}
+                onClick={handleMobileSettingsBack}
+                className={`${iconButtonClass} ${blueHoverClass}`}
+              >
+                <ArrowRight
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                />
+              </button>
+
+              <button
+                type="button"
+                aria-label={copy.sidebar.closeAriaLabel}
+                onClick={handleMobileSettingsClose}
+                className={`${iconButtonClass} ${blueHoverClass}`}
+              >
+                <X
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="
+              flex flex-1
+              items-center
+              justify-center
+              p-6
+            "
+          >
+            <button
+              type="button"
+              onClick={handleThemeToggle}
+              aria-label={copy.sidebar.settings}
+              aria-pressed={isDark}
+              className={`
+                relative
+                inline-flex
+                h-14 w-28
+                items-center
+                rounded-full
+                border
+                p-1
+                shadow-sm
+                cursor-pointer
+                transition-all duration-300
+
+                ${themeToggleTrackClass}
+                ${blueHoverClass}
+
+                focus:outline-none
+                focus-visible:ring-2
+                focus-visible:ring-[rgba(59,130,246,0.28)]
+              `}
+            >
+              <span
+                className={`
+                  grid
+                  h-11 w-11
+                  place-items-center
+                  rounded-full
+                  shadow-sm
+                  transition-all duration-300
+
+                  ${themeToggleThumbClass}
+                `}
+              >
+                {isDark ? (
+                  <Moon
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Sun
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
+            </button>
+          </div>
+        </div>
+      </section>
+    )}
+
       <button
         type="button"
         tabIndex={sidebarOpen ? 0 : -1}
@@ -959,10 +1353,11 @@ export default function DashboardPage() {
         onClick={() => {
           setSidebarOpen(false);
           setAccountOpen(false);
+          setSettingsOpen(false);
         }}
         className={`
           fixed inset-0 z-40
-          bg-[#19191A]/28
+          ${backdropThemeClass}
           backdrop-blur-[2px]
           transition-opacity duration-300
           ${
@@ -980,11 +1375,12 @@ export default function DashboardPage() {
           fixed bottom-0 right-0 top-0 z-50
           flex w-full max-w-sm
           flex-col
-          border-l border-[#19191A]/10
-          bg-[#E7E7E7]/95
+          border-l
           shadow-[-22px_0_70px_rgba(25,25,26,0.18)]
           backdrop-blur-xl
+          transition-colors duration-300
           transition-transform duration-300 ease-out
+          ${panelThemeClass}
           ${
             sidebarOpen
               ? "translate-x-0"
@@ -993,19 +1389,20 @@ export default function DashboardPage() {
         `}
       >
         <div
-          className="
+          className={`
             flex min-h-[88px]
             items-center justify-between
-            border-b border-[#19191A]/10
+            border-b
             px-6
-          "
+            ${dividerThemeClass}
+          `}
         >
           <h2
-            className="
+            className={`
               text-xl font-semibold
               tracking-[0.04em]
-              text-[#19191A]
-            "
+              ${textThemeClass}
+            `}
           >
             {copy.sidebar.title}
           </h2>
@@ -1016,6 +1413,7 @@ export default function DashboardPage() {
             onClick={() => {
               setSidebarOpen(false);
               setAccountOpen(false);
+              setSettingsOpen(false);
             }}
             className={`${iconButtonClass} ${blueHoverClass}`}
           >
@@ -1058,19 +1456,32 @@ export default function DashboardPage() {
             <span>{copy.sidebar.account}</span>
           </button>
 
-          <Link
-            href="/dashboard/settings"
-            onClick={() => setSidebarOpen(false)}
+          <button
+            type="button"
+            aria-pressed={settingsOpen}
+            onClick={handleSettingsToggle}
             className={`
               ${sidebarButtonClass}
               ${blueHoverClass}
               focus-visible:ring-[rgba(59,130,246,0.28)]
+
+              ${
+                settingsOpen
+                  ? `
+                    bg-[rgba(59,130,246,0.18)]
+                    border-[rgba(147,197,253,0.32)]
+                  `
+                  : ""
+              }
             `}
           >
-            <Settings className="h-5 w-5 shrink-0" aria-hidden="true" />
+            <Settings
+              className="h-5 w-5 shrink-0"
+              aria-hidden="true"
+            />
 
             <span>{copy.sidebar.settings}</span>
-          </Link>
+          </button>
 
           <div className="mt-auto pt-6">
             <button
@@ -1084,9 +1495,19 @@ export default function DashboardPage() {
                 disabled:cursor-not-allowed
                 disabled:opacity-55
                 disabled:hover:translate-y-0
-                disabled:hover:bg-[#E7E7E7]/90
-                disabled:hover:border-[#19191A]/15
-                disabled:hover:text-[#19191A]
+                ${
+                  isDark
+                    ? `
+                      disabled:hover:bg-[#252526]/90
+                      disabled:hover:border-[#F4F4F4]/15
+                      disabled:hover:text-[#F4F4F4]
+                    `
+                    : `
+                      disabled:hover:bg-[#E7E7E7]/90
+                      disabled:hover:border-[#19191A]/15
+                      disabled:hover:text-[#19191A]
+                    `
+                }
                 disabled:hover:shadow-sm
               `}
             >
