@@ -1,21 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRight,
   Bell,
+  LoaderCircle,
   LogOut,
   Menu,
+  Save,
   Settings,
   UserRound,
   X,
 } from "lucide-react";
 import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+import type { auth } from "@/lib/auth";
 import sk from "@/lib/json/sk.json";
 import en from "@/lib/json/en.json";
 
-const authClient = createAuthClient();
+const authClient = createAuthClient({
+  plugins: [inferAdditionalFields<typeof auth>()],
+});
 
 type Lang = "sk" | "en";
 
@@ -45,8 +56,33 @@ type DashboardCopy = {
   };
 };
 
+type SignupCopy = {
+  fields: {
+    firstName: string;
+    lastName: string;
+    address: string;
+    city: string;
+    phone: string;
+    email: string;
+    company: string;
+    website: string;
+  };
+};
+
+type AccountFormState = {
+  firstName: string;
+  lastName: string;
+  address: string;
+  city: string;
+  phone: string;
+  email: string;
+  company: string;
+  website: string;
+};
+
 type LocalizedCopy = {
   dashboard?: DashboardCopy;
+  signup?: SignupCopy;
 };
 
 const COPY_BY_LANG: Record<Lang, LocalizedCopy> = {
@@ -56,7 +92,11 @@ const COPY_BY_LANG: Record<Lang, LocalizedCopy> = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { data: session, isPending } = authClient.useSession();
+  const {
+    data: session,
+    isPending,
+    refetch,
+  } = authClient.useSession();
 
   const [lang, setLang] = useState<Lang>("sk");
   const [hydrated, setHydrated] = useState(false);
@@ -65,7 +105,23 @@ export default function DashboardPage() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
+
+  const [accountForm, setAccountForm] =
+    useState<AccountFormState>({
+      firstName: "",
+      lastName: "",
+      address: "",
+      city: "",
+      phone: "",
+      email: "",
+      company: "",
+      website: "",
+    });
+
   const copy = COPY_BY_LANG[lang].dashboard;
+  const signupCopy = COPY_BY_LANG[lang].signup;
 
   useEffect(() => {
     const savedLanguage = window.localStorage.getItem("spectline-lang");
@@ -90,11 +146,36 @@ export default function DashboardPage() {
   }, [isPending, session, router]);
 
   useEffect(() => {
+    if (!session?.user) return;
+
+    setAccountForm({
+      firstName: session.user.firstName ?? "",
+      lastName: session.user.lastName ?? "",
+      address: session.user.address ?? "",
+      city: session.user.city ?? "",
+      phone: session.user.phone ?? "",
+      email: session.user.email ?? "",
+      company: session.user.company ?? "",
+      website: session.user.website ?? "",
+    });
+  }, [
+    session?.user.firstName,
+    session?.user.lastName,
+    session?.user.address,
+    session?.user.city,
+    session?.user.phone,
+    session?.user.email,
+    session?.user.company,
+    session?.user.website,
+  ]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
 
       setSidebarOpen(false);
       setNotificationsOpen(false);
+      setAccountOpen(false);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -115,6 +196,97 @@ export default function DashboardPage() {
     };
   }, [sidebarOpen]);
 
+  function handleAccountToggle() {
+    setNotificationsOpen(false);
+
+    const isMobile = window.matchMedia(
+      "(max-width: 900px)"
+    ).matches;
+
+    if (isMobile) {
+      setAccountOpen(true);
+      return;
+    }
+
+    setAccountOpen((current) => !current);
+  }
+
+  function handleMobileAccountBack() {
+    setAccountOpen(false);
+    setSidebarOpen(true);
+  }
+
+  function handleMobileAccountClose() {
+    setAccountOpen(false);
+    setSidebarOpen(false);
+  }
+
+  async function handleAccountSave(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (isSavingAccount || !session) return;
+
+    setIsSavingAccount(true);
+
+    try {
+      const firstName = accountForm.firstName.trim();
+      const lastName = accountForm.lastName.trim();
+
+      const fullName =
+        `${firstName} ${lastName}`.trim();
+
+      const { error: updateError } =
+        await authClient.updateUser({
+          name: fullName || session.user.name,
+
+          firstName,
+          lastName,
+          address: accountForm.address.trim(),
+          city: accountForm.city.trim(),
+          phone: accountForm.phone.trim(),
+          company: accountForm.company.trim(),
+          website: accountForm.website.trim(),
+        });
+
+      if (updateError) {
+        console.error(
+          "Account update failed.",
+          updateError
+        );
+
+        return;
+      }
+
+      const nextEmail = accountForm.email.trim();
+
+      if (
+        nextEmail &&
+        nextEmail !== session.user.email
+      ) {
+        const { error: emailError } =
+          await authClient.changeEmail({
+            newEmail: nextEmail,
+            callbackURL: "/dashboard",
+          });
+
+        if (emailError) {
+          console.error(
+            "Email update failed.",
+            emailError
+          );
+
+          return;
+        }
+      }
+
+      await refetch();
+    } finally {
+      setIsSavingAccount(false);
+    }
+  }
+
   async function handleLogout() {
     if (isLoggingOut) return;
 
@@ -130,7 +302,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (!hydrated || !copy) {
+  if (!hydrated || !copy || !signupCopy) {
     return <div className="min-h-screen bg-[#C7C7C7]" />;
   }
 
@@ -219,6 +391,21 @@ export default function DashboardPage() {
     focus-visible:ring-2
     focus-visible:ring-offset-2
     focus-visible:ring-offset-[#E7E7E7]
+  `;
+
+  const accountInputClass = `
+    w-full
+    rounded-xl
+    border border-[#19191A]/15
+    bg-[#F4F4F4]/60
+    px-4 py-3
+    text-[#19191A]
+    shadow-sm
+    outline-none
+    transition-all duration-300
+    focus:border-[#19191A]/30
+    focus:ring-2
+    focus:ring-[#19191A]/10
   `;
 
   return (
@@ -310,7 +497,8 @@ export default function DashboardPage() {
               onClick={() => {
                 setNotificationsOpen((current) => !current);
                 setSidebarOpen(false);
-              }}
+                setAccountOpen(false);
+              }} 
               className={`${iconButtonClass} ${blueHoverClass}`}
             >
               <Bell className="h-5 w-5" aria-hidden="true" />
@@ -407,12 +595,371 @@ export default function DashboardPage() {
         "
       />
 
+      {accountOpen && (
+      <section
+        id="dashboard-account-panel"
+        className="
+          fixed
+          left-[calc((100vw-24rem)/2)]
+          top-1/2
+          -translate-x-1/2
+          -translate-y-1/2
+          z-[45]
+          h-[calc(100vh-160px)]
+          w-[min(720px,calc(100vw-440px))]
+          overflow-hidden
+          rounded-3xl
+          border border-[#19191A]/10
+          bg-[#E7E7E7]/92
+          shadow-[0_22px_70px_rgba(25,25,26,0.16)]
+          backdrop-blur-xl
+
+          max-[900px]:inset-0
+          max-[900px]:z-[60]
+          max-[900px]:h-full
+          max-[900px]:w-full
+          max-[900px]:translate-x-0
+          max-[900px]:translate-y-0
+          max-[900px]:rounded-none
+          max-[900px]:border-0
+        "
+      >
+        <div className="flex h-full flex-col">
+          <div
+            className="
+              flex
+              min-h-[88px]
+              shrink-0
+              items-center
+              justify-between
+              gap-4
+              border-b border-[#19191A]/10
+              px-6
+            "
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className="
+                  grid h-11 w-11
+                  shrink-0
+                  place-items-center
+                  rounded-xl
+                  border border-[#19191A]/12
+                  bg-[#F4F4F4]/65
+                  text-[#19191A]/75
+                "
+              >
+                <UserRound
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                />
+              </div>
+
+              <h2
+                className="
+                  truncate
+                  text-xl font-semibold
+                  tracking-[0.04em]
+                  text-[#19191A]
+                "
+              >
+                {copy.sidebar.account}
+              </h2>
+            </div>
+
+            <div
+              className="
+                hidden
+                shrink-0
+                items-center
+                gap-2
+                max-[900px]:flex
+              "
+            >
+              <button
+                type="button"
+                aria-label={copy.sidebar.title}
+                onClick={handleMobileAccountBack}
+                className={`${iconButtonClass} ${blueHoverClass}`}
+              >
+                <ArrowRight
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                />
+              </button>
+
+              <button
+                type="button"
+                aria-label={copy.sidebar.closeAriaLabel}
+                onClick={handleMobileAccountClose}
+                className={`${iconButtonClass} ${blueHoverClass}`}
+              >
+                <X
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          </div>
+
+          <form
+            onSubmit={handleAccountSave}
+            className="
+              flex-1
+              overflow-y-auto
+              p-6
+              sm:p-8
+            "
+          >
+            <div
+              className="
+                grid
+                grid-cols-1
+                gap-5
+                sm:grid-cols-2
+              "
+            >
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.firstName}
+                </span>
+
+                <input
+                  type="text"
+                  value={accountForm.firstName}
+                  autoComplete="given-name"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      firstName: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.lastName}
+                </span>
+
+                <input
+                  type="text"
+                  value={accountForm.lastName}
+                  autoComplete="family-name"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      lastName: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.address}
+                </span>
+
+                <input
+                  type="text"
+                  value={accountForm.address}
+                  autoComplete="street-address"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      address: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.city}
+                </span>
+
+                <input
+                  type="text"
+                  value={accountForm.city}
+                  autoComplete="address-level2"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      city: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.phone}
+                </span>
+
+                <input
+                  type="tel"
+                  value={accountForm.phone}
+                  autoComplete="tel"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      phone: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.email}
+                </span>
+
+                <input
+                  type="email"
+                  value={accountForm.email}
+                  autoComplete="email"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.company}
+                </span>
+
+                <input
+                  type="text"
+                  value={accountForm.company}
+                  autoComplete="organization"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      company: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+
+              <label className="block">
+                <span
+                  className="
+                    mb-2 block
+                    text-sm font-medium
+                    text-[#19191A]/65
+                  "
+                >
+                  {signupCopy.fields.website}
+                </span>
+
+                <input
+                  type="text"
+                  value={accountForm.website}
+                  autoComplete="url"
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      website: event.target.value,
+                    }))
+                  }
+                  className={accountInputClass}
+                />
+              </label>
+            </div>
+
+            <div className="mt-7 flex justify-end">
+              <button
+                type="submit"
+                disabled={isSavingAccount}
+                aria-label={copy.sidebar.account}
+                className={`
+                  ${iconButtonClass}
+                  ${blueHoverClass}
+                  disabled:cursor-not-allowed
+                  disabled:opacity-50
+                  disabled:hover:translate-y-0
+                `}
+              >
+                {isSavingAccount ? (
+                  <LoaderCircle
+                    className="h-5 w-5 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Save
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  />
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    )}
+
       <button
         type="button"
         tabIndex={sidebarOpen ? 0 : -1}
         aria-hidden={!sidebarOpen}
         aria-label={copy.sidebar.closeAriaLabel}
-        onClick={() => setSidebarOpen(false)}
+        onClick={() => {
+          setSidebarOpen(false);
+          setAccountOpen(false);
+        }}
         className={`
           fixed inset-0 z-40
           bg-[#19191A]/28
@@ -466,7 +1013,10 @@ export default function DashboardPage() {
           <button
             type="button"
             aria-label={copy.sidebar.closeAriaLabel}
-            onClick={() => setSidebarOpen(false)}
+            onClick={() => {
+              setSidebarOpen(false);
+              setAccountOpen(false);
+            }}
             className={`${iconButtonClass} ${blueHoverClass}`}
           >
             <X className="h-5 w-5" aria-hidden="true" />
@@ -482,19 +1032,31 @@ export default function DashboardPage() {
             p-6
           "
         >
-          <Link
-            href="/dashboard/account"
-            onClick={() => setSidebarOpen(false)}
+          <button
+            type="button"
+            aria-pressed={accountOpen}
+            onClick={handleAccountToggle}
             className={`
               ${sidebarButtonClass}
               ${blueHoverClass}
               focus-visible:ring-[rgba(59,130,246,0.28)]
+              ${
+                accountOpen
+                  ? `
+                    bg-[rgba(59,130,246,0.18)]
+                    border-[rgba(147,197,253,0.32)]
+                  `
+                  : ""
+              }
             `}
           >
-            <UserRound className="h-5 w-5 shrink-0" aria-hidden="true" />
+            <UserRound
+              className="h-5 w-5 shrink-0"
+              aria-hidden="true"
+            />
 
             <span>{copy.sidebar.account}</span>
-          </Link>
+          </button>
 
           <Link
             href="/dashboard/settings"

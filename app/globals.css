@@ -75,7 +75,7 @@ div:has(> [id="home"]) .first_section__btn {
   border-color: color-mix(in srgb, rgba(0, 0, 0, 0.15), rgba(255, 255, 255, 0.12) calc(var(--invert-factor, 0) * 100%)) !important;
 }
 
-div:has(> [id="home"]) [data-layer="pricing"] .pricing-contact-btn:hover {
+div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
   background-color: rgba(239, 68, 68, 0.32) !important;
   border-color: rgba(252, 165, 165, 0.38) !important;
   color: rgba(244, 244, 244, 0.96) !important;

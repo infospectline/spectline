@@ -4,10 +4,14 @@ import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Link from "next/link";
 import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+import type { auth } from "@/lib/auth";
 import sk from "@/lib/json/sk.json";
 import en from "@/lib/json/en.json";
 
-const authClient = createAuthClient();
+const authClient = createAuthClient({
+  plugins: [inferAdditionalFields<typeof auth>()],
+});
 
 type Lang = "sk" | "en";
 
@@ -187,6 +191,15 @@ export default function SignupPage() {
       name: `${firstName.trim()} ${lastName.trim()}`,
       email: email.trim(),
       password,
+
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      address: addressLine.trim(),
+      city: city.trim(),
+      phone: phone.trim(),
+      company: company.trim() || undefined,
+      website: website.trim() || undefined,
+
       callbackURL: "/dashboard",
     });
 
@@ -381,7 +394,7 @@ export default function SignupPage() {
             />
 
             <input
-              type="url"
+              type="text"
               value={website}
               placeholder={copy.fields.website}
               autoComplete="url"
