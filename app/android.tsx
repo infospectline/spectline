@@ -1866,7 +1866,7 @@ export default function AndroidBasic({
                 {
                   title: copy.portfolio.mediaTitle,
                   desc: copy.portfolio.mediaText,
-                  imgSrc: "/images/mercedes_amg.webp",
+                  imgSrc: "/images/photorealistic_character_woman.webp",
                 },
                 {
                   title: copy.portfolio.panelTitle,
