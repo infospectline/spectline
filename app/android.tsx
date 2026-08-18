@@ -1864,19 +1864,24 @@ export default function AndroidBasic({
             {(() => {
               const cards = [
                 {
-                  title: copy.portfolio.mediaTitle,
-                  desc: copy.portfolio.mediaText,
+                  title: copy.portfolio.shot1Title,
+                  desc: copy.portfolio.shot1Desc,
                   imgSrc: "/images/photorealistic_character_woman.webp",
                 },
                 {
-                  title: copy.portfolio.panelTitle,
-                  desc: copy.portfolio.items[0],
+                  title: copy.portfolio.shot2Title,
+                  desc: copy.portfolio.shot2Desc,
                   imgSrc: "/images/2D_animation.webp",
                 },
                 {
-                  title: copy.portfolio.cta,
-                  desc: copy.portfolio.items[1],
+                  title: copy.portfolio.shot3Title,
+                  desc: copy.portfolio.shot3Desc,
                   imgSrc: "/images/ironman.webp",
+                },
+                {
+                  title: copy.portfolio.shot4Title,
+                  desc: copy.portfolio.shot4Desc,
+                  imgSrc: "/images/geralt.webp",
                 },
               ];
 
@@ -1936,17 +1941,18 @@ export default function AndroidBasic({
                     }}
                   >
                     {cards.map((card, index) => {
-                      let position = "center";
 
-                      if (index === (activeportfolioIndex - 1 + cards.length) % cards.length) {
-                        position = "left";
-                      }
+                      const total = cards.length;
+                      const diff = (index - activeportfolioIndex + total) % total;
 
-                      if (index === (activeportfolioIndex + 1) % cards.length) {
-                        position = "right";
-                      }
+                      let position = "hidden";
+                      if (diff === 0) position = "center";
+                      else if (diff === 1 || diff === -(total - 1)) position = "right";
+                      else if (diff === total - 1 || diff === -1) position = "left";
 
                       const isCenter = position === "center";
+                      const isLeft = position === "left";
+                      const isRight = position === "right";
 
                       return (
                         <div
@@ -1955,12 +1961,14 @@ export default function AndroidBasic({
                             if (portfolioDragRef.current.fired) return;
                             setActiveportfolioIndex(index);
                           }}
-                          className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden cursor-pointer select-none transition-all duration-500 ease-out shadow-none ${
+                          className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden cursor-pointer select-none transition-all duration-500 ease-out shadow-2xl ${
                             isCenter
-                              ? "z-30 border-[#F4F4F4]/40 scale-100 opacity-100 translate-x-0"
-                              : position === "left"
-                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-25 -translate-x-[65%] md:-translate-x-[80%]"
-                              : "z-10 border-[#F4F4F4]/10 scale-75 opacity-25 translate-x-[65%] md:translate-x-[80%]"
+                              ? "z-30 border-[#F4F4F4]/40 scale-100 opacity-100 translate-x-0 pointer-events-auto"
+                              : isLeft
+                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-20 -translate-x-[85%] md:-translate-x-[105%] pointer-events-auto"
+                              : isRight
+                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-20 translate-x-[85%] md:translate-x-[105%] pointer-events-auto"
+                              : "z-0 scale-50 opacity-0 pointer-events-none translate-x-0" 
                           }`}
                         >
                           <div className="relative aspect-square md:aspect-video w-full bg-black/50 flex items-center justify-center border-b border-[#F4F4F4]/15">

@@ -146,18 +146,20 @@
   "portfolio": {
     "title": "Portfolio",
     "subtitle": "Selected work across VFX, animation, 3D and post-production.",
-    "mediaTitle": "Photorealistic Female Portrait",
-    "mediaText": "Detailed 3D model of a female face created in Blender.",
-    "panelTitle": "Medieval Archer",
+    "shot1Title": "Photorealistic Female Portrait",
+    "shot1Desc": "Detailed 3D model of a female face created in Blender.",
+    "shot2Title": "Medieval Archer",
+    "shot2Desc": "Visual adaptation of medieval fantasy in a 2D animation style",
+    "shot3Title": "Iron Man",
+    "shot3Desc": "Visual Effects (VFX) for Film Props and Models",
+    "shot4Title": "Geralt of Rivia",
+    "shot4Desc": "Detailed 3D character model of the witcher Geralt",
     "items": [
-      "Visual adaptation of medieval fantasy in a 2D animation style",
-      "Visual Effects (VFX) for Film Props and Models",
       "3D models and digital assets",
       "Video editing and post-production",
       "Motion graphics and titles",
       "Product and architectural visuals"
-    ],
-    "cta": "Iron man"
+    ]
   },
   "reviews": {
     "title": "References",
