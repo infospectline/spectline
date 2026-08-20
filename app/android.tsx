@@ -1941,7 +1941,6 @@ export default function AndroidBasic({
                     }}
                   >
                     {cards.map((card, index) => {
-
                       const total = cards.length;
                       const diff = (index - activeportfolioIndex + total) % total;
 
@@ -1954,21 +1953,25 @@ export default function AndroidBasic({
                       const isLeft = position === "left";
                       const isRight = position === "right";
 
+                      const isPortfolioActive = portfolioOpacity > 0.05;
+
                       return (
                         <div
                           key={index}
                           onClick={() => {
-                            if (portfolioDragRef.current.fired) return;
+                            if (portfolioDragRef.current.fired || !isPortfolioActive) return;
                             setActiveportfolioIndex(index);
                           }}
-                          className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden cursor-pointer select-none transition-all duration-500 ease-out shadow-2xl ${
-                            isCenter
-                              ? "z-30 border-[#F4F4F4]/40 scale-100 opacity-100 translate-x-0 pointer-events-auto"
+                          className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden select-none transition-all duration-500 ease-out shadow-2xl ${
+                            !isPortfolioActive
+                              ? "pointer-events-none opacity-0 z-0" 
+                              : isCenter
+                              ? "z-30 border-[#F4F4F4]/40 scale-100 opacity-100 translate-x-0 pointer-events-auto cursor-pointer"
                               : isLeft
-                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-20 -translate-x-[85%] md:-translate-x-[105%] pointer-events-auto"
+                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-20 -translate-x-[85%] md:-translate-x-[105%] pointer-events-auto cursor-pointer"
                               : isRight
-                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-20 translate-x-[85%] md:translate-x-[105%] pointer-events-auto"
-                              : "z-0 scale-50 opacity-0 pointer-events-none translate-x-0" 
+                              ? "z-10 border-[#F4F4F4]/10 scale-75 opacity-20 translate-x-[85%] md:translate-x-[105%] pointer-events-auto cursor-pointer"
+                              : "z-0 scale-50 opacity-0 pointer-events-none translate-x-0"
                           }`}
                         >
                           <div className="relative aspect-square md:aspect-video w-full bg-black/50 flex items-center justify-center border-b border-[#F4F4F4]/15">
