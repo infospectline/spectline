@@ -1455,7 +1455,7 @@ export default function AndroidBasic({
             <div className="first_section__left">
               <h1 className="first_section__brand">{copy.hero.brand}</h1>
 
-              <div className="first_section__panel">
+              <div className="first_section__panel bg-white/5 border border-white/10 backdrop-blur-md rounded-2xl p-6">
                 <p className="first_section__desc">
                   {copy.hero.desc}
                 </p>
