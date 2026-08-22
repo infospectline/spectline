@@ -1883,6 +1883,11 @@ export default function AndroidBasic({
                   desc: copy.portfolio.shot4Desc,
                   imgSrc: "/images/geralt.webp",
                 },
+                                {
+                  title: copy.portfolio.shot5Title,
+                  desc: copy.portfolio.shot5Desc,
+                  imgSrc: "/images/ciri.webp",
+                },
               ];
 
               const nextSlide = () => {
