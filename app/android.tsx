@@ -1866,7 +1866,7 @@ export default function AndroidBasic({
                 {
                   title: copy.portfolio.shot1Title,
                   desc: copy.portfolio.shot1Desc,
-                  imgSrc: "/images/photorealistic_character_woman.webp",
+                  imgSrc: "/images/woman.webp",
                 },
                 {
                   title: copy.portfolio.shot2Title,
