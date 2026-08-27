@@ -1871,7 +1871,7 @@ export default function AndroidBasic({
                 {
                   title: copy.portfolio.shot2Title,
                   desc: copy.portfolio.shot2Desc,
-                  imgSrc: "/images/2D_animation.webp",
+                  imgSrc: "/images/clair.webp",
                 },
                 {
                   title: copy.portfolio.shot3Title,
