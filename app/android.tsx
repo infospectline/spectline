@@ -1868,26 +1868,6 @@ export default function AndroidBasic({
                   desc: copy.portfolio.shot1Desc,
                   imgSrc: "/images/woman.webp",
                 },
-                {
-                  title: copy.portfolio.shot2Title,
-                  desc: copy.portfolio.shot2Desc,
-                  imgSrc: "/images/clair.webp",
-                },
-                {
-                  title: copy.portfolio.shot3Title,
-                  desc: copy.portfolio.shot3Desc,
-                  imgSrc: "/images/ironman.webp",
-                },
-                {
-                  title: copy.portfolio.shot4Title,
-                  desc: copy.portfolio.shot4Desc,
-                  imgSrc: "/images/lara_croft.webp",
-                },
-                                {
-                  title: copy.portfolio.shot5Title,
-                  desc: copy.portfolio.shot5Desc,
-                  imgSrc: "/images/ciri.webp",
-                },
               ];
 
               const nextSlide = () => {
