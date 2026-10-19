@@ -21,10 +21,10 @@ OUTPUT_PDF_EN = os.path.normpath(os.path.join(BASE_DIR, "..", "gdpr_en.pdf"))
 # Expected project structure:
 # public/
 #   documents/generator/gdpr.py
-#   images/logo_pdf.png
+#   images/logo_black.png
 #   fonts/Roboto-Regular.ttf
 LOGO_PATH = os.path.normpath(
-    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_pdf.png")
+    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_black.png")
 )
 
 FONT_PATH = os.path.normpath(

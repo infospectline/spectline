@@ -21,10 +21,10 @@ OUTPUT_PDF_EN = os.path.normpath(os.path.join(BASE_DIR, "..", "terms_en.pdf"))
 
 # Expected project structure:
 # D:\\Spectline\\lib\\documents\\generator\\terms.py
-# D:\\Spectline\\public\\images\\logo_pdf.png
+# D:\\Spectline\\public\\images\\logo_black.png
 # D:\\Spectline\\public\\fonts\\Roboto-Regular.ttf
 LOGO_PATH = os.path.normpath(
-    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_pdf.png")
+    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_black.png")
 )
 FONT_PATH = os.path.normpath(
     os.path.join(BASE_DIR, "..", "..", "..", "public", "fonts", "Roboto-Regular.ttf")
@@ -690,7 +690,7 @@ def ensure_paths() -> None:
     if not os.path.isfile(LOGO_PATH):
         raise FileNotFoundError(
             f"Missing logo: {LOGO_PATH}\n"
-            "Expected location: <project>/public/images/logo_pdf.png"
+            "Expected location: <project>/public/images/logo_black.png"
         )
 
 

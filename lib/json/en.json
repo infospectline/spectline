@@ -5,15 +5,15 @@
   },
   "nav": {
     "home": "Home",
-    "process": "Process",
-    "services": "Services",
-    "portfolio": "Portfolio",
-    "reviews": "References",
+    "process": "How it works",
+    "services": "Features",
+    "portfolio": "AI Tradingbot",
+    "reviews": "Key benefits",
     "contact": "Contact",
-    "login": "Showreel",
-    "signup": "Start a project"
+    "login": "Log in",
+    "signup": "Get started"
   },
-    "signup": {
+  "signup": {
     "homeAriaLabel": "Home",
     "logoAlt": "Spectline logo",
     "title": "Registration",
@@ -42,11 +42,14 @@
       "passwordMismatch": "The passwords do not match.",
       "signupFailed": "Registration failed."
     },
+    "status": {
+      "registrationSubmitted": "Registration received. Your account is waiting for administrator approval. You can sign in after it is approved."
+    },
     "submit": "Create account",
     "existingAccount": "Already have an account?",
     "login": "Sign in"
   },
-    "login": {
+  "login": {
     "homeAriaLabel": "Home",
     "logoAlt": "Spectline logo",
     "title": "Sign in",
@@ -56,13 +59,15 @@
     },
     "validation": {
       "fieldsRequired": "Enter your e-mail address and password.",
-      "loginFailed": "Sign-in failed."
+      "loginFailed": "Sign-in failed.",
+      "accountPending": "Your account is awaiting administrator approval. You can sign in once it has been approved.",
+      "accountRejected": "Your account registration was rejected. Please contact support if you believe this is a mistake."
     },
     "submit": "Sign in",
     "noAccount": "Don't have an account?",
     "signup": "Register"
   },
-    "dashboard": {
+  "dashboard": {
     "logoAlt": "Spectline logo",
     "loading": "Loading account...",
     "userFallback": "User",
@@ -80,120 +85,104 @@
       "closeAriaLabel": "Close sidebar",
       "account": "Account",
       "settings": "Settings",
+      "tradingbot": "Tradingbot",
       "logout": "Sign out",
       "loggingOut": "Signing out..."
     }
   },
   "hero": {
     "brand": "Spectline",
-    "desc": "A creative studio for VFX, animation, 3D and post-production.",
-    "primaryCta": "Start a project",
-    "secondaryCta": "View our work",
-    "card": "VFX, animation, 3D and editing for films, brands and digital content"
+    "desc": "An AI-driven trading bot designed to learn and evolve from your custom trade history.",
+    "primaryCta": "Get started",
+    "secondaryCta": "How it works",
+    "card": "Train on your trading data. Integratable with MT4 and MT5 in minutes."
   },
   "process": {
-    "title": "Process",
-    "subtitle": "Clear workflow. Strong visuals. Reliable delivery.",
+    "title": "How it works",
+    "subtitle": "Your Trading History. AI-Powered Learning. Seamless Integration.",
     "steps": [
       {
         "n": 1,
-        "title": "Brief and concept",
-        "text": "We define the goals, visual direction and scope."
+        "title": "Provide your trade data",
+        "text": "Upload the trade database you want the AI to learn from."
       },
       {
         "n": 2,
-        "title": "Production",
-        "text": "We create, refine and review every visual."
+        "title": "Learn your strategy",
+        "text": "The bot analyses your trade history to identify trading patterns."
       },
       {
         "n": 3,
-        "title": "Final delivery",
-        "text": "You receive polished assets in the required formats."
+        "title": "Connect your platform",
+        "text": "Use the learned strategy with MetaTrader 4 or MetaTrader 5."
       }
     ]
   },
   "services": {
-    "title": "Services",
-    "subtitle": "Creative production tailored to each project.",
-    "order": "Request a quote",
+    "title": "Features",
+    "subtitle": "Everything you need to transform your trading history into an automated AI strategy.",
+    "order": "Get started",
     "plans": [
       {
-        "name": "Visual Production",
-        "price": "Custom quote",
-        "desc": "Complete visual production from concept to final delivery.",
+        "name": "AI Trading Bot & MT4/MT5 Integration",
+        "price": "All-in-One Solution",
+        "desc": "An intelligent trading bot that learns from your history and connects seamlessly to your execution platform.",
         "details": [
-          "VFX and compositing",
-          "2D and 3D animation",
-          "3D modelling and assets",
-          "Motion design",
-          "Creative direction"
-        ]
-      },
-      {
-        "name": "Post-Production",
-        "price": "Custom quote",
-        "desc": "Professional editing and finishing for digital content.",
-        "details": [
-          "Video editing",
-          "Colour grading",
-          "Retouching and cleanup",
-          "Titles and graphics",
-          "Final exports"
+          "AI-driven strategy learning & pattern analysis",
+          "Custom trade database input & processing",
+          "Seamless MetaTrader 4 (MT4) & MetaTrader 5 (MT5) integration",
+          "Data-driven execution & continuous adaptation",
+          "Future compatibility with additional trading platforms"
         ]
       }
     ]
   },
   "portfolio": {
-    "title": "Portfolio",
-    "subtitle": "Selected work across VFX, animation, 3D and post-production.",
-    "shot1Title": "Photorealistic Female Portrait",
-    "shot1Desc": "Detailed 3D model of a female created in Blender.",
+    "title": "AI Tradingbot",
+    "subtitle": "An AI trading tool built around your own trade history.",
+    "shot1Title": "AI-Powered Trading",
+    "shot1Desc": "The bot learns from the trade database you provide.",
     "items": [
-      "3D models and digital assets",
-      "Video editing and post-production",
-      "Motion graphics and titles",
-      "Product and architectural visuals"
+      "Trade history analysis",
+      "AI strategy learning",
+      "MetaTrader 4 integration",
+      "MetaTrader 5 integration"
     ]
   },
   "reviews": {
-    "title": "References",
-    "subtitle": "Read the experiences of clients who have used our services.",
+    "title": "What Traders Say",
+    "subtitle": "Real experiences from traders using the Spectline.",
     "items": [
       {
-        "name": "Film & Television",
-        "role": "Production Manager",
-        "text": "Professional approach and strict adherence to deadlines in VFX and post-production."
+        "name": "Anonymous",
+        "role": "Prop Trader",
+        "text": "Training the bot on my own trade history was a game-changer. It eliminated emotional decisions and strictly executes based on my proven patterns."
       },
       {
-        "name": "Commercial Brand",
-        "role": "Marketing Specialist",
-        "text": "3D animations and visuals took our campaign to a new level."
+        "name": "Anonymous",
+        "role": "Algorithmic Trader",
+        "text": "The pattern analysis uncovered flaws in my past trades I never noticed. The AI learned my edge and refined it significantly."
       },
       {
-        "name": "Creative Agency",
-        "role": "Art Director",
-        "text": "A reliable partner for external production with a great eye for detail."
+        "name": "Anonymous",
+        "role": "FX Trader",
+        "text": "Connecting Spectline to MetaTrader 4 took just a few minutes. Execution is flawless and my workflow is completely automated."
       },
       {
-        "name": "Construction Company",
-        "role": "Director",
-        "text": "The collaboration helped us immensely, and the 3D visualizations were delivered quickly and professionally."
+        "name": "Anonymous",
+        "role": "Systematic Trader",
+        "text": "Having full support for MetaTrader 5 while leveraging custom trade data gives me a massive competitive advantage."
       },
       {
-        "name": "Game Studio",
-        "role": "Lead Artist",
-        "text": "Great technical support and high quality in 3D asset creation."
-      },
-      {
-        "name": "Independent Creator",
-        "role": "Director",
-        "text": "The visual effects gave the project the exact atmosphere we were looking for."
+        "name": "Anonymous",
+        "role": "Portfolio Manager",
+        "text": "The flexibility and potential for future platform integrations make Spectline an essential tool for scaling any strategy."
       }
     ]
   },
   "contact": {
     "title": "Contact",
-    "desc": "Tell us about your project, timeline and creative goals.",
+    "desc": "If you have any questions, leave us a message.",
     "emailLine": "E-mail: info.spectline@gmail.com",
     "supportLine": "Business hours: Mon – Fri, 9:00 – 16:00",
     "fields": {
@@ -202,19 +191,19 @@
         "placeholder": "Name"
       },
       "system": {
-        "label": "Project type",
-        "placeholder": "e.g. VFX, animation or 3D model"
+        "label": "Topic",
+        "placeholder": "e.g., AI, MT4 / MT5 connection..."
       },
       "email": {
         "label": "E-mail",
         "placeholder": "E-mail"
       },
       "message": {
-        "label": "Project details",
-        "placeholder": "Project scope, deadline and budget"
+        "label": "Message",
+        "placeholder": "Ask anything you want to know."
       }
     },
-    "submit": "Send inquiry",
+    "submit": "Send message",
     "status": {
       "submitting": "Sending...",
       "success": "Your message was sent successfully.",
@@ -223,16 +212,16 @@
   },
   "newsletterEmail": {
     "confirmation": {
-      "subject": "Confirm your Spectline newsletter subscription",
+      "subject": "Confirm your Spectline product updates subscription",
       "heading": "Confirm your subscription",
-      "text": "Click the button below to confirm that you want to receive Spectline studio updates.",
+      "text": "Click the button below to confirm that you want to receive Spectline product updates.",
       "button": "Confirm subscription",
       "expiration": "This confirmation link is valid for 24 hours. If you did not request this subscription, you can ignore this email."
     },
     "welcome": {
-      "subject": "Your Spectline newsletter subscription is active",
+      "subject": "Your Spectline product updates subscription is active",
       "heading": "Your subscription has been confirmed",
-      "text": "Thank you for confirming. You can now receive news, projects and studio updates from Spectline.",
+      "text": "Thank you for confirming. You can now receive product news and platform integration updates from Spectline.",
       "unsubscribeText": "If you no longer want to receive our updates, you can unsubscribe at any time using the link below.",
       "unsubscribeButton": "Unsubscribe"
     }
@@ -251,7 +240,7 @@
       "youtube": "YouTube",
       "tiktok": "TikTok"
     },
-    "newsletterTitle": "Studio updates",
+    "newsletterTitle": "Product updates",
     "newsletterLabel": "E-mail",
     "newsletterPlaceholder": "E-mail",
     "newsletterButton": "Subscribe",
@@ -259,7 +248,12 @@
       "pending": "To complete your newsletter subscription, please confirm your email address.",
       "confirmed": "Your newsletter subscription has been confirmed.",
       "unsubscribed": "Your newsletter subscription has been cancelled.",
-      "invalid": "This link is invalid, already used, or has expired."
+      "invalid": "This link is invalid, already used, or has expired.",
+      "approval_approved": "The user was approved successfully.",
+      "approval_rejected": "The user registration was rejected.",
+      "approval_invalid": "This approval link is invalid or has expired.",
+      "approval_already_processed": "This registration has already been processed.",
+      "approval_error": "The approval action could not be completed. Please try again."
     }
   }
 }

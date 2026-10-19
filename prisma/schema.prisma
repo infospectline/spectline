@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -9,25 +10,28 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String
-  emailVerified Boolean   @default(false)
-  image         String?
+  id             String    @id
+  name           String
+  email          String
+  emailVerified  Boolean   @default(false)
+  image          String?
 
-  firstName     String?
-  lastName      String?
-  address       String?
-  city          String?
-  phone         String?
-  company       String?
-  website       String?
+  approvalStatus String    @default("pending")
+  approvedAt     DateTime?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  firstName      String?
+  lastName       String?
+  address        String?
+  city           String?
+  phone          String?
+  company        String?
+  website        String?
 
-  sessions      Session[]
-  accounts      Account[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  sessions       Session[]
+  accounts       Account[]
 
   @@unique([email])
   @@map("user")

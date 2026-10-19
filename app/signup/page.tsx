@@ -44,6 +44,9 @@ type SignupCopy = {
     passwordMismatch: string;
     signupFailed: string;
   };
+  status: {
+    registrationSubmitted: string;
+  };
   submit: string;
   existingAccount: string;
   login: string;
@@ -119,6 +122,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [sections, setSections] = useState({
@@ -162,6 +166,8 @@ export default function SignupPage() {
     if (!copy || isSubmitting) return;
 
     setError("");
+
+    setSuccess("");
 
     if (!firstName.trim() || !lastName.trim()) {
       setError(copy.validation.nameRequired);
@@ -211,7 +217,11 @@ export default function SignupPage() {
       return;
     }
 
-    window.location.href = "/dashboard";
+    setSuccess(copy.status.registrationSubmitted);
+    setPassword("");
+    setConfirmPassword("");
+    setIsSubmitting(false);
+    return;
   }
 
   if (!hydrated || !copy) {
@@ -277,7 +287,7 @@ export default function SignupPage() {
 
         <div className="flex justify-center mb-2">
           <img
-            src="/images/logo_pdf.png"
+            src="/images/logo_black.png"
             alt={copy.logoAlt}
             className="h-[200px] w-[200px] object-contain opacity-90"
           />
@@ -447,6 +457,22 @@ export default function SignupPage() {
               "
             >
               {error}
+            </p>
+          )}
+
+          {success && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="
+                mt-4 rounded-xl
+                border border-green-700/15
+                bg-green-500/10
+                px-4 py-3
+                text-sm text-green-800
+              "
+            >
+              {success}
             </p>
           )}
 

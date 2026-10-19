@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectline</title>
+    <link rel="icon" type="image/png" href="images/favicon.png">
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="frontend.css">
+</head>
+<body>
+    <div id="app">
+        <div id="chart-panel">
+            <div id="chart"></div>
+            <div id="overlay"></div>
+
+            <div id="tradeDetailPanel" class="trade-detail-panel"></div>
+
+            <div id="chart-ready-badge">CHART READY</div>
+
+            <div id="mt5-offline-popup">
+                <div class="mt5-offline-popup-title">
+                    MT5 OFFLINE
+                </div>
+                <div class="mt5-offline-popup-message">
+                    MT5 is switched off. Data are not updated.
+                </div>
+            </div>
+
+            <div id="loading-screen">
+                <div id="loading-card">
+                    <div id="loading-title">Loading EURUSD emulator</div>
+                    <div id="loading-message">Starting backend...</div>
+                    <div id="loading-track">
+                        <div id="loading-bar"></div>
+                    </div>
+                    <div id="loading-percent">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <aside id="sidebar">
+            <div id="sidebarContent">
+
+                <!-- MAIN SIDEBAR TABS -->
+                <div id="sidebarTabs">
+
+                    <button
+                        id="resultsTabButton"
+                        type="button"
+                        title="RESULTS"
+                    >
+                        <img src="images/results.png" alt="RESULTS">
+                    </button>
+
+                    <button
+                        id="learningTabButton"
+                        type="button"
+                        title="LEARNING"
+                    >
+                        <img src="images/learning.png" alt="LEARNING">
+                    </button>
+
+                </div>
+
+                <!-- RESULTS VIEW -->
+                <div id="resultsView">
+
+            <h1>RESULTS</h1>
+
+            <div id="resultsContext" class="results-context">
+                EURUSD, H1, TESTING
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">💰</div>
+                <div class="stat-label">Starting Balance</div>
+                <div class="stat-value" id="startingBalance">100 000 €</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">🏁</div>
+                <div class="stat-label">Final Balance</div>
+                <div class="stat-value" id="finalBalance">0 €</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">📈</div>
+                <div class="stat-label">Profitable Trades</div>
+                <div class="stat-value" id="winningTrades">0</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">📉</div>
+                <div class="stat-label">Losing Trades</div>
+                <div class="stat-value" id="losingTrades">0</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">🔥</div>
+                <div class="stat-label">Max Winning Streak</div>
+                <div class="stat-value" id="maxWinStreak">0</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-label">Max Losing Streak</div>
+                <div class="stat-value" id="maxLossStreak">0</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">%</div>
+                <div class="stat-label">Winning Percentage</div>
+                <div class="stat-value" id="winningPercentage">0%</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">%</div>
+                <div class="stat-label">Losing Percentage</div>
+                <div class="stat-value" id="losingPercentage">0%</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">📊</div>
+                <div class="stat-label">Total Return</div>
+                <div class="stat-value" id="totalReturn">0%</div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-icon">🚫</div>
+                <div class="stat-label">Blocked Trades</div>
+                <div class="stat-value" id="blockedTrades">0</div>
+            </div>
+
+                <div class="display-filters">
+
+                    <button
+                        id="showLevels"
+                        type="button"
+                        class="display-filter-button"
+                        title="LEVELS"
+                    >
+                        <img
+                            src="images/levels.png"
+                            alt="LEVELS"
+                        >
+                    </button>
+
+                    <button
+                        id="showWinningTrades"
+                        type="button"
+                        class="display-filter-button active"
+                        title="PROFITABLE TRADES"
+                    >
+                        <img
+                            src="images/profit.png"
+                            alt="PROFITABLE TRADES"
+                        >
+                    </button>
+
+                    <button
+                        id="showLosingTrades"
+                        type="button"
+                        class="display-filter-button active"
+                        title="LOSING TRADES"
+                    >
+                        <img
+                            src="images/loss.png"
+                            alt="LOSING TRADES"
+                        >
+                    </button>
+
+                    <button
+                        id="showManualSetups"
+                        type="button"
+                        class="display-filter-button"
+                        title="MANUAL SETUPS"
+                    >
+                        <img
+                            src="images/trades.png"
+                            alt="MANUAL SETUPS"
+                        >
+                    </button>
+
+                </div>
+
+                <button id="logoutButton" class="logout-button panel-button" type="button">
+                    DASHBOARD
+                </button>
+                
+            </div>
+
+            <div id="learningView" style="display: none;">
+
+            <div id="learningMainView">
+
+            <h1>LEARNING</h1>
+
+            <label class="market-selector-label">Manually entered trades for AI machine learning</label>
+
+            <button id="learningButton" class="learning-button">
+                LEARNING
+            </button>
+
+            <div class="market-selector">
+
+                <div class="market-selector">
+                    <label class="market-selector-label">TIMEFRAME</label>
+
+                    <select id="timeframeSelect">
+                        <option value="M1">M1</option>
+                        <option value="M5">M5</option>
+                        <option value="M15">M15</option>
+                        <option value="M30">M30</option>
+                        <option value="H1">H1</option>
+                        <option value="H4">H4</option>
+                        <option value="D1">D1</option>
+                        <option value="W1">W1</option>
+                    </select>
+                </div>
+
+                <label class="market-selector-label">MARKET</label>
+
+                <select id="marketSelect">
+                    <option value="EURUSD">EURUSD</option>
+                    <option value="GBPUSD">GBPUSD</option>
+                    <option value="USDJPY">USDJPY</option>
+                    <option value="USDCHF">USDCHF</option>
+                    <option value="USDCAD">USDCAD</option>
+                    <option value="AUDUSD">AUDUSD</option>
+                    <option value="NZDUSD">NZDUSD</option>
+                    <option value="EURGBP">EURGBP</option>
+                    <option value="EURJPY">EURJPY</option>
+                    <option value="GBPJPY">GBPJPY</option>
+
+                    <option value="XAUUSD">XAUUSD GOLD</option>
+                    <option value="XAGUSD">XAGUSD SILVER</option>
+                    <option value="BTCUSD">BTCUSD BITCOIN</option>
+
+                    <option value="US30.cash">US30</option>
+                    <option value="US100.cash">US100</option>
+                    <option value="US500.cash">US500</option>
+                    <option value="GER40.cash">GER40</option>
+                    <option value="UK100.cash">UK100</option>
+                </select>
+            </div>
+
+            <label class="market-selector-label">Automated training and creation of the AI model using trades</label>
+
+            <button id="trainingButton" class="training-button">
+                TRAINING
+            </button>
+
+            <label class="market-selector-label">Testing the generated AI model for a specific market</label>
+
+            <button id="testingButton" class="testing-button">
+                TESTING
+            </button>
+
+            <h1>UPDATE DATA</h1>
+            
+            <label class="market-selector-label">All data in the charts you interacted with will be updated</label>
+
+            <button id="updateDataButton" class="update-data-button">
+                UPDATE DATA
+            </button>
+
+            </div>
+
+            <!-- LEARNING LIST -->
+            <div id="learningListView" style="display: none;">
+
+                <h1>LEARNING</h1>
+
+                <label class="market-selector-label">
+                    Analysis of manually entered trades
+                </label>
+
+                <button
+                    id="manualAnalysisButton"
+                    class="manual-analysis-button"
+                    type="button"
+                >
+                    ANALYSIS
+                </button>
+
+                <div class="learning-market-info">
+                    <label class="market-selector-label">MARKET</label>
+                    <div id="learningMarket" class="learning-market-value">
+                        EURUSD
+                    </div>
+                </div>
+
+                <div class="learning-market-info">
+                    <label class="market-selector-label">TIMEFRAME</label>
+                    <div id="learningTimeframe" class="learning-market-value">
+                        H1
+                    </div>
+                </div>
+
+                <div class="stat">
+                    <div class="stat-icon">🧠</div>
+                    <div class="stat-label">Learning Trades</div>
+                    <div class="stat-value" id="learningTradeCount">0</div>
+                </div>
+
+                <button
+                    id="learningAddButton"
+                    class="learning-add-button"
+                    type="button"
+                >
+                    +
+                </button>
+
+                <div id="learningTradeList" class="learning-trade-list"></div>
+
+            </div>
+
+
+            <!-- SINGLE TRADE DETAIL -->
+            <div id="learningDetailView" style="display: none;">
+
+                <div class="learning-detail">
+
+                    <div class="learning-detail-title">
+                        TRADE #<span id="learningDetailTradeNumber">1</span>
+                    </div>
+
+                    <div class="learning-detail-section">
+
+                        <div class="learning-detail-row">
+
+                            <div>
+                                <label class="learning-detail-label">
+                                    SETUP TIMEFRAME
+                                </label>
+
+                                <select
+                                    id="learningSetupTimeframe"
+                                    class="learning-select"
+                                >
+                                    <option value="M1">M1</option>
+                                    <option value="M5">M5</option>
+                                    <option value="M15">M15</option>
+                                    <option value="M30">M30</option>
+                                    <option value="H1" selected>H1</option>
+                                    <option value="H4">H4</option>
+                                    <option value="D1">D1</option>
+                                    <option value="W1">W1</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="learning-detail-label">
+                                    ENTRY TIMEFRAME
+                                </label>
+
+                                <select
+                                    id="learningEntryTimeframe"
+                                    class="learning-select"
+                                >
+                                    <option value="M1">M1</option>
+                                    <option value="M5">M5</option>
+                                    <option value="M15" selected>M15</option>
+                                    <option value="M30">M30</option>
+                                    <option value="H1">H1</option>
+                                    <option value="H4">H4</option>
+                                    <option value="D1">D1</option>
+                                    <option value="W1">W1</option>
+                                </select>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <!-- =========================================================
+                    LEARNING COMPACT CONTROLS
+                    ========================================================= -->
+
+                    <div class="learning-accordion">
+
+                        <!-- ANCHOR -->
+                        <div class="learning-accordion-item">
+                            <div class="learning-accordion-header">
+                                <button
+                                    id="learningAnchorPicker"
+                                    type="button"
+                                    class="learning-accordion-main anchor-action"
+                                    title="Pick anchor point from chart"
+                                >
+                                    📌 ANCHOR
+                                </button>
+
+                                <button
+                                    id="expandAnchorButton"
+                                    type="button"
+                                    class="learning-accordion-expand"
+                                    title="Show anchor details"
+                                >
+                                    ▼
+                                </button>
+
+                                <button
+                                    id="deleteAnchorButton"
+                                    type="button"
+                                    class="learning-accordion-delete"
+                                    title="Delete ANCHOR"
+                                >
+                                    ×
+                                </button>
+                            </div>
+
+                            <div
+                                id="anchorAccordionBody"
+                                class="learning-accordion-body"
+                            >
+                                <div class="learning-anchor-row">
+                                    <input
+                                        id="learningAnchorTime"
+                                        class="learning-input"
+                                        type="text"
+                                        placeholder="Time"
+                                        readonly
+                                    >
+
+                                    <input
+                                        id="learningAnchorPrice"
+                                        class="learning-input"
+                                        type="text"
+                                        placeholder="Price"
+                                        readonly
+                                    >
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RISK / REWARD -->
+                        <div class="learning-rr-control">
+                            <span class="learning-rr-label">R:R</span>
+
+                            <div class="learning-rr-switch">
+                                <button
+                                    type="button"
+                                    class="learning-rr-mode-button active"
+                                    data-rr-mode="OFF"
+                                >
+                                    OFF
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="learning-rr-mode-button"
+                                    data-rr-mode="2x"
+                                >
+                                    2x
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="learning-rr-mode-button"
+                                    data-rr-mode="3x"
+                                >
+                                    3x
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- SUPPORT / RESISTANCE ZONES -->
+                        <div class="learning-zones">
+
+                            <button
+                                id="addZoneButton"
+                                type="button"
+                                class="learning-zone-add-button"
+                                title="Add SUPPORT or RESISTANCE"
+                            >
+                                +
+                            </button>
+
+                            <div
+                                id="zoneTypeMenu"
+                                class="learning-zone-type-menu"
+                                style="display: none;"
+                            >
+                                <button
+                                    id="addSupportButton"
+                                    type="button"
+                                    class="learning-zone-type-button"
+                                >
+                                    SUPPORT
+                                </button>
+
+                                <button
+                                    id="addResistanceButton"
+                                    type="button"
+                                    class="learning-zone-type-button"
+                                >
+                                    RESISTANCE
+                                </button>
+                            </div>
+
+                            <div
+                                id="learningZoneList"
+                                class="learning-zone-list"
+                            ></div>
+
+                        </div>
+
+                        <!-- SETUP -->
+                        <div class="learning-accordion-item">
+                            <div class="learning-accordion-header">
+                                <button
+                                    id="drawTradeSetupButton"
+                                    type="button"
+                                    class="learning-accordion-main trade-setup-button"
+                                >
+                                    🔷 SETUP
+                                </button>
+
+                                <button
+                                    id="expandTradeSetupButton"
+                                    type="button"
+                                    class="learning-accordion-expand"
+                                    title="Show SETUP details"
+                                >
+                                    ▼
+                                </button>
+
+                                <button
+                                    id="deleteTradeSetupButton"
+                                    type="button"
+                                    class="learning-accordion-delete"
+                                    title="Delete SETUP"
+                                >
+                                    ×
+                                </button>
+                            </div>
+
+                            <div
+                                id="tradeSetupAccordionBody"
+                                class="learning-accordion-body"
+                            >
+                                <div
+                                    id="tradeSetupSummary"
+                                    class="learning-geometry-summary"
+                                >
+                                    Not set
+                                </div>
+
+                                <div class="learning-geometry-value-grid">
+
+                                    <div class="learning-geometry-value breakout-value">
+                                        <span>BREAKOUT</span>
+                                        <strong id="learningBreakoutValue">-</strong>
+                                    </div>
+
+                                    <div class="learning-geometry-value entry-value">
+                                        <span>ENTRY</span>
+                                        <strong id="learningEntryValue">-</strong>
+                                    </div>
+
+                                    <div class="learning-geometry-value sl-value">
+                                        <span>SL</span>
+                                        <strong id="learningSLValue">-</strong>
+                                    </div>
+
+                                    <div class="learning-geometry-value tp-value">
+                                        <span>TP</span>
+                                        <strong id="learningTPValue">-</strong>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+
+                    <button
+                        id="learningSaveButton"
+                        class="learning-save-button"
+                        type="button"
+                    >
+                        SAVE
+                    </button>
+
+                    <button
+                        id="learningDeleteButton"
+                        class="learning-delete-button"
+                        type="button"
+                    >
+                        DELETE
+                    </button>
+
+                </div>
+
+            </div>
+
+                </div> <!-- END learningView -->
+
+            </div> <!-- END sidebarContent -->
+
+            <button id="sidebarToggle">🡺</button>
+
+            <div id="status">Connecting...</div>
+        </aside>
+    </div>
+    <script src="frontend.js"></script>
+</body>
+</html>

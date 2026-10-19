@@ -1,0 +1,1794 @@
+html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #111;
+        color: #ddd;
+        font-family: Arial, sans-serif;
+    }
+
+    #app {
+        display: flex;
+        width: 100%;
+        height: 100%;
+    }
+
+    /* MAIN SIDEBAR TABS */
+    #sidebarTabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 18px;
+    }
+
+    #sidebarTabs button {
+        flex: 1;
+        height: 52px;
+
+        border: 0;
+        border-radius: 8px;
+
+        background: #252525;
+        color: #aaa;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        cursor: pointer;
+
+        transition:
+            background 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    #sidebarTabs button img {
+        width: 30px;
+        height: 30px;
+        object-fit: contain;
+
+        filter: invert(1);
+
+        pointer-events: none;
+    }
+
+    #sidebarTabs button:hover {
+        background: #333;
+    }
+
+    #sidebarTabs button.active {
+        background: #6228e9;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+    }
+
+    #mt5-offline-popup {
+        position: fixed;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-15px);
+
+        z-index: 3000;
+
+        min-width: 320px;
+        max-width: 440px;
+
+        padding: 14px 18px;
+
+        background: #1b1b1b;
+        border: 1px solid #5a5a5a;
+        border-radius: 8px;
+
+        box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45);
+
+        opacity: 0;
+        pointer-events: none;
+
+        transition:
+            opacity 0.2s ease,
+            transform 0.2s ease;
+    }
+
+    #mt5-offline-popup.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .mt5-offline-popup-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 5px;
+    }
+
+    .mt5-offline-popup-message {
+        font-size: 11px;
+        color: #aaa;
+    }
+
+    #chart-panel {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #chart {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+    }
+
+    #overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+        z-index: 100;
+    }
+
+    #sidebar {
+        width: 340px;
+        box-sizing: border-box;
+        padding: 18px;
+        background: #181818;
+        border: 1px solid #303030;
+        border-radius: 14px;
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        bottom: 40px;
+        z-index: 500;
+
+        overflow: hidden;
+
+        transition: width 0.2s ease;
+    }
+
+    #sidebarContent {
+        height: 100%;
+        overflow-y: auto;
+        scrollbar-width: none;
+
+        padding-bottom: 60px;
+        box-sizing: border-box;
+    }
+
+    #sidebarContent::-webkit-scrollbar {
+        display: none;
+    }
+
+    #sidebar::-webkit-scrollbar {
+        display: none;
+    }
+
+    #sidebar.collapsed h1,
+    #sidebar.collapsed #status {
+        display: none;
+    }
+
+    #sidebar.collapsed {
+        width: 58px;
+        padding: 12px 8px;
+        overflow: hidden;
+    }
+
+    #sidebar h1 {
+        margin: 20 0 20px;
+        font-size: 18px;
+        font-weight: 600;
+    }
+
+    .results-context {
+        margin: -12px 0 16px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #888;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+    }
+
+    #sidebar.collapsed #resultsContext {
+        display: none;
+    }
+
+    .stat {
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 10px 4px;
+        border-bottom: 1px solid #2b2b2b;
+    }
+
+    .stat-icon {
+        width: 24px;
+        text-align: center;
+        font-size: 16px;
+    }
+
+    #sidebar.collapsed .stat {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        padding: 10px 0;
+    }
+
+    #sidebar.collapsed .stat-label,
+    #sidebar.collapsed .stat-value {
+        display: none;
+    }
+
+    .stat-label {
+        font-size: 12px;
+        color: #888;
+        margin: 0;
+        white-space: nowrap;
+    }
+
+    .stat-value {
+        font-size: 22px;
+        font-weight: 600;
+    }
+
+    #status {
+        margin-top: 20px;
+        font-size: 12px;
+        color: #888;
+    }
+
+
+    #loading-screen {
+        position: absolute;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 10, 10, 0.96);
+    }
+
+    #loading-card {
+        width: min(560px, calc(100vw - 40px));
+        box-sizing: border-box;
+        padding: 24px;
+        background: #181818;
+        border: 1px solid #303030;
+        border-radius: 8px;
+    }
+
+    #loading-title {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+
+    #loading-message {
+        font-size: 12px;
+        color: #999;
+        margin-bottom: 14px;
+        min-height: 16px;
+    }
+
+    #loading-track {
+        width: 100%;
+        height: 10px;
+        border-radius: 5px;
+        background: #2a2a2a;
+        overflow: hidden;
+    }
+
+    #loading-bar {
+        width: 0%;
+        height: 100%;
+        background: #ffd34a;
+        transition: width 0.15s ease;
+    }
+
+    #loading-percent {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #ffd34a;
+        text-align: right;
+    }
+
+    #chart-ready-badge {
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        z-index: 900;
+        padding: 5px 8px;
+        font-size: 11px;
+        color: #8fe3ff;
+        background: rgba(15, 15, 15, 0.78);
+        border: 1px solid rgba(143, 227, 255, 0.28);
+        border-radius: 4px;
+        pointer-events: none;
+        display: none;
+    }
+
+    .sr-zone {
+        z-index: 101;
+        position: absolute;
+        left: 0;
+        right: 0;
+        border-top: 1px solid rgba(255, 211, 74, 0.75);
+        border-bottom: 1px solid rgba(255, 211, 74, 0.75);
+        background: rgba(255, 211, 74, 0.08);
+    }
+
+    .sr-label {
+        position: absolute;
+        right: 8px;
+        top: 2px;
+        padding: 2px 5px;
+        font-size: 10px;
+        color: #ffd34a;
+        background: rgba(20, 20, 20, 0.75);
+        border: 1px solid rgba(255, 211, 74, 0.4);
+        border-radius: 3px;
+        white-space: nowrap;
+    }
+
+    .trade-box {
+        z-index: 102;
+        position: absolute;
+        box-sizing: border-box;
+        border: 1px solid;
+        border-radius: 2px;
+        overflow: hidden;
+        min-width: 20px;
+
+        pointer-events: auto;
+        cursor: pointer;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .trade-box.win {
+        background: rgba(46, 204, 113, 0.12);
+        border-color: rgba(46, 204, 113, 0.8);
+    }
+
+    .trade-box.loss {
+        background: rgba(231, 76, 60, 0.12);
+        border-color: rgba(231, 76, 60, 0.8);
+    }
+
+    .trade-box.open {
+        background: rgba(241, 196, 15, 0.10);
+        border-color: rgba(241, 196, 15, 0.8);
+    }
+
+    .trade-box.selected {
+        box-shadow:
+            0 0 0 2px rgba(255, 255, 255, 0.95),
+            0 0 18px rgba(255, 211, 74, 0.55);
+        border-color: #ffffff !important;
+        z-index: 300;
+    }
+
+    .trade-title {
+        position: absolute;
+        top: 3px;
+        left: 5px;
+        font-size: 10px;
+        font-weight: 700;
+        white-space: nowrap;
+        text-shadow: 0 1px 2px #000;
+    }
+
+    .trade-box.win .trade-title { color: #2ecc71; }
+    .trade-box.loss .trade-title { color: #e74c3c; }
+    .trade-box.open .trade-title { color: #f1c40f; }
+
+    .trade-line {
+        position: absolute;
+        height: 1px;
+        left: 0;
+        right: 0;
+        opacity: 0.9;
+    }
+
+    .trade-line.entry { background: #ffffff; }
+    .trade-line.tp { background: #2ecc71; }
+    .trade-line.sl { background: #e74c3c; }
+
+    .trade-price {
+        position: absolute;
+        right: 4px;
+        font-size: 9px;
+        line-height: 12px;
+        padding: 0 3px;
+        background: rgba(15, 15, 15, 0.78);
+        border-radius: 2px;
+        white-space: nowrap;
+        text-shadow: 0 1px 2px #000;
+    }
+
+    .trade-price.entry { color: #fff; }
+    .trade-price.tp { color: #2ecc71; }
+    .trade-price.sl { color: #e74c3c; }
+
+    .trade-detail-panel {
+        position: absolute;
+        top: 50px;
+        left: 10px;
+        z-index: 800;
+
+        width: min(360px, calc(100% - 380px));
+        max-height: calc(100% - 36px);
+
+        box-sizing: border-box;
+        padding: 14px;
+
+        background: rgba(18, 18, 18, 0.96);
+        border: 1px solid #3b3b3b;
+        border-radius: 10px;
+
+        color: #ddd;
+        font-size: 11px;
+        line-height: 1.45;
+
+        overflow-y: auto;
+        display: none;
+
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    .trade-detail-panel.visible {
+        display: block;
+    }
+
+    .trade-detail-title {
+        font-size: 14px;
+        font-weight: 700;
+        margin-bottom: 10px;
+        color: #fff;
+    }
+
+    .trade-detail-section {
+        margin-top: 10px;
+        padding-top: 9px;
+        border-top: 1px solid #2d2d2d;
+    }
+
+    .trade-detail-section-title {
+        font-size: 10px;
+        font-weight: 700;
+        color: #ffd34a;
+        letter-spacing: 0.5px;
+        margin-bottom: 5px;
+    }
+
+    .trade-detail-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 2px 0;
+    }
+
+    .trade-detail-label {
+        color: #888;
+    }
+
+    .trade-detail-value {
+        color: #ddd;
+        text-align: right;
+        font-weight: 600;
+    }
+
+    .setup-line {
+        position: absolute;
+        z-index: 250;
+        pointer-events: none;
+        height: 1px;
+        background: rgba(255, 211, 74, 0.9);
+    }
+
+    .setup-point {
+        position: absolute;
+        z-index: 260;
+        pointer-events: none;
+
+        width: 10px;
+        height: 10px;
+        margin-left: -5px;
+        margin-top: -5px;
+
+        border-radius: 50%;
+        border: 2px solid #fff;
+        background: #ffd34a;
+
+        box-shadow: 0 0 10px rgba(255, 211, 74, 0.65);
+    }
+
+    .setup-label {
+        position: absolute;
+        z-index: 261;
+        pointer-events: none;
+
+        padding: 3px 5px;
+        border-radius: 3px;
+
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+
+        background: rgba(15, 15, 15, 0.9);
+        border: 1px solid rgba(255, 211, 74, 0.5);
+        white-space: nowrap;
+    }
+
+    .setup-level-highlight {
+        position: absolute;
+        left: 0;
+        right: 0;
+
+        z-index: 240;
+        pointer-events: none;
+
+        height: 2px;
+        background: rgba(255, 211, 74, 0.95);
+        box-shadow: 0 0 10px rgba(255, 211, 74, 0.45);
+    }
+
+    #sidebarToggle {
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        width: 34px;
+        height: 34px;
+        border: 0;
+        border-radius: 50%;
+        background: #252525;
+        color: #aaa;
+        cursor: pointer;
+        font-size: 16px;
+    }
+
+    #sidebar.collapsed #sidebarToggle {
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .market-selector {
+        margin-bottom: 20px;
+    }
+
+    .market-selector-label {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 11px;
+        color: #888;
+    }
+
+    #marketSelect,
+    #timeframeSelect {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        background: #222;
+        color: #ddd;
+        border: 1px solid #383838;
+        border-radius: 7px;
+        font-size: 13px;
+        outline: none;
+        cursor: pointer;
+    }
+
+    .analysis-button {
+        width: 100%;
+        height: 42px;
+        margin-top: 5px;
+        margin-bottom: 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #6228e9;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+            opacity 0.15s ease,
+            background 0.15s ease;
+    }
+
+    .analysis-button:hover {
+        background: #8050f0;
+        color: #ffffff;
+    } 
+
+    .training-button {
+        width: 100%;
+        height: 42px;
+        margin-top: 5px;
+        margin-bottom: 8px;
+        border: 0;
+        border-radius: 6px;
+        background: #8152f0;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .training-button:hover {
+        background: #956cf5;
+    }
+
+    .training-button:disabled {
+        opacity: 0.55;
+        cursor: default;
+    }
+
+
+    .testing-button {
+        width: 100%;
+        height: 42px;
+        margin-top: 5px;
+        margin-bottom: 14px;
+        border: 0;
+        border-radius: 6px;
+        background: #dd1530;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .testing-button:hover {
+        background: #ec3c54;
+    }
+
+    .testing-button:disabled {
+        opacity: 0.55;
+        cursor: default;
+    }
+    
+    .learning-button {
+        width: 100%;
+        height: 42px;
+        margin-top: 5px;
+        margin-bottom: 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #1e9442;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+            opacity 0.15s ease,
+            background 0.15s ease;
+    }
+
+    .learning-button:hover {
+        background: #49b168;
+    }
+
+    .update-data-button {
+        width: 100%;
+        height: 42px;
+        margin-top: 5px;
+        margin-bottom: 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #18caf7;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+            opacity 0.15s ease,
+            background 0.15s ease;
+    }
+
+    .update-data-button:hover {
+        background: #51d0f0;
+    }
+
+    .update-data-button:disabled {
+        opacity: 0.55;
+        cursor: default;
+    }
+
+    .learning-market-info {
+        margin-bottom: 20px;
+    }
+
+    .learning-market-value {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        background: #222;
+        color: #ddd;
+        border: 1px solid #383838;
+        border-radius: 7px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .learning-count {
+        margin-top: 18px;
+        margin-bottom: 14px;
+    }
+
+    .learning-add-button {
+        width: 100%;
+        height: 42px;
+        border: 0;
+        border-radius: 8px;
+        background: #6228e9;
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .manual-analysis-button {
+        width: 100%;
+        height: 42px;
+        margin-bottom: 14px;
+
+        border: 0;
+        border-radius: 8px;
+
+        background: #1e9442;
+        color: #ffffff;
+
+        font-size: 13px;
+        font-weight: 700;
+
+        cursor: pointer;
+
+        transition:
+            opacity 0.15s ease,
+            background 0.15s ease;
+    }
+
+    .manual-analysis-button:hover {
+        background: #49b168;
+    }
+
+    .manual-analysis-button:disabled {
+        opacity: 0.55;
+        cursor: default;
+    }
+
+    .manual-setup-view-only {
+        pointer-events: none;
+        cursor: default;
+    }
+
+    .learning-add-button:hover {
+        background: #8050f0;
+    }
+
+    .learning-trade-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 16px;
+    }
+
+    .learning-trade-item {
+        width: 100%;
+        min-height: 40px;
+        box-sizing: border-box;
+        padding: 10px 12px;
+
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.025);
+
+        color: #ddd;
+        font-size: 11px;
+        font-weight: 700;
+
+        cursor: pointer;
+        text-align: left;
+
+        transition:
+            background 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    .learning-trade-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.16);
+    }
+
+    .learning-trade-empty {
+        padding: 12px 4px;
+        color: #666;
+        font-size: 11px;
+        text-align: center;
+    }
+
+    .learning-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .learning-detail-title {
+        margin-bottom: 8px;
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+    }
+
+    .learning-detail-section {
+        margin-top: 8px;
+        padding-top: 10px;
+        border-top: 1px solid #2d2d2d;
+    }
+
+    .learning-detail-label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 10px;
+        color: #888;
+    }
+
+    .learning-input,
+    .learning-select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px 10px;
+
+        background: #222;
+        color: #ddd;
+
+        border: 1px solid #383838;
+        border-radius: 6px;
+
+        font-size: 12px;
+        outline: none;
+    }
+
+    .learning-price-row {
+        display: flex;
+        gap: 6px;
+        width: 100%;
+    }
+
+    .learning-price-row .learning-input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .learning-price-picker {
+        width: 42px;
+        flex: 0 0 42px;
+
+        border: 1px solid #383838;
+        border-radius: 6px;
+
+        background: #222;
+        color: #aaa;
+
+        font-size: 14px;
+        cursor: pointer;
+    }
+
+    .learning-price-picker:hover {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-price-picker.active {
+        background: #6228e9;
+        border-color: #8050f0;
+        color: #fff;
+    }
+
+    .learning-anchor-row {
+        display: flex;
+        gap: 6px;
+        width: 100%;
+    }
+
+    .learning-anchor-row .learning-input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .learning-anchor-picker {
+        width: 100%;
+        height: 36px;
+        margin-top: 7px;
+
+        border: 1px solid #383838;
+        border-radius: 7px;
+
+        background: #222;
+        color: #aaa;
+
+        font-size: 11px;
+        font-weight: 700;
+
+        cursor: pointer;
+    }
+
+    .learning-anchor-picker:hover {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-anchor-picker.active {
+        background: #6228e9;
+        border-color: #8050f0;
+        color: #fff;
+    }
+
+    .learning-anchor-point {
+        position: absolute;
+        z-index: 280;
+
+        width: 10px;
+        height: 10px;
+
+        margin-left: -5px;
+        margin-top: -5px;
+
+        border-radius: 50%;
+        background: #ff9f43;
+        border: 2px solid #fff;
+
+        box-shadow: 0 0 12px rgba(255, 159, 67, 0.8);
+
+        pointer-events: none;
+    }
+
+    .learning-anchor-label {
+        position: absolute;
+        z-index: 281;
+
+        padding: 3px 6px;
+
+        border-radius: 3px;
+
+        background: rgba(15, 15, 15, 0.92);
+        border: 1px solid rgba(255, 159, 67, 0.65);
+
+        color: #ffb56b;
+
+        font-size: 10px;
+        font-weight: 700;
+
+        white-space: nowrap;
+        pointer-events: none;
+    }
+
+    #chart.price-picker-active {
+        cursor: crosshair;
+    }
+
+    .learning-input:focus,
+    .learning-select:focus {
+        border-color: #6228e9;
+    }
+
+    .learning-detail-row {
+        display: flex;
+        gap: 8px;
+    }
+
+    .learning-detail-row > div {
+        flex: 1;
+    }
+
+    .learning-save-button {
+        width: 100%;
+        height: 40px;
+        margin-top: 8px;
+
+        border: 0;
+        border-radius: 8px;
+
+        background: #6228e9;
+        color: #fff;
+
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .learning-save-button:hover {
+        background: #8050f0;
+    }
+
+    .learning-delete-button {
+        width: 100%;
+        height: 40px;
+        margin-top: 8px;
+
+        border: 0;
+        border-radius: 8px;
+
+        background: #c91919;
+        color: #fff;
+
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .learning-delete-button:hover {
+        background: #c03838;
+    }
+
+    #sidebar.collapsed .market-selector {
+        display: none;
+    }
+
+    /* =========================================================
+    LEARNING GEOMETRY EDITOR
+    ========================================================= */
+
+    .learning-geometry-button {
+        width: 100%;
+        height: 38px;
+        margin-top: 6px;
+
+        border: 1px solid #383838;
+        border-radius: 7px;
+
+        background: #222;
+        color: #ddd;
+
+        font-size: 11px;
+        font-weight: 700;
+
+        cursor: pointer;
+
+        transition:
+            background 0.15s ease,
+            border-color 0.15s ease,
+            color 0.15s ease;
+    }
+
+    .learning-geometry-button:hover {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-geometry-button.active {
+        color: #fff;
+    }
+
+    .trade-setup-button.selected {
+        border-color: #2a9cff;
+        color: #fff;
+    }
+
+    .trade-setup-button.active {
+        background: rgba(42, 156, 255, 0.22);
+        border-color: #2a9cff;
+    }
+
+    .learning-geometry-summary {
+        margin-top: 7px;
+        padding: 8px 9px;
+
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 6px;
+
+        color: #8f8f8f;
+        font-size: 10px;
+        line-height: 1.45;
+    }
+
+
+    .learning-geometry-value-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+    }
+
+
+    .learning-geometry-value {
+        padding: 8px;
+
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+
+    .learning-geometry-value span {
+        display: block;
+
+        margin-bottom: 3px;
+
+        color: #777;
+        font-size: 9px;
+        font-weight: 700;
+    }
+
+
+    .learning-geometry-value strong {
+        display: block;
+
+        color: #ddd;
+        font-size: 11px;
+    }
+
+    .breakout-value strong {
+        color: #ff9800;
+    }
+
+    .entry-value strong {
+        color: #2196f3;
+    }
+
+    .sl-value strong {
+        color: #ff3b30;
+    }
+
+    .tp-value strong {
+        color: #00d26a;
+    }
+
+
+    /* =========================================================
+    DRAWING OBJECTS ON CHART
+    ========================================================= */
+
+    .learning-geometry-rect {
+        position: absolute;
+        box-sizing: border-box;
+        pointer-events: none;
+        border-radius: 4px;
+    }
+
+    .learning-trade-setup-rect {
+        background: rgba(42, 156, 255, 0.06);
+        border: 1px solid rgba(42, 156, 255, 0.72);
+
+        box-shadow:
+            inset 0 0 0 1px rgba(42, 156, 255, 0.05),
+            0 0 14px rgba(42, 156, 255, 0.10);
+    }
+
+
+    /* =========================================================
+    TRADE SETUP INTERNAL LEVELS
+    ========================================================= */
+
+    .learning-setup-level {
+        position: absolute;
+
+        height: 2px;
+
+        transform: translateY(-1px);
+
+        pointer-events: none;
+
+        z-index: 320;
+    }
+
+
+    .learning-setup-breakout {
+        background: #ff9800;
+        box-shadow: 0 0 8px rgba(255, 152, 0, 0.55);
+    }
+
+    .learning-setup-entry {
+        background: #2196f3;
+        box-shadow: 0 0 8px rgba(33, 150, 243, 0.55);
+    }
+
+    .learning-setup-sl {
+        background: #ff3b30;
+        box-shadow: 0 0 8px rgba(255, 59, 48, 0.55);
+    }
+
+    .learning-setup-tp {
+        background: #00d26a;
+        box-shadow: 0 0 8px rgba(0, 210, 106, 0.55);
+    }
+
+
+    .learning-setup-label {
+        position: absolute;
+
+        padding: 3px 5px;
+
+        border-radius: 4px;
+
+        color: #fff;
+
+        background: rgba(10, 10, 10, 0.92);
+
+        font-size: 9px;
+        font-weight: 700;
+
+        white-space: nowrap;
+
+        pointer-events: none;
+
+        z-index: 330;
+    }
+
+
+    .learning-geometry-handle {
+        position: absolute;
+
+        width: 10px;
+        height: 10px;
+
+        margin-left: -5px;
+        margin-top: -5px;
+
+        border-radius: 50%;
+
+        background: #fff;
+
+        border: 2px solid #2a9cff;
+
+        box-shadow: 0 0 8px rgba(42, 156, 255, 0.65);
+
+        pointer-events: none;
+
+        z-index: 340;
+    }
+
+    /* =========================================================
+    LEARNING GEOMETRY INTERACTION
+    ========================================================= */
+
+    .learning-geometry-rect {
+        position: absolute;
+        box-sizing: border-box;
+        pointer-events: auto;
+    }
+
+    .learning-zone-rect {
+        cursor: move;
+    }
+
+    .learning-trade-setup-rect {
+        cursor: move;
+    }
+
+    .learning-geometry-resize-handle {
+        position: absolute;
+        z-index: 360;
+        pointer-events: auto;
+    }
+
+    .learning-geometry-resize-handle.left,
+    .learning-geometry-resize-handle.right {
+        cursor: ew-resize;
+    }
+
+    .learning-geometry-resize-handle.top,
+    .learning-geometry-resize-handle.bottom {
+        cursor: ns-resize;
+    }
+
+    .learning-trade-setup-edge {
+        position: absolute;
+        z-index: 380;
+        width: 8px;
+        pointer-events: auto;
+        cursor: ew-resize;
+    }
+
+    .learning-setup-level {
+        cursor: ns-resize;
+        pointer-events: auto;
+    }
+
+    .learning-geometry-delete {
+        width: 22px;
+        height: 22px;
+
+        padding: 0;
+
+        border: 1px solid #444;
+        border-radius: 4px;
+
+        background: #222;
+        color: #aaa;
+
+        font-size: 16px;
+        line-height: 18px;
+
+        cursor: pointer;
+    }
+
+    .learning-geometry-delete:hover {
+        background: #8b1e1e;
+        color: #fff;
+        border-color: #c44;
+    }
+
+    .learning-geometry-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        gap: 8px;
+    }
+
+    .learning-geometry-editing {
+        cursor: crosshair;
+    }
+
+    .learning-geometry-editing #chart {
+        cursor: crosshair;
+    }
+
+    #sidebar.collapsed .analysis-button,
+    #sidebar.collapsed .training-button,
+    #sidebar.collapsed .testing-button,
+    #sidebar.collapsed .learning-button,
+    #sidebar.collapsed .market-selector-label,
+    #sidebar.collapsed .update-data-button {
+        display: none;
+    }
+
+    /* =========================================================
+    COMPACT LEARNING ACCORDION
+    ========================================================= */
+
+    .learning-accordion {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 10px;
+    }
+
+    .learning-accordion-item {
+        width: 100%;
+    }
+
+    .learning-accordion-header {
+        display: flex;
+        width: 100%;
+        height: 40px;
+        box-sizing: border-box;
+    }
+
+    .learning-accordion-main,
+    .learning-accordion-expand,
+    .learning-accordion-delete {
+        height: 40px;
+        box-sizing: border-box;
+        border: 1px solid #383838;
+        background: #222;
+        color: #ddd;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .learning-accordion-main {
+        flex: 1;
+        min-width: 0;
+        padding: 0 12px;
+        text-align: left;
+        border-radius: 7px 0 0 7px;
+        border-right: 0;
+    }
+
+    .learning-accordion-expand {
+        width: 38px;
+        flex: 0 0 38px;
+        border-left: 0;
+        border-right: 0;
+        font-size: 12px;
+    }
+
+    .learning-accordion-delete {
+        width: 34px;
+        flex: 0 0 34px;
+        border-radius: 0 7px 7px 0;
+        color: #aaa;
+        font-size: 17px;
+        line-height: 1;
+    }
+
+    .learning-accordion-main:hover,
+    .learning-accordion-expand:hover {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-accordion-delete:hover {
+        background: #8b1e1e;
+        border-color: #c44;
+        color: #fff;
+    }
+
+    .learning-accordion-main.active {
+        color: #fff;
+    }
+
+    .learning-accordion-body {
+        display: none;
+        margin-top: 4px;
+        padding: 8px;
+        border: 1px solid #303030;
+        border-radius: 0 0 7px 7px;
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .learning-accordion-item.open
+    .learning-accordion-body {
+        display: block;
+    }
+
+    .learning-accordion-item.open
+    .learning-accordion-expand {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-accordion-body .learning-anchor-row {
+        margin-top: 0;
+    }
+
+    .learning-rr-control {
+        width: 100%;
+        margin-top: 6px;
+    }
+
+    .learning-rr-label {
+        display: block;
+        margin-bottom: 4px;
+
+        color: #777;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+    }
+
+    .learning-rr-switch {
+        display: flex;
+        width: 100%;
+        height: 34px;
+
+        border: 1px solid #383838;
+        border-radius: 7px;
+
+        overflow: hidden;
+        background: #222;
+    }
+
+    .learning-rr-mode-button {
+        flex: 1;
+        min-width: 0;
+
+        border: 0;
+        border-right: 1px solid #383838;
+
+        background: #222;
+        color: #888;
+
+        font-size: 10px;
+        font-weight: 700;
+
+        cursor: pointer;
+
+        transition:
+            background 0.15s ease,
+            color 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .learning-rr-mode-button:last-child {
+        border-right: 0;
+    }
+
+    .learning-rr-mode-button:hover {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-rr-mode-button.active {
+        background: rgba(42, 156, 255, 0.16);
+        color: #fff;
+
+        box-shadow:
+            inset 0 0 0 1px #2a9cff;
+    }
+
+    .learning-accordion-body .learning-geometry-summary {
+        margin-top: 0;
+    }
+
+    .learning-accordion-body .learning-geometry-value-grid {
+        margin-top: 6px;
+    }
+
+    /* remove old button styling from compact controls */
+
+    .learning-accordion-main.learning-anchor-picker,
+    .learning-accordion-main.learning-geometry-button {
+        width: auto;
+        height: 40px;
+        margin-top: 0;
+    }
+
+    .display-filters {
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        margin-top: 14px;
+        padding-bottom: 24px;
+    }
+
+    .display-filter-button {
+        flex: 1;
+        height: 52px;
+
+        border: 1px solid #383838;
+        border-radius: 8px;
+
+        background: #252525;
+        color: #aaa;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        cursor: pointer;
+
+        transition:
+            background 0.15s ease,
+            border-color 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    .display-filter-button img {
+        width: 30px;
+        height: 30px;
+        object-fit: contain;
+
+        filter: invert(1);
+
+        pointer-events: none;
+    }
+
+    .display-filter-button:hover {
+        background: #333;
+    }
+
+    .display-filter-button.active {
+        border-color: #6228e9;
+        box-shadow: 0 0 0 1px #6228e9;
+    }
+
+    .filter-option span {
+        user-select: none;
+    }
+
+    #sidebar.collapsed .analysis-button,
+    #sidebar.collapsed .training-button,
+    #sidebar.collapsed .testing-button,
+    #sidebar.collapsed .market-selector-label,
+    #sidebar.collapsed .display-filters,
+    #sidebar.collapsed .update-data-button {
+        display: none;
+    }
+
+    /* =========================================================
+    SUPPORT / RESISTANCE ZONES
+    ========================================================= */
+
+    .learning-zones {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    .learning-zone-add-button {
+        width: 100%;
+        height: 40px;
+
+        border: 1px solid #383838;
+        border-radius: 7px;
+
+        background: #222;
+        color: #ddd;
+
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1;
+
+        cursor: pointer;
+
+        transition:
+            background 0.15s ease,
+            border-color 0.15s ease,
+            color 0.15s ease;
+    }
+
+    .learning-zone-add-button:hover {
+        background: #303030;
+        color: #fff;
+        border-color: #505050;
+    }
+
+    .learning-zone-type-menu {
+        display: flex;
+        gap: 6px;
+    }
+
+    .learning-zone-type-button {
+        flex: 1;
+        height: 36px;
+
+        border: 1px solid #383838;
+        border-radius: 6px;
+
+        background: #222;
+        color: #ddd;
+
+        font-size: 10px;
+        font-weight: 700;
+
+        cursor: pointer;
+
+        transition:
+            background 0.15s ease,
+            border-color 0.15s ease,
+            color 0.15s ease;
+    }
+
+    .learning-zone-type-button:hover {
+        background: #303030;
+        color: #fff;
+        border-color: #505050;
+    }
+
+    .learning-zone-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .learning-zone-item {
+        width: 100%;
+    }
+
+    .learning-zone-header {
+        display: flex;
+        width: 100%;
+        height: 40px;
+        box-sizing: border-box;
+    }
+
+    .learning-zone-main,
+    .learning-zone-expand,
+    .learning-zone-delete {
+        height: 40px;
+        box-sizing: border-box;
+
+        border: 1px solid #383838;
+        background: #222;
+        color: #ddd;
+
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .learning-zone-main {
+        flex: 1;
+        min-width: 0;
+
+        padding: 0 12px;
+        text-align: left;
+
+        border-radius: 7px 0 0 7px;
+        border-right: 0;
+    }
+
+    .learning-zone-expand {
+        width: 38px;
+        flex: 0 0 38px;
+
+        border-left: 0;
+        border-right: 0;
+
+        font-size: 12px;
+    }
+
+    .learning-zone-delete {
+        width: 34px;
+        flex: 0 0 34px;
+
+        border-radius: 0 7px 7px 0;
+
+        color: #aaa;
+        font-size: 17px;
+        line-height: 1;
+    }
+
+    .learning-zone-main:hover,
+    .learning-zone-expand:hover {
+        background: #303030;
+        color: #fff;
+    }
+
+    .learning-zone-delete:hover {
+        background: #8b1e1e;
+        border-color: #c44;
+        color: #fff;
+    }
+
+    .learning-zone-main.active {
+        color: #fff;
+    }
+
+    .learning-zone-body {
+        display: none;
+
+        margin-top: 4px;
+        padding: 8px;
+
+        border: 1px solid #303030;
+        border-radius: 0 0 7px 7px;
+
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .learning-zone-item.open
+    .learning-zone-body {
+        display: block;
+    }
+
+    .learning-zone-rect {
+        position: absolute;
+        box-sizing: border-box;
+
+        pointer-events: auto;
+
+        border-radius: 4px;
+
+        background: var(--zone-bg, rgba(255, 255, 255, 0.08));
+        border: 1px solid var(--zone-color, #aaa);
+
+        box-shadow:
+            inset 0 0 0 1px
+                color-mix(
+                    in srgb,
+                    var(--zone-color, #aaa) 12%,
+                    transparent
+                );
+
+        cursor: move;
+    }
+
+    .logout-button {
+        width: 100%;
+        height: 42px;
+        margin-top: 5px;
+        margin-bottom: 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #c91919;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+            opacity 0.15s ease,
+            background 0.15s ease;
+    }
+
+    .logout-button:hover {
+        background: #e03838;
+    }
+
+    #sidebar.collapsed .logout-button {
+        display: none;
+    }

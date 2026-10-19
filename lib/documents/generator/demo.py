@@ -11,7 +11,7 @@ from reportlab.lib.utils import ImageReader
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 OUTPUT_PDF = os.path.normpath(os.path.join(BASE_DIR, "..", "demo.pdf"))
-LOGO_PATH = os.path.normpath(os.path.join(BASE_DIR, "..", "..", "images", "logo_pdf.png"))
+LOGO_PATH = os.path.normpath(os.path.join(BASE_DIR, "..", "..", "images", "logo_black.png"))
 FONT_PATH = os.path.normpath(os.path.join(BASE_DIR, "..", "..", "fonts", "Roboto-Regular.ttf"))
 
 

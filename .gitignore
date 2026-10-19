@@ -1,47 +1,98 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ============================================================
+# Shared rules for Spectline and Tradingbot
+# ============================================================
 
-# dependencies
-/node_modules
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Certificate and key files
+*.pem
+
+
+# ============================================================
+# Spectline rules (repository root: D:\spectline)
+# ============================================================
+
+# Node.js dependencies
+/node_modules/
 /.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+/.pnp.*
 
-# testing
-/coverage
+# Yarn files
+/.yarn/*
+!/.yarn/patches
+!/.yarn/plugins
+!/.yarn/releases
+!/.yarn/versions
 
-# next.js
+# Testing output
+/coverage/
+
+# Next.js build output
 /.next/
 /out/
 
-# production
-/build
+# Production build output
+/build/
 
-# misc
-.DS_Store
-*.pem
+# Node.js package manager logs
+/npm-debug.log*
+/yarn-debug.log*
+/yarn-error.log*
+/.pnpm-debug.log*
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+# Spectline environment files
+/.env*
 
-# env files (can opt-in for committing if needed)
-.env*
+# Vercel configuration
+/.vercel/
 
-# vercel
-.vercel
+# TypeScript build artifacts
+/*.tsbuildinfo
+/next-env.d.ts
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Generated Prisma client
+/generated/prisma/
 
-/generated/prisma
+# Local project files
+/password.txt
+/tree.txt
+/prisma.config.ts.*
 
-password.txt
-tree.txt
-prisma.config.ts.*
+
+# ============================================================
+# Tradingbot rules (subdirectory: D:\spectline\tradingbot)
+# ============================================================
+
+# Tradingbot environment files
+/tradingbot/.env
+/tradingbot/.env.*
+!/tradingbot/.env.example
+
+# SSH keys and key directories
+/tradingbot/**/SSH/
+/tradingbot/**/id_ed25519
+/tradingbot/**/id_ed25519.pub
+
+# Python cache directories and bytecode
+/tradingbot/__pycache__/
+/tradingbot/**/__pycache__/
+/tradingbot/*.pyc
+/tradingbot/**/*.pyc
+/tradingbot/*.pyo
+/tradingbot/**/*.pyo
+/tradingbot/*.pyd
+/tradingbot/**/*.pyd
+
+# Local model data and trading setup files
+/tradingbot/**/MODELS/
+/tradingbot/**/TRADING SET UP/
+
+# Ignore only M1 and M5 chart data
+/tradingbot/CHARTS/*/M1/
+/tradingbot/CHARTS/*/M5/
+
+# Tradingbot log files
+/tradingbot/*.log
+/tradingbot/**/*.log

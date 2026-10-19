@@ -60,7 +60,12 @@ type NewsletterNotificationStatus =
   | "pending"
   | "confirmed"
   | "unsubscribed"
-  | "invalid";
+  | "invalid"
+  | "approval_approved"
+  | "approval_rejected"
+  | "approval_invalid"
+  | "approval_already_processed"
+  | "approval_error";
 
 type ContactStatusCopy = {
   submitting: string;
@@ -362,15 +367,24 @@ export default function AndroidBasic({
     useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(
-      window.location.search
-    );
+    const params = new URLSearchParams(window.location.search);
 
+    const approvalStatus = params.get("approval");
     const newsletterStatus = params.get("newsletter");
 
     let nextStatus: NewsletterNotificationStatus = "idle";
 
-    if (newsletterStatus === "confirmed") {
+    if (approvalStatus === "approved") {
+      nextStatus = "approval_approved";
+    } else if (approvalStatus === "rejected") {
+      nextStatus = "approval_rejected";
+    } else if (approvalStatus === "invalid") {
+      nextStatus = "approval_invalid";
+    } else if (approvalStatus === "already_processed") {
+      nextStatus = "approval_already_processed";
+    } else if (approvalStatus === "error") {
+      nextStatus = "approval_error";
+    } else if (newsletterStatus === "confirmed") {
       nextStatus = "confirmed";
     } else if (newsletterStatus === "unsubscribed") {
       nextStatus = "unsubscribed";
@@ -390,16 +404,13 @@ export default function AndroidBasic({
     setQueuedNewsletterNotificationStatus(nextStatus);
 
     params.delete("newsletter");
+    params.delete("approval");
 
     const cleanUrl = `${window.location.pathname}${
       params.toString() ? `?${params.toString()}` : ""
     }${window.location.hash}`;
 
-    window.history.replaceState(
-      null,
-      "",
-      cleanUrl
-    );
+    window.history.replaceState(null, "", cleanUrl);
   }, []);
 
   useEffect(() => {

@@ -29,7 +29,7 @@ OUTPUT_PDF_EN = os.path.normpath(os.path.join(BASE_DIR, "..", "invoice_en.pdf"))
 # Rovnake cesty ako v complaint.py:
 # D:\\Spectline\\lib\\documents\\generator -> D:\\Spectline\\public\\...
 LOGO_PATH = os.path.normpath(
-    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_pdf.png")
+    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_black.png")
 )
 FONT_PATH = os.path.normpath(
     os.path.join(BASE_DIR, "..", "..", "..", "public", "fonts", "Roboto-Regular.ttf")

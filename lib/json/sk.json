@@ -1,25 +1,25 @@
 {
-  "scrollHint": "POSUŇTE SA NIŽŠIE ↓",
+  "scrollHint": "POSUŇTE NADOL ↓",
   "language": {
     "ariaLabel": "Zmeniť jazyk"
   },
   "nav": {
     "home": "Domov",
-    "process": "Proces",
-    "services": "Služby",
-    "portfolio": "Portfólio",
-    "reviews": "Referencie",
+    "process": "Ako to funguje",
+    "services": "Funkcie",
+    "portfolio": "AI Tradingbot",
+    "reviews": "Hlavné výhody",
     "contact": "Kontakt",
-    "login": "Showreel",
-    "signup": "Začať projekt"
+    "login": "Prihlásiť sa",
+    "signup": "Začať"
   },
-    "signup": {
+  "signup": {
     "homeAriaLabel": "Domov",
     "logoAlt": "Logo Spectline",
     "title": "Registrácia",
     "sections": {
       "client": "Klient",
-      "company": "Firma",
+      "company": "Spoločnosť",
       "password": "Heslo"
     },
     "fields": {
@@ -29,20 +29,23 @@
       "city": "Mesto",
       "phone": "Telefónne číslo",
       "email": "E-mail",
-      "company": "Názov firmy",
+      "company": "Názov spoločnosti",
       "website": "Webová stránka",
       "password": "Heslo",
-      "confirmPassword": "Potvrdenie hesla"
+      "confirmPassword": "Potvrdiť heslo"
     },
     "validation": {
       "nameRequired": "Zadajte meno a priezvisko.",
-      "emailRequired": "Zadajte e-mail.",
+      "emailRequired": "Zadajte e-mailovú adresu.",
       "addressRequired": "Zadajte adresu a mesto.",
-      "passwordLength": "Heslo musí mať aspoň 8 znakov.",
+      "passwordLength": "Heslo musí obsahovať aspoň 8 znakov.",
       "passwordMismatch": "Heslá sa nezhodujú.",
-      "signupFailed": "Registrácia sa nepodarila."
+      "signupFailed": "Registrácia zlyhala."
     },
-    "submit": "Zaregistrovať sa",
+    "status": {
+      "registrationSubmitted": "Registrácia bola prijatá. Váš účet čaká na schválenie administrátorom. Prihlásiť sa môžete po jeho schválení."
+    },
+    "submit": "Vytvoriť účet",
     "existingAccount": "Už máte účet?",
     "login": "Prihlásiť sa"
   },
@@ -55,193 +58,179 @@
       "password": "Heslo"
     },
     "validation": {
-      "fieldsRequired": "Zadajte e-mail aj heslo.",
-      "loginFailed": "Prihlásenie sa nepodarilo."
+      "fieldsRequired": "Zadajte e-mailovú adresu a heslo.",
+      "loginFailed": "Prihlásenie zlyhalo.",
+      "accountPending": "Váš účet čaká na schválenie administrátorom. Prihlásiť sa môžete po jeho schválení.",
+      "accountRejected": "Vaša registrácia bola zamietnutá. Ak sa domnievate, že ide o omyl, kontaktujte podporu."
     },
     "submit": "Prihlásiť sa",
-    "noAccount": "Nemáte účet?",
-    "signup": "Registrácia"
+    "noAccount": "Ešte nemáte účet?",
+    "signup": "Registrovať sa"
   },
-    "dashboard": {
+  "dashboard": {
     "logoAlt": "Logo Spectline",
-    "loading": "Načítavam účet...",
+    "loading": "Načítava sa účet...",
     "userFallback": "Používateľ",
     "header": {
-      "notificationsAriaLabel": "Otvoriť notifikácie",
+      "notificationsAriaLabel": "Otvoriť upozornenia",
       "menuAriaLabel": "Otvoriť bočný panel"
     },
     "notifications": {
-      "title": "Notifikácie",
-      "empty": "Zatiaľ nemáte žiadne notifikácie.",
-      "closeAriaLabel": "Zavrieť notifikácie"
+      "title": "Upozornenia",
+      "empty": "Zatiaľ nemáte žiadne upozornenia.",
+      "closeAriaLabel": "Zavrieť upozornenia"
     },
     "sidebar": {
       "title": "Ovládací panel",
       "closeAriaLabel": "Zavrieť bočný panel",
       "account": "Účet",
       "settings": "Nastavenia",
+      "tradingbot": "Tradingbot",
       "logout": "Odhlásiť sa",
-      "loggingOut": "Odhlasujem..."
+      "loggingOut": "Odhlasovanie..."
     }
   },
   "hero": {
     "brand": "Spectline",
-    "desc": "Kreatívne štúdio pre VFX, animáciu, 3D a postprodukciu.",
-    "primaryCta": "Začať projekt",
-    "secondaryCta": "Pozrieť tvorbu",
-    "card": "VFX, animácia, 3D a strih pre filmy, značky a digitálny obsah"
+    "desc": "AI tradingbot poháňaný umelou inteligenciou, navrhnutý tak, aby sa učil na základe vlastnej histórie obchodov.",
+    "primaryCta": "Začať",
+    "secondaryCta": "Ako to funguje",
+    "card": "Trénujte na vlastných dátach. Integrovateľný s MT4 a MT5 za pár minút."
   },
   "process": {
-    "title": "Proces",
-    "subtitle": "Jasný postup. Silný vizuál. Spoľahlivé dodanie.",
+    "title": "Ako to funguje",
+    "subtitle": "Vaša obchodná história. AI strojové učenie. Plynulá integrácia.",
     "steps": [
       {
         "n": 1,
-        "title": "Zadanie a koncept",
-        "text": "Definujeme ciele, vizuálny smer a rozsah projektu."
+        "title": "Poskytnite obchodné dáta",
+        "text": "Nahrajte databázu obchodov, z ktorej sa má AI učiť."
       },
       {
         "n": 2,
-        "title": "Produkcia",
-        "text": "Tvoríme, upravujeme a priebežne konzultujeme každý vizuál."
+        "title": "Naučte obchodnú stratégiu",
+        "text": "Bot analyzuje históriu obchodov a hľadá obchodné vzorce."
       },
       {
         "n": 3,
-        "title": "Finálne dodanie",
-        "text": "Hotové výstupy dodáme v požadovaných formátoch."
+        "title": "Pripojte svoju platformu",
+        "text": "Použite naučenú stratégiu s MetaTrader 4 alebo MetaTrader 5."
       }
     ]
   },
   "services": {
-    "title": "Služby",
-    "subtitle": "Kreatívna produkcia prispôsobená každému projektu.",
-    "order": "Vyžiadať cenovú ponuku",
+    "title": "Funkcie",
+    "subtitle": "Všetko, čo potrebujete na premenu vašej obchodnej histórie na automatizovanú AI stratégiu.",
+    "order": "Začať teraz",
     "plans": [
       {
-        "name": "Vizuálna produkcia",
-        "price": "Individuálna cena",
-        "desc": "Kompletná vizuálna produkcia od konceptu po finálny výstup.",
+        "name": "AI Trading Bot & MT4/MT5 Integrácia",
+        "price": "Kompletné riešenie",
+        "desc": "Inteligentný obchodný bot, ktorý sa učí z vašej histórie a plynule sa prepája s vašou obchodnou platformou.",
         "details": [
-          "VFX a compositing",
-          "2D a 3D animácia",
-          "3D modelovanie a assety",
-          "Motion dizajn",
-          "Kreatívna réžia"
-        ]
-      },
-      {
-        "name": "Postprodukcia",
-        "price": "Individuálna cena",
-        "desc": "Profesionálny strih a finálne spracovanie digitálneho obsahu.",
-        "details": [
-          "Strih videa",
-          "Color grading",
-          "Retušovanie a cleanup",
-          "Titulky a grafika",
-          "Finálne exporty"
+          "Učenie AI stratégií a analýza vzorov",
+          "Spracovanie vlastnej databázy obchodov",
+          "Plynulá integrácia s MetaTrader 4 (MT4) a MetaTrader 5 (MT5)",
+          "Exekúcia na základe dát a neustále prispôsobovanie",
+          "Plánovaná podpora pre ďalšie obchodné platformy"
         ]
       }
     ]
   },
   "portfolio": {
-    "title": "Portfólio",
-    "subtitle": "Vybrané práce z oblasti VFX, animácie, 3D a postprodukcie.",
-    "shot1Title": "Fotorealistický portrét ženy",
-    "shot1Desc": "Detailný 3D model ženy vytvorený v programe Blender.",
+    "title": "AI Tradingbot",
+    "subtitle": "AI nástroj na obchodovanie postavený na vašej vlastnej histórii obchodov.",
+    "shot1Title": "Obchodovanie s podporou AI",
+    "shot1Desc": "Bot sa učí z databázy obchodov, ktorú mu poskytnete.",
     "items": [
-      "3D modely a digitálne assety",
-      "Strih videa a postprodukcia",
-      "Motion grafika a titulky",
-      "Produktové a architektonické vizualizácie"
+      "Analýza histórie obchodov",
+      "Učenie obchodnej stratégie pomocou AI",
+      "Integrácia MetaTrader 4",
+      "Integrácia MetaTrader 5"
     ]
   },
   "reviews": {
-    "title": "Referencie",
-    "subtitle": "Prečítajte si skúsenosti klientov, ktorí využili naše služby.",
+    "title": "Skúsenosti obchodníkov",
+    "subtitle": "Reálne hodnotenia traderov, ktorí používajú obchodného bota Spectline.",
     "items": [
       {
-        "name": "Film a televízia",
-        "role": "Produkčný manažér",
-        "text": "Profesionálny prístup a dodržanie termínov pri VFX a postprodukcii."
+        "name": "Anonym",
+        "role": "Prop Trader",
+        "text": "Tréning bota na mojej vlastnej histórii obchodov kompletne zmenil moju stratégiu. Eliminoval emócie a presne dodržiava moje overené vzorce."
       },
       {
-        "name": "Komerčná značka",
-        "role": "Marketingový špecialista",
-        "text": "3D animácie a vizuály posunuli našu kampaň na novú úroveň."
+        "name": "Anonym",
+        "role": "Algoritrický trader",
+        "text": "Analýza obchodných vzorov odhalila chyby v mojich minulých obchodoch, ktoré som si nikdy nevšimol. AI prevzala moju výhodu a výrazne ju zdokonalila."
       },
       {
-        "name": "Kreatívna agentúra",
-        "role": "Art Director",
-        "text": "Spoľahlivý partner pre externú produkciu s citom pre detail."
+        "name": "Anonym",
+        "role": "FX Trader",
+        "text": "Prepojenie Spectline s MetaTrader 4 trvalo len pár minút. Exekúcia je bezchybná a môj obchodný proces je plne automatizovaný."
       },
       {
-        "name": "Stavebná firma",
-        "role": "Riaditeľ",
-        "text": "Veľmi nám pomohla spolupráca a 3D vizualizácie boli vytvorené rýchlo a profesionálne."
+        "name": "Anonym",
+        "role": "Systematický trader",
+        "text": "Plná podpora MetaTrader 5 v kombinácii s využitím vlastných dát mi dáva obrovskú konkurenčnú výhodu."
       },
       {
-        "name": "Herné štúdio",
-        "role": "Lead Artist",
-        "text": "Skvelá technická podpora a vysoká kvalita pri tvorbe 3D assetov."
-      },
-      {
-        "name": "Nezávislý tvorca",
-        "role": "Režisér",
-        "text": "Vizuálne efekty dodali projektu presne takú atmosféru, akú sme hľadali."
+        "name": "Anonym",
+        "role": "Portfólio manažér",
+        "text": "Flexibilita a plánované integrácie ďalších platforiem robia zo Spectline kľúčový nástroj pre škálovanie akejkoľvek stratégie."
       }
     ]
   },
   "contact": {
     "title": "Kontakt",
-    "desc": "Napíšte nám o svojom projekte, termíne a kreatívnych cieľoch.",
+    "desc": "Ak vás niečo zaujíma, nechajte nám správu.",
     "emailLine": "E-mail: info.spectline@gmail.com",
-    "supportLine": "Pracovné hodiny: Po – Pi, 9:00 – 16:00",
+    "supportLine": "Pracovný čas: Po – Pi, 9:00 – 16:00",
     "fields": {
       "name": {
         "label": "Meno",
         "placeholder": "Meno"
       },
       "system": {
-        "label": "Typ projektu",
-        "placeholder": "napr. VFX, animácia alebo 3D model"
+        "label": "Téma",
+        "placeholder": "napr. AI, prepojenie MT4 / MT5..."
       },
       "email": {
         "label": "E-mail",
         "placeholder": "E-mail"
       },
       "message": {
-        "label": "Detaily projektu",
-        "placeholder": "Rozsah projektu, termín a rozpočet"
+        "label": "Správa",
+        "placeholder": "Opýtaj sa, čo by si chcel vedieť."
       }
     },
-    "submit": "Odoslať",
+    "submit": "Odoslať správu",
     "status": {
-      "submitting": "Odosielam...",
-      "success": "Správa bola úspešne odoslaná.",
+      "submitting": "Odosielanie...",
+      "success": "Vaša správa bola úspešne odoslaná.",
       "error": "Správu sa nepodarilo odoslať."
     }
   },
   "newsletterEmail": {
     "confirmation": {
-      "subject": "Potvrďte odber newslettera Spectline",
-      "heading": "Potvrďte odber newslettera",
-      "text": "Kliknutím na tlačidlo nižšie potvrďte, že chcete dostávať novinky zo štúdia Spectline.",
+      "subject": "Potvrďte odber noviniek Spectline",
+      "heading": "Potvrďte svoj odber",
+      "text": "Kliknutím na tlačidlo nižšie potvrdíte, že chcete dostávať novinky od Spectline.",
       "button": "Potvrdiť odber",
-      "expiration": "Tento potvrdzovací odkaz je platný 24 hodín. Ak ste o odber nepožiadali, tento e-mail môžete ignorovať."
+      "expiration": "Tento potvrdzovací odkaz platí 24 hodín. Ak ste o odber nepožiadali, tento e-mail môžete ignorovať."
     },
     "welcome": {
-      "subject": "Odber newslettera Spectline je aktívny",
-      "heading": "Odber bol úspešne potvrdený",
-      "text": "Ďakujeme za potvrdenie. Odteraz vám môžeme posielať novinky, projekty a aktuality zo štúdia Spectline.",
-      "unsubscribeText": "Ak už nechcete dostávať naše novinky, odber môžete kedykoľvek zrušiť pomocou odkazu nižšie.",
-      "unsubscribeButton": "Zrušiť odber"
+      "subject": "Váš odber noviniek Spectline je aktívny",
+      "heading": "Odber bol potvrdený",
+      "text": "Ďakujeme za potvrdenie. Teraz môžete dostávať novinky a informácie od Spectline.",
+      "unsubscribeText": "Ak už nechcete dostávať naše novinky, môžete sa kedykoľvek odhlásiť pomocou odkazu nižšie.",
+      "unsubscribeButton": "Odhlásiť odber"
     }
   },
   "footer": {
     "infoTitle": "Informácie",
     "infoLinks": {
       "terms": "Obchodné podmienky",
-      "privacy": "Ochrana osobných údajov",
+      "privacy": "Ochrana súkromia",
       "complaint": "Reklamácie",
       "invoice": "Fakturačné údaje"
     },
@@ -251,15 +240,20 @@
       "youtube": "YouTube",
       "tiktok": "TikTok"
     },
-    "newsletterTitle": "Novinky zo štúdia",
+    "newsletterTitle": "Novinky o produkte",
     "newsletterLabel": "E-mail",
     "newsletterPlaceholder": "E-mail",
-    "newsletterButton": "Prihlásiť sa",
+    "newsletterButton": "Prihlásiť sa na odber",
     "newsletterStatus": {
-      "pending": "Pre dokončenie odberu newslettera potvrďte svoju e-mailovú adresu.",
-      "confirmed": "Odber newslettera bol úspešne potvrdený.",
-      "unsubscribed": "Odber newslettera bol úspešne zrušený.",
-      "invalid": "Odkaz je neplatný, použitý alebo už vypršal."
+      "pending": "Na dokončenie odberu potvrďte svoju e-mailovú adresu.",
+      "confirmed": "Odber noviniek bol potvrdený.",
+      "unsubscribed": "Odber noviniek bol zrušený.",
+      "invalid": "Tento odkaz je neplatný, už bol použitý alebo jeho platnosť vypršala.",
+      "approval_approved": "Používateľ bol úspešne schválený.",
+      "approval_rejected": "Registrácia používateľa bola zamietnutá.",
+      "approval_invalid": "Tento schvaľovací odkaz je neplatný alebo jeho platnosť vypršala.",
+      "approval_already_processed": "Táto registrácia už bola spracovaná.",
+      "approval_error": "Schválenie sa nepodarilo dokončiť. Skúste to znova."
     }
   }
 }

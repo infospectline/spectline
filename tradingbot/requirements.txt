@@ -1,0 +1,8 @@
+fastapi
+numpy
+uvicorn[standard]
+python-dotenv
+psycopg[binary]
+resend
+pydantic
+torch

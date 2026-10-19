@@ -8,6 +8,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   ArrowRight,
   Bell,
   LoaderCircle,
@@ -54,6 +55,7 @@ type DashboardCopy = {
     closeAriaLabel: string;
     account: string;
     settings: string;
+    tradingbot: string;
     logout: string;
     loggingOut: string;
   };
@@ -644,7 +646,7 @@ export default function DashboardPage() {
         "
       >
         <img
-          src="/images/logo.png"
+          src="/images/logo_white.png"
           alt=""
           className={`
             w-[min(900px,88vw)]
@@ -683,7 +685,7 @@ export default function DashboardPage() {
         >
           <div className="flex min-w-0 items-center gap-4">
             <img
-              src="/images/logo.png"
+              src="/images/logo_white.png"
               alt={copy.logoAlt}
               className={`
                 h-12 w-12
@@ -1482,6 +1484,30 @@ export default function DashboardPage() {
 
             <span>{copy.sidebar.settings}</span>
           </button>
+
+          <Link
+            href={
+              process.env.NEXT_PUBLIC_TRADINGBOT_URL ??
+              "http://localhost:8000/frontend.html"
+            }
+            onClick={() => {
+              setSidebarOpen(false);
+              setAccountOpen(false);
+              setSettingsOpen(false);
+            }}
+            className={`
+              ${sidebarButtonClass}
+              ${blueHoverClass}
+              focus-visible:ring-[rgba(59,130,246,0.28)]
+            `}
+          >
+            <Activity
+              className="h-5 w-5 shrink-0"
+              aria-hidden="true"
+            />
+
+            <span>{copy.sidebar.tradingbot}</span>
+          </Link>
 
           <div className="mt-auto pt-6">
             <button

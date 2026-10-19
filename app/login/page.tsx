@@ -24,6 +24,8 @@ type LoginCopy = {
   validation: {
     fieldsRequired: string;
     loginFailed: string;
+    accountPending: string;
+    accountRejected: string;
   };
 
   submit: string;
@@ -102,10 +104,23 @@ export default function LoginPage() {
         rememberMe: true,
       });
 
-      if (loginError) {
-        setError(copy.validation.loginFailed);
-        return;
+     if (loginError) {
+      switch (loginError.message) {
+        case "ACCOUNT_PENDING_APPROVAL":
+          setError(copy.validation.accountPending);
+          break;
+
+        case "ACCOUNT_REJECTED":
+          setError(copy.validation.accountRejected);
+          break;
+
+        default:
+          setError(copy.validation.loginFailed);
+          break;
       }
+
+      return;
+    }
 
       window.location.href = "/dashboard";
     } catch {
@@ -185,7 +200,7 @@ export default function LoginPage() {
 
         <div className="flex justify-center mb-2">
           <img
-            src="/images/logo_pdf.png"
+            src="/images/logo_black.png"
             alt={copy.logoAlt}
             className="
               h-[200px] w-[200px]

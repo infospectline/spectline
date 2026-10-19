@@ -14,13 +14,13 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Spectline",
-  description: "Automatizovaný systém AI reportov pre firmy",
+  description: "Automated AI trading bot",
   metadataBase: new URL("http://localhost:3000"),
 
   icons: {
-    icon: "/images/favicon.ico",
-    shortcut: "/images/favicon.ico",
-    apple: "/images/favicon.ico",
+    icon: "/images/favicon.png",
+    shortcut: "/images/favicon.png",
+    apple: "/images/favicon.png",
   },
 };
 

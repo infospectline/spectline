@@ -19,7 +19,7 @@ OUTPUT_PDF_SK = os.path.normpath(os.path.join(BASE_DIR, "..", "complaint_sk.pdf"
 OUTPUT_PDF_EN = os.path.normpath(os.path.join(BASE_DIR, "..", "complaint_en.pdf"))
 
 LOGO_PATH = os.path.normpath(
-    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_pdf.png")
+    os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_black.png")
 )
 FONT_PATH = os.path.normpath(
     os.path.join(BASE_DIR, "..", "..", "..", "public", "fonts", "Roboto-Regular.ttf")
