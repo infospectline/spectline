@@ -93,7 +93,7 @@
   "hero": {
     "brand": "Spectline",
     "desc": "An AI-driven trading bot designed to learn and evolve from your custom trade history.",
-    "primaryCta": "Get started",
+    "primaryCta": "Explore more",
     "secondaryCta": "How it works",
     "card": "Train on your trading data. Integratable with MT4 and MT5 in minutes."
   },
@@ -121,7 +121,7 @@
   "services": {
     "title": "Features",
     "subtitle": "Everything you need to transform your trading history into an automated AI strategy.",
-    "order": "Get started",
+    "order": "Learn More",
     "plans": [
       {
         "name": "AI Trading Bot & MT4/MT5 Integration",

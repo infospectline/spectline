@@ -93,7 +93,7 @@
   "hero": {
     "brand": "Spectline",
     "desc": "AI tradingbot poháňaný umelou inteligenciou, navrhnutý tak, aby sa učil na základe vlastnej histórie obchodov.",
-    "primaryCta": "Začať",
+    "primaryCta": "Objavte viac",
     "secondaryCta": "Ako to funguje",
     "card": "Trénujte na vlastných dátach. Integrovateľný s MT4 a MT5 za pár minút."
   },
@@ -121,7 +121,7 @@
   "services": {
     "title": "Funkcie",
     "subtitle": "Všetko, čo potrebujete na premenu vašej obchodnej histórie na automatizovanú AI stratégiu.",
-    "order": "Začať teraz",
+    "order": "Zistiť viac",
     "plans": [
       {
         "name": "AI Trading Bot & MT4/MT5 Integrácia",
