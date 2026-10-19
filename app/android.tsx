@@ -1484,11 +1484,11 @@ export default function AndroidBasic({
                   </a>
 
                   <a
-                    href="#portfolio"
+                    href="#process"
                     className="first_section__btn first_section__btn--ghost"
                     onClick={(e) => {
                       e.preventDefault();
-                      scrollToSection("portfolio");
+                      scrollToSection("process");
                     }}
                   >
                     {copy.hero.secondaryCta}

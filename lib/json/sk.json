@@ -124,15 +124,15 @@
     "order": "Zistiť viac",
     "plans": [
       {
-        "name": "AI Trading Bot & MT4/MT5 Integrácia",
+        "name": "AI Trading Bot & MT4/MT5",
         "price": "Kompletné riešenie",
-        "desc": "Inteligentný obchodný bot, ktorý sa učí z vašej histórie a plynule sa prepája s vašou obchodnou platformou.",
+        "desc": "Inteligentný obchodný bot, ktorý sa učí z reálnych SETUP-ov a prepája sa s obchodnou platformou.",
         "details": [
-          "Učenie AI stratégií a analýza vzorov",
-          "Spracovanie vlastnej databázy obchodov",
-          "Plynulá integrácia s MetaTrader 4 (MT4) a MetaTrader 5 (MT5)",
-          "Exekúcia na základe dát a neustále prispôsobovanie",
-          "Plánovaná podpora pre ďalšie obchodné platformy"
+          "Databáza obchodov pre strojové učenie.",
+          "Strojové učenie a analýza vzorov.",
+          "Plynulá integrácia s MT4/MT5.",
+          "Automatické obchodovanie autonómneho trading bota.",
+          "Kontrola výsledkov a pasívny príjem."
         ]
       }
     ]
@@ -151,7 +151,7 @@
   },
   "reviews": {
     "title": "Skúsenosti obchodníkov",
-    "subtitle": "Reálne hodnotenia traderov, ktorí používajú obchodného bota Spectline.",
+    "subtitle": "Hodnotenia traderov, ktorí používajú Spectline.",
     "items": [
       {
         "name": "Anonym",

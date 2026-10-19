@@ -124,15 +124,15 @@
     "order": "Learn More",
     "plans": [
       {
-        "name": "AI Trading Bot & MT4/MT5 Integration",
+        "name": "AI Trading Bot & MT4/MT5",
         "price": "All-in-One Solution",
-        "desc": "An intelligent trading bot that learns from your history and connects seamlessly to your execution platform.",
+        "desc": "An intelligent trading bot that learns from real SETUPS and connects to a trading platform.",
         "details": [
-          "AI-driven strategy learning & pattern analysis",
-          "Custom trade database input & processing",
-          "Seamless MetaTrader 4 (MT4) & MetaTrader 5 (MT5) integration",
-          "Data-driven execution & continuous adaptation",
-          "Future compatibility with additional trading platforms"
+          "Trade database for machine learning.",
+          "Machine learning and pattern analysis.",
+          "Seamless integration with MT4/MT5.",
+          "Automated trading by an autonomous trading bot.",
+          "Performance tracking and passive income."
         ]
       }
     ]
@@ -151,7 +151,7 @@
   },
   "reviews": {
     "title": "What Traders Say",
-    "subtitle": "Real experiences from traders using the Spectline.",
+    "subtitle": "Experiences from traders using the Spectline.",
     "items": [
       {
         "name": "Anonymous",
