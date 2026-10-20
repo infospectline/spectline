@@ -140,13 +140,27 @@
   "portfolio": {
     "title": "AI Tradingbot",
     "subtitle": "AI nástroj na obchodovanie postavený na vašej vlastnej histórii obchodov.",
-    "shot1Title": "Obchodovanie s podporou AI",
-    "shot1Desc": "Bot sa učí z databázy obchodov, ktorú mu poskytnete.",
-    "items": [
-      "Analýza histórie obchodov",
-      "Učenie obchodnej stratégie pomocou AI",
-      "Integrácia MetaTrader 4",
-      "Integrácia MetaTrader 5"
+    "shots": [
+      {
+        "title": "Graf a panel výsledkov",
+        "desc": "Sledujte vývoj ceny na grafe a prehľad výsledkov obchodovania."
+      },
+      {
+        "title": "Príprava dát a tréningu",
+        "desc": "Vyberte trh a časový rámec, aktualizujte dáta a spustite učenie, tréning alebo testovanie."
+      },
+      {
+        "title": "Nastavenie obchodu",
+        "desc": "Nastavte obchodný setup, časové rámce, vstup, Stop Loss a Take Profit."
+      },
+      {
+        "title": "Analýza obchodov",
+        "desc": "Preskúmajte zadané obchody a pripravte obchodné setupy na ďalšie učenie AI."
+      },
+      {
+        "title": "Vyhodnotenie výsledkov",
+        "desc": "Pozrite si konečný zostatok, ziskové obchody a celkovú výkonnosť."
+      }
     ]
   },
   "reviews": {

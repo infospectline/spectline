@@ -1873,13 +1873,11 @@ export default function AndroidBasic({
             </div>
 
             {(() => {
-              const cards = [
-                {
-                  title: copy.portfolio.shot1Title,
-                  desc: copy.portfolio.shot1Desc,
-                  imgSrc: "/images/woman.webp",
-                },
-              ];
+              const cards = copy.portfolio.shots.map((shot, index) => ({
+                title: shot.title,
+                desc: shot.desc,
+                imgSrc: `/images/chart_${index + 1}.webp`,
+              }));
 
               const nextSlide = () => {
                 setActiveportfolioIndex((prev) => (prev + 1) % cards.length);

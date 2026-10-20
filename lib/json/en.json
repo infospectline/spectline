@@ -140,13 +140,27 @@
   "portfolio": {
     "title": "AI Tradingbot",
     "subtitle": "An AI trading tool built around your own trade history.",
-    "shot1Title": "AI-Powered Trading",
-    "shot1Desc": "The bot learns from the trade database you provide.",
-    "items": [
-      "Trade history analysis",
-      "AI strategy learning",
-      "MetaTrader 4 integration",
-      "MetaTrader 5 integration"
+   "shots": [
+      {
+        "title": "Chart and results panel",
+        "desc": "Track price movements and review trading results on the chart."
+      },
+      {
+        "title": "Data preparation and training",
+        "desc": "Select a market and timeframe, update the data, and start learning, training, or testing."
+      },
+      {
+        "title": "Trade setup",
+        "desc": "Configure the trade setup, timeframes, entry, Stop Loss, and Take Profit."
+      },
+      {
+        "title": "Trade analysis",
+        "desc": "Review entered trades and prepare trading setups for further AI learning."
+      },
+      {
+        "title": "Performance results",
+        "desc": "Review the final balance, profitable trades, and overall performance."
+      }
     ]
   },
   "reviews": {
