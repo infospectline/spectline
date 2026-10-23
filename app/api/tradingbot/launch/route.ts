@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   }
 
   const secret = process.env.TRADINGBOT_SHARED_SECRET;
-  const tradingbotUrl = process.env.TRADINGBOT_URL;
+  const tradingbotUrl = process.env.NEXT_PUBLIC_TRADINGBOT_URL;
 
   if (!secret || !tradingbotUrl) {
     return new Response(
