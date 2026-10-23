@@ -1,3 +1,5 @@
+let WEB_MODE = false;
+
 const tradingbotLaunchTicket =
     new URLSearchParams(
         window.location.hash.slice(1)
@@ -10,8 +12,6 @@ if (tradingbotLaunchTicket) {
         window.location.pathname + window.location.search
     );
 }
-
-let WEB_MODE = false;
 
 async function loadWebMode() {
     try {
