@@ -3981,11 +3981,16 @@ async def websocket_endpoint(websocket: WebSocket):
         user_id = verify_tradingbot_ticket(ticket)
 
         if user_id is None:
+            print(
+                "AUTH ERROR: Tradingbot ticket rejected. "
+                "Check TRADINGBOT_SHARED_SECRET, ticket signature, "
+                "expiration, and audience."
+            )
             await websocket.close(code=1008)
             return
 
     global analysis_task
-    
+
     global startup_stage, startup_progress, startup_message
     global results_source
     global manual_analysis_results
