@@ -8,10 +8,62 @@ import math
 import os
 import re
 import ai
+import base64
+import hashlib
+import hmac
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 WEB_MODE = os.getenv("WEB_MODE", "false").lower() == "true"
+
+def verify_tradingbot_ticket(ticket: str) -> Optional[str]:
+    secret = os.getenv("TRADINGBOT_SHARED_SECRET")
+    if not secret or not ticket:
+        return None
+
+    try:
+        payload_part, signature_part = ticket.split(".", 1)
+
+        expected_signature = hmac.new(
+            secret.encode("utf-8"),
+            payload_part.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+
+        def decode_base64url(value: str) -> bytes:
+            return base64.urlsafe_b64decode(
+                value + "=" * (-len(value) % 4)
+            )
+
+        supplied_signature = decode_base64url(signature_part)
+
+        if not hmac.compare_digest(
+            expected_signature,
+            supplied_signature,
+        ):
+            return None
+
+        payload = json.loads(
+            decode_base64url(payload_part)
+        )
+
+        user_id = payload.get("sub")
+        expires_at = int(payload.get("exp", 0))
+
+        if payload.get("aud") != "spectline-tradingbot":
+            return None
+
+        if not isinstance(user_id, str) or not user_id.strip():
+            return None
+
+        if expires_at <= int(time.time()):
+            return None
+
+        return user_id
+
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+        return None
 
 if WEB_MODE:
     mt5 = None
@@ -3923,7 +3975,17 @@ async def websocket_endpoint(websocket: WebSocket):
     global WEB_MODE
 
     user_id = None
+
+    if WEB_MODE:
+        ticket = websocket.query_params.get("ticket", "")
+        user_id = verify_tradingbot_ticket(ticket)
+
+        if user_id is None:
+            await websocket.close(code=1008)
+            return
+
     global analysis_task
+    
     global startup_stage, startup_progress, startup_message
     global results_source
     global manual_analysis_results

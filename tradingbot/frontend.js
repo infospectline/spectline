@@ -1,3 +1,16 @@
+const tradingbotLaunchTicket =
+    new URLSearchParams(
+        window.location.hash.slice(1)
+    ).get("ticket");
+
+if (tradingbotLaunchTicket) {
+    window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+    );
+}
+
 let WEB_MODE = false;
 
 async function loadWebMode() {
@@ -5407,7 +5420,11 @@ const chartContainer = document.getElementById("chart");
         const wsProtocol = backendBase.startsWith("https:") ? "wss" : "ws";
         const wsBase = backendBase.replace(/^https?:/, wsProtocol + ":");
 
-        socket = new WebSocket(`${wsBase}/ws`);
+        socket = new WebSocket(
+            `${wsBase}/ws?ticket=${encodeURIComponent(
+                tradingbotLaunchTicket || ""
+            )}`
+        );
 
         socket.onopen = () => {
             document.getElementById("status").textContent = "Connected";

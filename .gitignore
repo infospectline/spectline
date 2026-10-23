@@ -60,6 +60,13 @@ Thumbs.db
 /tree.txt
 /prisma.config.ts.*
 
+# ============================================================
+# Arrows editor
+# ============================================================
+
+# Arrows editor
+/arrows_editor
+
 
 # ============================================================
 # Tradingbot rules (subdirectory: D:\spectline\tradingbot)

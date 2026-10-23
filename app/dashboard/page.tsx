@@ -1486,14 +1486,16 @@ export default function DashboardPage() {
           </button>
 
           <Link
-            href={
-              process.env.NEXT_PUBLIC_TRADINGBOT_URL ??
-              "http://localhost:8000/frontend.html"
-            }
-            onClick={() => {
+            href="/api/tradingbot/launch"
+            prefetch={false}
+            onClick={(event) => {
+              event.preventDefault();
+
               setSidebarOpen(false);
               setAccountOpen(false);
               setSettingsOpen(false);
+
+              window.location.assign("/api/tradingbot/launch");
             }}
             className={`
               ${sidebarButtonClass}
