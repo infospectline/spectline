@@ -19,11 +19,23 @@ WEB_MODE = os.getenv("WEB_MODE", "false").lower() == "true"
 
 def verify_tradingbot_ticket(ticket: str) -> Optional[str]:
     secret = os.getenv("TRADINGBOT_SHARED_SECRET")
-    if not secret or not ticket:
+
+    if not secret:
+        print("AUTH REJECT: TRADINGBOT_SHARED_SECRET is missing.")
+        return None
+
+    if not ticket:
+        print("AUTH REJECT: WebSocket ticket is missing.")
         return None
 
     try:
-        payload_part, signature_part = ticket.split(".", 1)
+        parts = ticket.split(".")
+
+        if len(parts) != 2:
+            print("AUTH REJECT: Invalid ticket format.")
+            return None
+
+        payload_part, signature_part = parts
 
         expected_signature = hmac.new(
             secret.encode("utf-8"),
@@ -42,29 +54,40 @@ def verify_tradingbot_ticket(ticket: str) -> Optional[str]:
             expected_signature,
             supplied_signature,
         ):
+            print("AUTH REJECT: Signature mismatch.")
             return None
 
-        payload = json.loads(
-            decode_base64url(payload_part)
-        )
+        payload = json.loads(decode_base64url(payload_part))
 
-        user_id = payload.get("sub")
-        expires_at = int(payload.get("exp", 0))
+        if not isinstance(payload, dict):
+            print("AUTH REJECT: Invalid payload.")
+            return None
 
         if payload.get("aud") != "spectline-tradingbot":
+            print("AUTH REJECT: Audience mismatch.")
             return None
+
+        user_id = payload.get("sub")
 
         if not isinstance(user_id, str) or not user_id.strip():
+            print("AUTH REJECT: Invalid user identity.")
             return None
 
+        expires_at = int(payload.get("exp", 0))
+
         if expires_at <= int(time.time()):
+            print("AUTH REJECT: Ticket expired.")
             return None
 
         return user_id
 
-    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+    except Exception as error:
+        print(
+            "AUTH REJECT: Invalid ticket data. "
+            f"Error type: {type(error).__name__}"
+        )
         return None
-
+        
 if WEB_MODE:
     mt5 = None
 else:
