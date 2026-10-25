@@ -2036,35 +2036,47 @@ const chartContainer = document.getElementById("chart");
 
         return true;
     }
+   
+    function syncAnchorButtonState() {
+        const trade = learningTrades.find(
+            item => item.id === selectedLearningTradeId
+        );
+
+        const hasAnchor =
+            trade?.anchor?.time != null &&
+            trade?.anchor?.price != null;
+
+        learningAnchorPicker.classList.toggle(
+            "has-anchor",
+            hasAnchor
+        );
+    }
 
     function cancelAnchorPicker() {
-
         activeAnchorPicker = false;
 
-        learningAnchorPicker
-            .classList.remove("active");
+        learningAnchorPicker.classList.remove("active");
+
+        syncAnchorButtonState();
 
         chartContainer.classList.remove(
             "price-picker-active"
         );
     }
 
-
     function activateAnchorPicker() {
-
         cancelPricePicker();
         cancelAnchorPicker();
 
         activeAnchorPicker = true;
 
-        learningAnchorPicker
-            .classList.add("active");
+        learningAnchorPicker.classList.add("active");
+        learningAnchorPicker.classList.remove("has-anchor");
 
         chartContainer.classList.add(
             "price-picker-active"
         );
     }
-
 
     function pickAnchorFromChart(event) {
 
