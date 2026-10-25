@@ -312,9 +312,9 @@ html, body {
         position: absolute;
         left: 0;
         right: 0;
-        border-top: 1px solid rgba(255, 211, 74, 0.75);
-        border-bottom: 1px solid rgba(255, 211, 74, 0.75);
-        background: rgba(255, 211, 74, 0.08);
+        height: 1px;
+        background: #e74c3c;
+        pointer-events: none;
     }
 
     .sr-label {
@@ -323,9 +323,9 @@ html, body {
         top: 2px;
         padding: 2px 5px;
         font-size: 10px;
-        color: #ffd34a;
+        color: #e74c3c;
         background: rgba(20, 20, 20, 0.75);
-        border: 1px solid rgba(255, 211, 74, 0.4);
+        border: 1px solid rgba(231, 76, 60, 0.5);
         border-radius: 3px;
         white-space: nowrap;
     }
@@ -691,6 +691,87 @@ html, body {
         opacity: 0.55;
         cursor: default;
     }
+        
+    /* GLASS EFFECT: LEARNING, TRAINING, TESTING, UPDATE DATA */
+
+    .learning-button,
+    .training-button,
+    .testing-button,
+    .update-data-button {
+        box-sizing: border-box;
+        border: 1px solid transparent;
+
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+        transition:
+            background 0.2s ease,
+            border-color 0.2s ease,
+            box-shadow 0.2s ease,
+            color 0.2s ease;
+    }
+
+    /* LEARNING: GREEN */
+    .learning-button {
+        background: rgba(30, 148, 66, 0.16);
+        border-color: rgba(67, 212, 111, 0.95);
+        color: #eaffef;
+    }
+
+    .learning-button:not(:disabled):hover {
+        background: rgba(30, 148, 66, 0.42);
+        border-color: #6bff9e;
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            0 0 16px rgba(30, 148, 66, 0.18);
+    }
+
+    /* TRAINING: ORANGE */
+    .training-button {
+        background: rgba(255, 145, 48, 0.16);
+        border-color: rgba(255, 166, 82, 0.95);
+        color: #fff0df;
+    }
+
+    .training-button:not(:disabled):hover {
+        background: rgba(255, 145, 48, 0.42);
+        border-color: #ffc184;
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            0 0 16px rgba(255, 145, 48, 0.18);
+    }
+
+    /* TESTING: RED */
+    .testing-button {
+        background: rgba(221, 21, 48, 0.16);
+        border-color: rgba(255, 82, 104, 0.95);
+        color: #ffe5e9;
+    }
+
+    .testing-button:not(:disabled):hover {
+        background: rgba(221, 21, 48, 0.42);
+        border-color: #ff8999;
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            0 0 16px rgba(221, 21, 48, 0.18);
+    }
+
+    /* UPDATE DATA: BLUE */
+    .update-data-button {
+        background: rgba(24, 202, 247, 0.16);
+        border-color: rgba(41, 197, 246, 0.95);
+        color: #e0f9ff;
+    }
+
+    .update-data-button:not(:disabled):hover {
+        background: rgba(24, 202, 247, 0.42);
+        border-color: #8cecff;
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            0 0 16px rgba(24, 202, 247, 0.18);
+    }
 
     .learning-market-info {
         margin-bottom: 20px;
@@ -762,6 +843,57 @@ html, body {
 
     .learning-add-button:hover {
         background: #8050f0;
+    }
+      
+    /* GLASS EFFECT: ANALYSIS AND ADD BUTTON */
+
+    /* common effect */
+    .manual-analysis-button,
+    .learning-add-button {
+        box-sizing: border-box;
+        border: 1px solid transparent;
+
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+        transition:
+            background 0.2s ease,
+            border-color 0.2s ease,
+            box-shadow 0.2s ease;
+    }
+
+    /* ANALYSIS: GREEN */
+    .manual-analysis-button {
+        background: rgba(30, 148, 66, 0.16);
+        border-color: rgba(67, 212, 111, 0.95);
+        color: #eaffef;
+    }
+
+    .manual-analysis-button:not(:disabled):hover {
+        background: rgba(30, 148, 66, 0.42);
+        border-color: #6bff9e;
+
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            0 0 16px rgba(30, 148, 66, 0.18);
+    }
+
+    /* PLUS BUTTON: PURPLE */
+    .learning-add-button {
+        background: rgba(98, 40, 233, 0.16);
+        border-color: rgba(165, 125, 255, 0.95);
+        color: #ffffff;
+    }
+
+    .learning-add-button:hover {
+        background: rgba(98, 40, 233, 0.42);
+        border-color: #c4a9ff;
+
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.12),
+            0 0 16px rgba(98, 40, 233, 0.20);
     }
 
     .learning-trade-list {
@@ -1561,8 +1693,8 @@ html, body {
     }
 
     .display-filter-button.active {
-        border-color: #6228e9;
-        box-shadow: 0 0 0 1px #6228e9;
+        border-color: #ffffff;
+        box-shadow: 0 0 0 1px #ffffff;
     }
 
     .filter-option span {

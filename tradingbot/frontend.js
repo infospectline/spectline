@@ -483,25 +483,32 @@ const chartContainer = document.getElementById("chart");
         overlay.innerHTML = "";
     }
 
+        
     function addZone(zone, index) {
         if (!zone || zone.low == null || zone.high == null) return;
 
-        const top = priceCoord(zone.high);
-        const bottom = priceCoord(zone.low);
-        if (top == null || bottom == null) return;
+        const levelPrice =
+            (Number(zone.low) + Number(zone.high)) / 2;
+
+        const y = priceCoord(levelPrice);
+
+        if (y == null) return;
 
         const el = document.createElement("div");
         el.className = "sr-zone";
-        el.style.top = `${Math.min(top, bottom)}px`;
-        el.style.height = `${Math.max(2, Math.abs(bottom - top))}px`;
+
+        el.style.top = `${y}px`;
+        el.style.height = "1px";
 
         const label = document.createElement("div");
         label.className = "sr-label";
-        label.textContent = `S/R ${fmtPrice(zone.low)} - ${fmtPrice(zone.high)} | ${zone.touches ?? 0} touches`;
-        el.appendChild(label);
+        label.textContent =
+            `S/R ${fmtPrice(levelPrice)} | ${zone.touches ?? 0} touches`;
 
+        el.appendChild(label);
         overlay.appendChild(el);
     }
+
 
     function clearSelectedTradeSetup() {
         overlay.querySelectorAll(
