@@ -323,7 +323,6 @@ const chartContainer = document.getElementById("chart");
         const percent = document.getElementById("loading-percent");
         const message = document.getElementById("loading-message");
         const title = document.getElementById("loading-title");
-        const badge = document.getElementById("chart-ready-badge");
 
         const progress = Math.max(
             0,
@@ -331,7 +330,6 @@ const chartContainer = document.getElementById("chart");
         );
 
         const symbol = data?.symbol || marketSelect.value || "";
-        const timeframe = data?.timeframe || timeframeSelect.value || "";
 
         title.textContent = symbol
             ? `Loading ${symbol} emulator`
@@ -346,13 +344,10 @@ const chartContainer = document.getElementById("chart");
             data?.startup_stage === "Starting" ||
             data?.loading === true;
 
-        if (!isLoading && data?.ready && data?.h1?.length) {
+       if (!isLoading && data?.ready && data?.h1?.length) {
             screen.style.display = "none";
-            badge.textContent = `${symbol} ${timeframe} | CHART READY`;
-            badge.style.display = "block";
         } else {
             screen.style.display = "flex";
-            badge.style.display = "none";
         }
     }
 
