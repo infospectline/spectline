@@ -2365,42 +2365,16 @@ const chartContainer = document.getElementById("chart");
         return trade;
     }
 
-    const ZONE_COLOR_PALETTE = [
-        "#a456ff",
-        "#ff9130",
-        "#2a9cff",
-        "#00d26a",
-        "#ff4d6d",
-        "#ffd34a",
-        "#00c2a8",
-        "#b56cff",
-        "#4dd0e1",
-        "#ff6b35"
-    ];
+   function getZoneColor(zoneType) {
+        if (zoneType === "SUPPORT") {
+            return "#00d26a";
+        }
 
-    function getZoneColor(trade) {
-        const usedColors =
-            new Set(
-                (trade.zones || [])
-                    .map(zone => zone.color)
-                    .filter(Boolean)
-            );
+        if (zoneType === "RESISTANCE") {
+            return "#ff3b30";
+        }
 
-        const availableColors =
-            ZONE_COLOR_PALETTE.filter(
-                color => !usedColors.has(color)
-            );
-
-        const source =
-            availableColors.length
-                ? availableColors
-                : ZONE_COLOR_PALETTE;
-
-        return source[
-            Math.floor(
-                Math.random() * source.length
-            )
-        ];
+        return "#aaaaaa";
     }
 
     function renumberLearningZones(trade) {
@@ -2412,6 +2386,8 @@ const chartContainer = document.getElementById("chart");
         let resistanceNumber = 0;
 
         for (const zone of trade.zones || []) {
+            zone.color = getZoneColor(zone.type);
+
             if (zone.type === "SUPPORT") {
                 supportNumber++;
                 zone.number = supportNumber;
@@ -3171,6 +3147,43 @@ const chartContainer = document.getElementById("chart");
             rectangle
         );
 
+        const entryY = geometry.entry?.price != null
+            ? geometryPriceToY(geometry.entry.price)
+            : null;
+
+        function addSetupArea(targetPrice, className) {
+            if (entryY == null || targetPrice == null) {
+                return;
+            }
+
+            const targetY = geometryPriceToY(targetPrice);
+
+            if (targetY == null) {
+                return;
+            }
+
+            const area = document.createElement("div");
+            area.className = `learning-setup-area ${className}`;
+            area.dataset.geometryGroup = "trade";
+
+            area.style.left = `${left}px`;
+            area.style.top = `${Math.min(entryY, targetY)}px`;
+            area.style.width = `${width}px`;
+            area.style.height = `${Math.max(1, Math.abs(targetY - entryY))}px`;
+
+            overlay.appendChild(area);
+        }
+
+        addSetupArea(
+            geometry.tp?.price,
+            "learning-setup-profit-area"
+        );
+
+        addSetupArea(
+            geometry.sl?.price,
+            "learning-setup-risk-area"
+        );
+
         createTradeSetupEdge(
             "left",
             left,
@@ -3386,6 +3399,7 @@ const chartContainer = document.getElementById("chart");
         overlay
             .querySelectorAll(
                 ".learning-geometry-rect, " +
+                ".learning-setup-area, " +
                 ".learning-setup-level, " +
                 ".learning-setup-label, " +
                 ".learning-geometry-resize-handle, " +
@@ -3682,7 +3696,7 @@ const chartContainer = document.getElementById("chart");
             zoneColor:
                 activeGeometryTool === "zone" &&
                 trade
-                    ? getZoneColor(trade)
+                    ? getZoneColor(activeZoneType)
                     : null,
             start: point,
             current: point
@@ -3822,9 +3836,7 @@ const chartContainer = document.getElementById("chart");
 
                 number: 0,
 
-                color:
-                    geometryDrag.zoneColor ||
-                    getZoneColor(trade),
+                color: getZoneColor(geometryDrag.zoneType),
 
                 geometry: {
                     start_time: startTime,
@@ -4229,7 +4241,11 @@ const chartContainer = document.getElementById("chart");
         }
     }
 
-    function applyTradeRRMode(trade, changedLevel) {
+    function applyTradeRRMode(
+        trade,
+        changedLevel,
+        originalGeometry = null
+    ) {
         const mode =
             trade?.rr_mode || "OFF";
 
@@ -4259,6 +4275,84 @@ const chartContainer = document.getElementById("chart");
             !Number.isFinite(entry)
         ) {
             return;
+        }
+
+        if (changedLevel === "entry") {
+            if (
+                originalGeometry?.entry?.price == null ||
+                originalGeometry?.sl?.price == null ||
+                originalGeometry?.tp?.price == null
+            ) {
+                return;
+            }
+
+            const originalEntry =
+                Number(originalGeometry.entry.price);
+
+            const originalSL =
+                Number(originalGeometry.sl.price);
+
+            const originalTP =
+                Number(originalGeometry.tp.price);
+
+            if (
+                !Number.isFinite(originalEntry) ||
+                !Number.isFinite(originalSL) ||
+                !Number.isFinite(originalTP)
+            ) {
+                return;
+            }
+
+            const movement =
+                entry - originalEntry;
+
+            if (movement === 0) {
+                return;
+            }
+
+            const movedTowardSL =
+                movement * (originalSL - originalEntry) > 0;
+
+            const movedTowardTP =
+                movement * (originalTP - originalEntry) > 0;
+
+            if (movedTowardSL) {
+                const risk =
+                    Math.abs(entry - originalSL);
+
+                if (risk <= 0) {
+                    return;
+                }
+
+                const direction =
+                    entry > originalSL ? 1 : -1;
+
+                geometry.sl.price = originalSL;
+
+                geometry.tp.price =
+                    entry + direction * risk * rr;
+
+                return;
+            }
+
+            if (movedTowardTP) {
+                const reward =
+                    Math.abs(originalTP - entry);
+
+                if (reward <= 0) {
+                    return;
+                }
+
+                const direction =
+                    originalTP > entry ? 1 : -1;
+
+                geometry.tp.price = originalTP;
+
+                geometry.sl.price =
+                    entry - direction * (reward / rr);
+
+                return;
+            }
         }
 
         if (
@@ -4442,7 +4536,8 @@ const chartContainer = document.getElementById("chart");
 
                 applyTradeRRMode(
                     trade,
-                    level
+                    level,
+                    original.trade
                 );
             }
         }
@@ -5083,16 +5178,6 @@ const chartContainer = document.getElementById("chart");
             const y2 =
                 geometryPriceToY(rect.low);
 
-            console.log(
-                "[MOVE CHECK][ZONE]",
-                {
-                    x1,
-                    x2,
-                    y1,
-                    y2
-                }
-            );
-
             return (
                 x1 != null &&
                 x2 != null &&
@@ -5156,16 +5241,6 @@ const chartContainer = document.getElementById("chart");
 
             const y2 =
                 geometryPriceToY(low);
-
-            console.log(
-                "[MOVE CHECK][SETUP]",
-                {
-                    x1,
-                    x2,
-                    y1,
-                    y2
-                }
-            );
 
             return (
                 x1 != null &&
