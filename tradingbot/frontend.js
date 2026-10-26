@@ -1761,8 +1761,7 @@ const chartContainer = document.getElementById("chart");
             centerLearningChartOnAnchor();
         });
 
-        sidebarToggle.textContent =
-            "🡸";
+        sidebarToggle.querySelector("img").src = "images/left.png";
     }
 
     function closeLearningTradeDetail() {
@@ -2247,7 +2246,7 @@ const chartContainer = document.getElementById("chart");
             return;
         }
 
-        const x =
+       const x =
             timeCoord(trade.anchor.time);
 
         const y =
@@ -2260,14 +2259,27 @@ const chartContainer = document.getElementById("chart");
             return;
         }
 
+        let markerX = x;
+        let markerY = y;
+
+        if (isMobileTouchDevice()) {
+            const containerRect =
+                chartContainer.getBoundingClientRect();
+
+            const plotRect = getMainPlotRect();
+
+            markerX += plotRect.left - containerRect.left;
+            markerY += plotRect.top - containerRect.top;
+        }
+
         const point =
             document.createElement("div");
 
         point.className =
             "learning-anchor-point";
 
-        point.style.left = `${x}px`;
-        point.style.top = `${y}px`;
+        point.style.left = `${markerX}px`;
+        point.style.top = `${markerY}px`;
 
         overlay.appendChild(point);
 
@@ -2281,10 +2293,10 @@ const chartContainer = document.getElementById("chart");
             `ANCHOR ${fmtPrice(trade.anchor.price)}`;
 
         label.style.left =
-            `${x + 10}px`;
+            `${markerX + 10}px`;
 
         label.style.top =
-            `${y - 22}px`;
+            `${markerY - 22}px`;
 
         overlay.appendChild(label);
     }
@@ -5324,7 +5336,7 @@ const chartContainer = document.getElementById("chart");
         learningListView.style.display = "none";
         learningDetailView.style.display = "none";
 
-        sidebarToggle.textContent = "🡸";
+        sidebarToggle.querySelector("img").src = "images/left.png";
 
         updateLearningHeader();
 
@@ -5356,7 +5368,7 @@ const chartContainer = document.getElementById("chart");
 
         sidebar.classList.remove("collapsed");
 
-        sidebarToggle.textContent = "🡺";
+        sidebarToggle.querySelector("img").src = "images/right.png";
     }
 
     const logoutButton =
@@ -5992,15 +6004,17 @@ const chartContainer = document.getElementById("chart");
                 ) {
                     sidebar.classList.remove("collapsed");
 
-                    sidebarToggle.textContent =
-                        learningMode ? "🡸" : "🡺";
+                  sidebarToggle.querySelector("img").src =
+                    learningMode
+                        ? "images/left.png"
+                        : "images/right.png";
                 }
 
                 return;
             }
 
             sidebar.classList.add("collapsed");
-            sidebarToggle.textContent = "🡸";
+            sidebarToggle.querySelector("img").src = "images/left.png";
         },
         true
     );
@@ -6072,13 +6086,15 @@ const chartContainer = document.getElementById("chart");
             mobileGesture = {
                 startX: touch.clientX,
                 startY: touch.clientY,
-                mode: pickerActive
-                    ? "picker"
-                    : drawingTool
-                        ? "draw"
-                        : editableTarget
-                            ? "edit"
-                            : "pan",
+                mode: activeAnchorPicker
+                    ? "anchor-hold"
+                    : pickerActive
+                        ? "picker"
+                        : drawingTool
+                            ? "draw"
+                            : editableTarget
+                                ? "edit"
+                                : "pan",
                 tool: drawingTool,
                 editableTarget,
                 moved: false,
@@ -6086,7 +6102,7 @@ const chartContainer = document.getElementById("chart");
                 startedAction: false
             };
 
-            if (drawingTool || editableTarget) {
+           if (activeAnchorPicker || drawingTool || editableTarget) {
                 mobileLongPressTimer = setTimeout(() => {
                     if (mobileGesture && !mobileGesture.moved) {
                         mobileGesture.longPressReady = true;
@@ -6126,6 +6142,25 @@ const chartContainer = document.getElementById("chart");
                 touch.clientX - mobileGesture.startX,
                 touch.clientY - mobileGesture.startY
             );
+
+            if (mobileGesture.mode === "anchor-hold") {
+
+                if (!mobileGesture.longPressReady) {
+                    if (distance > MOBILE_MOVE_THRESHOLD) {
+                        mobileGesture.moved = true;
+                        clearMobileLongPressTimer();
+                    }
+
+                    return;
+                }
+
+                if (event.cancelable) {
+                    event.preventDefault();
+                }
+
+                event.stopPropagation();
+                return;
+            }
 
             if (
                 !mobileGesture.startedAction &&
@@ -6203,6 +6238,27 @@ const chartContainer = document.getElementById("chart");
             clearMobileLongPressTimer();
 
             const touch = event.changedTouches[0];
+
+            if (mobileGesture.mode === "anchor-hold") {
+
+                if (
+                    mobileGesture.longPressReady &&
+                    !mobileGesture.moved
+                ) {
+                    pickAnchorFromChart({
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                }
+
+                if (event.cancelable) {
+                    event.preventDefault();
+                }
+
+                rememberMobileDragClick(touch);
+                mobileGesture = null;
+                return;
+            }
 
             if (mobileGesture.startedAction && geometryDrag) {
                 const endEvent = makeTouchMouseEvent(
@@ -6672,8 +6728,10 @@ const chartContainer = document.getElementById("chart");
         ) {
             sidebar.classList.remove("collapsed");
 
-            sidebarToggle.textContent =
-                learningMode ? "🡸" : "🡺";
+            sidebarToggle.querySelector("img").src =
+                learningMode
+                    ? "images/left.png"
+                    : "images/right.png";
 
             return;
         }
@@ -6688,16 +6746,25 @@ const chartContainer = document.getElementById("chart");
                 return;
             }
 
+            if (
+                learningListView.style.display !== "none"
+            ) {
+                learningListView.style.display = "none";
+                learningDetailView.style.display = "none";
+                learningMainView.style.display = "block";
+                return;
+            }
+
             closeLearningMode();
             return;
         }
 
         sidebar.classList.toggle("collapsed");
 
-        sidebarToggle.textContent =
-            sidebar.classList.contains("collapsed")
-                ? "🡸"
-                : "🡺";
+      sidebarToggle.querySelector("img").src =
+        sidebar.classList.contains("collapsed")
+            ? "images/left.png"
+            : "images/right.png";
     });
 
     loadWebMode().then(() => {

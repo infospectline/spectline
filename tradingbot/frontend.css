@@ -536,6 +536,21 @@ html, body {
         transform: translateX(-50%);
     }
 
+    #sidebarToggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    #sidebarToggle img {
+        display: block;
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        pointer-events: none;
+    }
+
     .market-selector {
         margin-bottom: 20px;
     }
