@@ -63,6 +63,14 @@ function applyWebTimeframeRestrictions() {
 
 const chartContainer = document.getElementById("chart");
     const overlay = document.getElementById("overlay");
+    const chartPanel = document.getElementById("chart-panel");
+
+    function isMobileTouchDevice() {
+        return window.matchMedia(
+            "(max-width: 900px) and (pointer: coarse)"
+        ).matches;
+    }
+
     const trainingButton =
         document.getElementById("trainingButton");
 
@@ -1977,25 +1985,53 @@ const chartContainer = document.getElementById("chart");
             "price-picker-active"
         );
     }
-
-
+  
     function pickPriceFromChart(event) {
 
         if (!activePriceTarget) {
             return false;
         }
 
-        const rect =
-            chartContainer.getBoundingClientRect();
+        let y;
 
-        const y =
-            event.clientY - rect.top;
+        if (isMobileTouchDevice()) {
 
-        if (
-            y < 0 ||
-            y > rect.height
-        ) {
-            return false;
+            // Mobile: allow price selection only inside
+            // the main candlestick plot, not on the axes.
+            if (
+                !isInsideMainPlot(
+                    event.clientX,
+                    event.clientY
+                )
+            ) {
+                return false;
+            }
+
+            const plotRect = getMainPlotRect();
+
+            y = event.clientY - plotRect.top;
+
+            if (
+                y < 0 ||
+                y >= plotRect.bottom - plotRect.top
+            ) {
+                return false;
+            }
+
+        } else {
+
+            // Preserve the existing desktop behavior.
+            const rect =
+                chartContainer.getBoundingClientRect();
+
+            y = event.clientY - rect.top;
+
+            if (
+                y < 0 ||
+                y > rect.height
+            ) {
+                return false;
+            }
         }
 
         const price =
@@ -2072,34 +2108,64 @@ const chartContainer = document.getElementById("chart");
             "price-picker-active"
         );
     }
-
+   
     function pickAnchorFromChart(event) {
 
         if (!activeAnchorPicker) {
             return false;
         }
 
-        const rect =
-            chartContainer.getBoundingClientRect();
+        let x;
+        let y;
 
-        const x =
-            event.clientX - rect.left;
+        if (isMobileTouchDevice()) {
 
-        const y =
-            event.clientY - rect.top;
+            // On mobile, accept anchor selection only inside
+            // the main candlestick plot, never on the axes.
+            if (
+                !isInsideMainPlot(
+                    event.clientX,
+                    event.clientY
+                )
+            ) {
+                return false;
+            }
 
-        if (
-            x < 0 ||
-            x > rect.width ||
-            y < 0 ||
-            y > rect.height
-        ) {
-            return false;
+            const plotRect = getMainPlotRect();
+
+            x = event.clientX - plotRect.left;
+            y = event.clientY - plotRect.top;
+
+            if (
+                x < 0 ||
+                x >= plotRect.right - plotRect.left ||
+                y < 0 ||
+                y >= plotRect.bottom - plotRect.top
+            ) {
+                return false;
+            }
+
+        } else {
+
+            // Preserve the existing desktop behavior.
+            const rect =
+                chartContainer.getBoundingClientRect();
+
+            x = event.clientX - rect.left;
+            y = event.clientY - rect.top;
+
+            if (
+                x < 0 ||
+                x > rect.width ||
+                y < 0 ||
+                y > rect.height
+            ) {
+                return false;
+            }
         }
 
         const rawTime =
-            chart.timeScale()
-                .coordinateToTime(x);
+            chart.timeScale().coordinateToTime(x);
 
         const price =
             candleSeries.coordinateToPrice(y);
@@ -2111,12 +2177,12 @@ const chartContainer = document.getElementById("chart");
             return false;
         }
 
-        const timestamp =
-            Number(rawTime);
+        const timestamp = Number(rawTime);
+        const numericPrice = Number(price);
 
         if (
             !Number.isFinite(timestamp) ||
-            !Number.isFinite(Number(price))
+            !Number.isFinite(numericPrice)
         ) {
             return false;
         }
@@ -2124,8 +2190,7 @@ const chartContainer = document.getElementById("chart");
         const trade =
             learningTrades.find(
                 item =>
-                    item.id ===
-                    selectedLearningTradeId
+                    item.id === selectedLearningTradeId
             );
 
         if (!trade) {
@@ -2134,14 +2199,14 @@ const chartContainer = document.getElementById("chart");
 
         trade.anchor = {
             time: Math.floor(timestamp),
-            price: Number(price)
+            price: numericPrice
         };
 
         learningAnchorTime.value =
             formatAnchorTime(trade.anchor.time);
 
         learningAnchorPrice.value =
-            Number(trade.anchor.price).toFixed(5);
+            numericPrice.toFixed(5);
 
         pendingAnchorCenter = false;
 
@@ -2557,10 +2622,18 @@ const chartContainer = document.getElementById("chart");
             : null;
     }
 
-
+    
     function geometryYToPrice(y) {
+        const containerRect =
+            chartContainer.getBoundingClientRect();
+
+        const plotRect = getMainPlotRect();
+
+        const plotY =
+            Number(y) - (plotRect.top - containerRect.top);
+
         const price =
-            candleSeries.coordinateToPrice(y);
+            candleSeries.coordinateToPrice(plotY);
 
         if (price == null) {
             return null;
@@ -3393,6 +3466,62 @@ const chartContainer = document.getElementById("chart");
             chartWidth - timeScaleWidth
         );
     }
+    
+    function getMainPlotRect() {
+        const containerRect =
+            chartContainer.getBoundingClientRect();
+
+        const plotWidth = Math.max(
+            1,
+            chart.timeScale().width()
+        );
+
+        const tolerance = Math.max(
+            6,
+            plotWidth * 0.02
+        );
+
+        const paneCanvas = Array.from(
+            chartContainer.querySelectorAll("canvas")
+        )
+            .map(canvas => canvas.getBoundingClientRect())
+            .filter(rect =>
+                rect.height > 80 &&
+                Math.abs(rect.width - plotWidth) <= tolerance
+            )
+            .sort((a, b) => b.height - a.height)[0];
+
+        if (paneCanvas) {
+            return {
+                left: paneCanvas.left,
+                right: paneCanvas.right,
+                top: paneCanvas.top,
+                bottom: paneCanvas.bottom
+            };
+        }
+
+        const left =
+            containerRect.left + getChartPaneLeftOffset();
+
+        return {
+            left,
+            right: left + plotWidth,
+            top: containerRect.top,
+            bottom: containerRect.bottom - 28
+        };
+    }
+
+    function isInsideMainPlot(clientX, clientY) {
+        const rect = getMainPlotRect();
+
+        return (
+            clientX >= rect.left &&
+            clientX < rect.right &&
+            clientY >= rect.top &&
+            clientY < rect.bottom
+        );
+    }
+
 
 
     function geometryTimeToX(time) {
@@ -3473,6 +3602,13 @@ const chartContainer = document.getElementById("chart");
     }
 
     function geometryPointerToChartPoint(event) {
+        if (
+            isMobileTouchDevice() &&
+            !isInsideMainPlot(event.clientX, event.clientY)
+        ) {
+            return null;
+        }
+
         const rect =
             chartContainer.getBoundingClientRect();
 
@@ -5292,6 +5428,10 @@ const chartContainer = document.getElementById("chart");
         "mousedown",
         (event) => {
 
+            if (isMobileTouchDevice()) {
+                return;
+            }
+
             if (
                 event.button !== 0 ||
                 !activeGeometryTool
@@ -5315,6 +5455,10 @@ const chartContainer = document.getElementById("chart");
         "mousemove",
         (event) => {
 
+            if (isMobileTouchDevice()) {
+                return;
+            }
+
             if (!geometryDrag) {
                 return;
             }
@@ -5335,6 +5479,10 @@ const chartContainer = document.getElementById("chart");
         "mouseup",
         (event) => {
 
+            if (isMobileTouchDevice()) {
+                return;
+            }
+
             if (!geometryDrag) {
                 return;
             }
@@ -5351,6 +5499,10 @@ const chartContainer = document.getElementById("chart");
     );
 
     chartContainer.addEventListener("mousedown", (event) => {
+        if (isMobileTouchDevice()) {
+            return;
+        }
+
         if (event.button !== 0) {
             return;
         }
@@ -5361,6 +5513,10 @@ const chartContainer = document.getElementById("chart");
     });
 
     chartContainer.addEventListener("mousemove", (event) => {
+         if (isMobileTouchDevice()) {
+            return;
+        }
+
         if ((event.buttons & 1) !== 1) {
             return;
         }
@@ -5372,30 +5528,65 @@ const chartContainer = document.getElementById("chart");
             chartWasDragged = true;
         }
     });
-
+   
     chartContainer.addEventListener("click", (event) => {
+
+        if (
+            isMobileTouchDevice() &&
+            shouldSuppressMobileClick(event)
+        ) {
+            return;
+        }
 
         if (chartWasDragged) {
             chartWasDragged = false;
             return;
         }
 
+        const insidePlot = isInsideMainPlot(
+            event.clientX,
+            event.clientY
+        );
+
         if (activeAnchorPicker) {
-
-            const picked =
-                pickAnchorFromChart(event);
-
-            if (picked) {
+            if (!insidePlot) {
                 return;
             }
+
+            pickAnchorFromChart(event);
+            return;
         }
 
         if (activePriceTarget) {
+            if (!insidePlot) {
+                return;
+            }
 
-            const picked =
-                pickPriceFromChart(event);
+            pickPriceFromChart(event);
+            return;
+        }
 
-            if (picked) {
+        const target = event.target instanceof Element
+            ? event.target
+            : null;
+
+        const directlyClickedTrade =
+            target?.closest(".trade-box");
+
+        if (directlyClickedTrade) {
+            return;
+        }
+
+
+        if (isMobileTouchDevice() && insidePlot) {
+            const touchedTrade = findOverlayElementAtPoint(
+                ".trade-box",
+                event.clientX,
+                event.clientY
+            );
+
+            if (touchedTrade) {
+                touchedTrade.click();
                 return;
             }
         }
@@ -5404,18 +5595,9 @@ const chartContainer = document.getElementById("chart");
             return;
         }
 
-        const clickedTrade =
-            event.target.closest(".trade-box");
-
-        if (clickedTrade) {
-            return;
-        }
-
         closeTradeDetail();
 
-        requestAnimationFrame(
-            renderOverlay
-        );
+        requestAnimationFrame(renderOverlay);
     });
 
     chartContainer.addEventListener("wheel", () => {
@@ -5642,6 +5824,427 @@ const chartContainer = document.getElementById("chart");
 
     const sidebar = document.getElementById("sidebar");
     const sidebarToggle = document.getElementById("sidebarToggle");
+   
+    /* =========================================================
+    MOBILE SIDEBAR + TOUCH GESTURES
+    ========================================================= */
+
+    let mobileGesture = null;
+    let mobileLongPressTimer = null;
+    let mobileClickSuppression = null;
+    let mobileClickSuppressionTimer = null;
+
+    const MOBILE_LONG_PRESS_MS = 380;
+    const MOBILE_MOVE_THRESHOLD = 9;
+
+    function clearMobileLongPressTimer() {
+        if (mobileLongPressTimer !== null) {
+            clearTimeout(mobileLongPressTimer);
+            mobileLongPressTimer = null;
+        }
+    }
+
+    function rememberMobileDragClick(point) {
+        if (mobileClickSuppressionTimer !== null) {
+            clearTimeout(mobileClickSuppressionTimer);
+        }
+
+        mobileClickSuppression = {
+            x: point.clientX,
+            y: point.clientY,
+            expiresAt: Date.now() + 350
+        };
+
+        mobileClickSuppressionTimer = setTimeout(() => {
+            mobileClickSuppression = null;
+            mobileClickSuppressionTimer = null;
+        }, 350);
+    }
+
+    function shouldSuppressMobileClick(event) {
+        if (!mobileClickSuppression) {
+            return false;
+        }
+
+        if (Date.now() > mobileClickSuppression.expiresAt) {
+            mobileClickSuppression = null;
+            return false;
+        }
+
+        const distance = Math.hypot(
+            event.clientX - mobileClickSuppression.x,
+            event.clientY - mobileClickSuppression.y
+        );
+
+        if (distance > 35) {
+            return false;
+        }
+
+        mobileClickSuppression = null;
+
+        if (mobileClickSuppressionTimer !== null) {
+            clearTimeout(mobileClickSuppressionTimer);
+            mobileClickSuppressionTimer = null;
+        }
+
+        return true;
+    }
+
+    function findOverlayElementAtPoint(selector, clientX, clientY) {
+        let bestElement = null;
+        let bestZIndex = -Infinity;
+
+        for (const element of overlay.querySelectorAll(selector)) {
+            const rect = element.getBoundingClientRect();
+
+            if (
+                clientX < rect.left ||
+                clientX > rect.right ||
+                clientY < rect.top ||
+                clientY > rect.bottom
+            ) {
+                continue;
+            }
+
+            const parsedZIndex = Number.parseInt(
+                getComputedStyle(element).zIndex,
+                10
+            );
+
+            const zIndex = Number.isFinite(parsedZIndex)
+                ? parsedZIndex
+                : 0;
+
+            if (zIndex >= bestZIndex) {
+                bestElement = element;
+                bestZIndex = zIndex;
+            }
+        }
+
+        return bestElement;
+    }
+
+    function makeTouchMouseEvent(touch, currentTarget = null) {
+        return {
+            button: 0,
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            target: currentTarget,
+            currentTarget,
+            preventDefault() {},
+            stopPropagation() {}
+        };
+    }
+
+    function cancelMobileGestureAction() {
+        if (!mobileGesture?.startedAction || !geometryDrag) {
+            return;
+        }
+
+        if (geometryDrag.mode === "draw") {
+            geometryDrag = null;
+
+            overlay
+                .querySelectorAll(".learning-geometry-preview")
+                .forEach(element => element.remove());
+        } else {
+            const trade = getSelectedLearningTrade();
+
+            if (trade && geometryDrag.original) {
+                trade.zones = geometryDrag.original.zones;
+                trade.trade_geometry = geometryDrag.original.trade;
+            }
+
+            geometryDrag = null;
+
+            renderLearningGeometry();
+            updateGeometrySummary();
+        }
+
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+    }
+
+    /* Outside tap collapses the panel.
+    Opening/closing only changes the visual state. */
+    document.addEventListener(
+        "pointerdown",
+        event => {
+            if (
+                !isMobileTouchDevice() ||
+                event.pointerType !== "touch"
+            ) {
+                return;
+            }
+
+            const target = event.target instanceof Element
+                ? event.target
+                : null;
+
+            if (!target) {
+                return;
+            }
+
+            if (sidebar.contains(target)) {
+                if (
+                    sidebar.classList.contains("collapsed") &&
+                    !target.closest("#sidebarToggle")
+                ) {
+                    sidebar.classList.remove("collapsed");
+
+                    sidebarToggle.textContent =
+                        learningMode ? "🡸" : "🡺";
+                }
+
+                return;
+            }
+
+            sidebar.classList.add("collapsed");
+            sidebarToggle.textContent = "🡸";
+        },
+        true
+    );
+
+    /* Touch start: arm a long press only for an active drawing
+    tool or an editable geometry object. */
+    chartPanel.addEventListener(
+        "touchstart",
+        event => {
+            if (!isMobileTouchDevice()) {
+                return;
+            }
+
+            if (event.touches.length > 1) {
+                if (mobileGesture?.startedAction) {
+                    cancelMobileGestureAction();
+                }
+
+                clearMobileLongPressTimer();
+                mobileGesture = null;
+                return;
+            }
+
+            const touch = event.touches[0];
+
+            if (!isInsideMainPlot(touch.clientX, touch.clientY)) {
+                clearMobileLongPressTimer();
+                mobileGesture = null;
+                return;
+            }
+
+            const target = event.target instanceof Element
+                ? event.target
+                : null;
+
+            if (
+                target?.closest(
+                    "button, input, select, textarea, a, " +
+                    "#tradeDetailPanel, #mt5-offline-popup, #loading-screen"
+                )
+            ) {
+                clearMobileLongPressTimer();
+                mobileGesture = null;
+                return;
+            }
+
+            clearMobileLongPressTimer();
+
+            const pickerActive =
+                activeAnchorPicker || Boolean(activePriceTarget);
+
+            const drawingTool = pickerActive
+                ? null
+                : activeGeometryTool;
+
+            const editableTarget =
+                pickerActive || drawingTool
+                    ? null
+                    : findOverlayElementAtPoint(
+                        ".learning-trade-setup-edge, " +
+                        ".learning-geometry-resize-handle, " +
+                        ".learning-setup-level, " +
+                        ".learning-zone-rect, " +
+                        ".learning-geometry-rect",
+                        touch.clientX,
+                        touch.clientY
+                    );
+
+            mobileGesture = {
+                startX: touch.clientX,
+                startY: touch.clientY,
+                mode: pickerActive
+                    ? "picker"
+                    : drawingTool
+                        ? "draw"
+                        : editableTarget
+                            ? "edit"
+                            : "pan",
+                tool: drawingTool,
+                editableTarget,
+                moved: false,
+                longPressReady: false,
+                startedAction: false
+            };
+
+            if (drawingTool || editableTarget) {
+                mobileLongPressTimer = setTimeout(() => {
+                    if (mobileGesture && !mobileGesture.moved) {
+                        mobileGesture.longPressReady = true;
+                    }
+                }, MOBILE_LONG_PRESS_MS);
+            }
+        },
+        { capture: true, passive: true }
+    );
+
+    /* Touch move: ordinary movement pans the chart.
+    After a long press, movement draws or edits an object. */
+    chartPanel.addEventListener(
+        "touchmove",
+        event => {
+            if (!isMobileTouchDevice()) {
+                return;
+            }
+
+            if (event.touches.length > 1) {
+                if (mobileGesture?.startedAction) {
+                    cancelMobileGestureAction();
+                }
+
+                clearMobileLongPressTimer();
+                mobileGesture = null;
+                return;
+            }
+
+            if (!mobileGesture) {
+                return;
+            }
+
+            const touch = event.touches[0];
+
+            const distance = Math.hypot(
+                touch.clientX - mobileGesture.startX,
+                touch.clientY - mobileGesture.startY
+            );
+
+            if (
+                !mobileGesture.startedAction &&
+                !mobileGesture.longPressReady
+            ) {
+                if (distance > MOBILE_MOVE_THRESHOLD) {
+                    mobileGesture.moved = true;
+                    clearMobileLongPressTimer();
+                }
+
+                return;
+            }
+
+            if (!mobileGesture.startedAction) {
+                if (geometryDrag) {
+                    return;
+                }
+
+                const startTouch = {
+                    clientX: mobileGesture.startX,
+                    clientY: mobileGesture.startY
+                };
+
+                const startEvent = makeTouchMouseEvent(
+                    startTouch,
+                    mobileGesture.editableTarget
+                );
+
+                if (mobileGesture.tool) {
+                    beginGeometryDraw(startEvent);
+                } else if (mobileGesture.editableTarget) {
+                    beginGeometryObjectInteraction(startEvent);
+                }
+
+                if (!geometryDrag) {
+                    mobileGesture.moved = true;
+                    clearMobileLongPressTimer();
+                    return;
+                }
+
+                mobileGesture.startedAction = true;
+            }
+
+            if (mobileGesture.startedAction && geometryDrag) {
+                const currentEvent = makeTouchMouseEvent(
+                    touch,
+                    mobileGesture.editableTarget
+                );
+
+                if (geometryDrag.mode === "draw") {
+                    updateGeometryDraw(currentEvent);
+                } else {
+                    updateGeometryObjectInteraction(currentEvent);
+                }
+
+                if (event.cancelable) {
+                    event.preventDefault();
+                }
+
+                event.stopPropagation();
+            }
+        },
+        { capture: true, passive: false }
+    );
+
+    /* Touch end: finish a drawing/edit, or allow the normal tap
+    to reach the chart click handler. */
+    chartPanel.addEventListener(
+        "touchend",
+        event => {
+            if (!isMobileTouchDevice() || !mobileGesture) {
+                return;
+            }
+
+            clearMobileLongPressTimer();
+
+            const touch = event.changedTouches[0];
+
+            if (mobileGesture.startedAction && geometryDrag) {
+                const endEvent = makeTouchMouseEvent(
+                    touch,
+                    mobileGesture.editableTarget
+                );
+
+                if (geometryDrag.mode === "draw") {
+                    finishGeometryDraw(endEvent);
+                } else {
+                    finishGeometryObjectInteraction(endEvent);
+                }
+
+                if (event.cancelable) {
+                    event.preventDefault();
+                }
+
+                rememberMobileDragClick(touch);
+            } else if (mobileGesture.moved) {
+                rememberMobileDragClick(touch);
+            }
+
+            mobileGesture = null;
+        },
+        { capture: true, passive: false }
+    );
+
+    /* Cancel an unfinished gesture if the browser cancels touch input. */
+    chartPanel.addEventListener(
+        "touchcancel",
+        () => {
+            if (!isMobileTouchDevice()) {
+                return;
+            }
+
+            cancelMobileGestureAction();
+            clearMobileLongPressTimer();
+            mobileGesture = null;
+        },
+        { capture: true, passive: true }
+    );
+
 
     const marketSelect = document.getElementById("marketSelect");
 
@@ -6058,9 +6661,24 @@ const chartContainer = document.getElementById("chart");
 
         }
     );    
-
+   
     sidebarToggle.addEventListener("click", () => {
 
+        // On mobile, tapping the collapsed rail opens it
+        // without leaving the currently selected section.
+        if (
+            isMobileTouchDevice() &&
+            sidebar.classList.contains("collapsed")
+        ) {
+            sidebar.classList.remove("collapsed");
+
+            sidebarToggle.textContent =
+                learningMode ? "🡸" : "🡺";
+
+            return;
+        }
+
+        // Preserve the existing desktop navigation behavior.
         if (learningMode) {
 
             if (

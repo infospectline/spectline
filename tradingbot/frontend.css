@@ -2081,3 +2081,25 @@ html, body {
     #sidebar.collapsed .logout-button {
         display: none !important;
     }
+       
+    /* MOBILE: LET CHART GESTURES PASS THROUGH DRAWN OBJECTS */
+
+    @media (max-width: 900px) and (pointer: coarse) {
+        #overlay .trade-box,
+        #overlay .learning-geometry-rect,
+        #overlay .learning-geometry-resize-handle,
+        #overlay .learning-trade-setup-edge,
+        #overlay .learning-setup-level,
+        #overlay .learning-zone-rect {
+            pointer-events: none !important;
+        }
+    }
+
+    /* Mobile hide sidebar */
+    @media (max-width: 900px) {
+        #sidebar.collapsed #learningListView,
+        #sidebar.collapsed #learningDetailView {
+            display: none !important;
+        }
+    }
+
