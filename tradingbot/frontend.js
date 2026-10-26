@@ -5425,7 +5425,108 @@ const chartContainer = document.getElementById("chart");
             chartWasDragged = false;
         }, 100);
     }, { passive: true });
-    
+   
+    /* ZOOM THE CHART WHEN THE MOUSE IS OVER A DRAWN OBJECT */
+    overlay.addEventListener("wheel", (event) => {
+        const target = event.target;
+
+        if (!(target instanceof Element)) {
+            return;
+        }
+
+        const interactiveObject = target.closest(
+            "#overlay .trade-box, " +
+            "#overlay .learning-geometry-rect, " +
+            "#overlay .learning-geometry-resize-handle, " +
+            "#overlay .learning-trade-setup-edge, " +
+            "#overlay .learning-setup-level, " +
+            "#overlay .learning-zone-rect"
+        );
+
+        // Do not interfere with normal chart interaction
+        // outside interactive overlay objects.
+        if (!interactiveObject) {
+            return;
+        }
+
+        const timeScale = chart.timeScale();
+        const visibleRange = timeScale.getVisibleLogicalRange();
+
+        if (!visibleRange || event.deltaY === 0) {
+            return;
+        }
+
+        const currentSpan =
+            visibleRange.to - visibleRange.from;
+
+        if (!Number.isFinite(currentSpan) || currentSpan <= 0) {
+            return;
+        }
+
+        // Find the horizontal chart coordinate below the cursor.
+        const chartRect = chartContainer.getBoundingClientRect();
+
+        const localX =
+            event.clientX -
+            chartRect.left -
+            getChartPaneLeftOffset();
+
+        const x = Math.max(
+            0,
+            Math.min(timeScale.width(), localX)
+        );
+
+        const logicalAtCursor =
+            timeScale.coordinateToLogical(x);
+
+        if (
+            logicalAtCursor == null ||
+            !Number.isFinite(logicalAtCursor)
+        ) {
+            return;
+        }
+
+        // Wheel up = zoom in; wheel down = zoom out.
+        const zoomFactor = Math.exp(
+            Math.max(
+                -0.5,
+                Math.min(0.5, event.deltaY * 0.0015)
+            )
+        );
+
+        const totalBars = Math.max(
+            10,
+            Number(lastData?.h1?.length ?? 50000)
+        );
+
+        const newSpan = Math.max(
+            5,
+            Math.min(totalBars, currentSpan * zoomFactor)
+        );
+
+        // Keep the candle under the cursor at the same screen position.
+        const cursorRatio = Math.max(
+            0,
+            Math.min(
+                1,
+                (logicalAtCursor - visibleRange.from) / currentSpan
+            )
+        );
+
+        const newFrom =
+            logicalAtCursor - cursorRatio * newSpan;
+
+        const newTo = newFrom + newSpan;
+
+        event.preventDefault();
+
+        timeScale.setVisibleLogicalRange({
+            from: newFrom,
+            to: newTo
+        });
+
+    }, { passive: false });
+        
         const backendBase =
             window.location.protocol === "file:"
                 ? "http://127.0.0.1:8000"
