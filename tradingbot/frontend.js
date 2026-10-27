@@ -6011,6 +6011,136 @@ const chartContainer = document.getElementById("chart");
         return bestElement;
     }
 
+    function findEditableGeometryAtPoint(clientX, clientY) {
+        const HIT_RADIUS = 18;
+
+        let bestHandle = null;
+        let bestHandleScore = Infinity;
+
+        const handles = overlay.querySelectorAll(
+            ".learning-setup-level, " +
+            ".learning-trade-setup-edge, " +
+            ".learning-geometry-resize-handle"
+        );
+
+        for (const element of handles) {
+            if (
+                element.classList.contains("manual-setup-view-only")
+            ) {
+                continue;
+            }
+
+            const rect = element.getBoundingClientRect();
+
+            let distance;
+            let priority = 0;
+
+            if (
+                element.classList.contains("learning-setup-level")
+            ) {
+                if (
+                    clientX < rect.left - 8 ||
+                    clientX > rect.right + 8
+                ) {
+                    continue;
+                }
+
+                distance = Math.abs(
+                    clientY - (rect.top + rect.bottom) / 2
+                );
+            } else {
+                const dx =
+                    clientX < rect.left
+                        ? rect.left - clientX
+                        : clientX > rect.right
+                            ? clientX - rect.right
+                            : 0;
+
+                const dy =
+                    clientY < rect.top
+                        ? rect.top - clientY
+                        : clientY > rect.bottom
+                            ? clientY - rect.bottom
+                            : 0;
+
+                distance = Math.hypot(dx, dy);
+
+                priority =
+                    element.classList.contains(
+                        "learning-trade-setup-edge"
+                    )
+                        ? 1
+                        : 2;
+            }
+
+            if (distance > HIT_RADIUS) {
+                continue;
+            }
+
+            const score = distance + priority;
+
+            if (score < bestHandleScore) {
+                bestHandle = element;
+                bestHandleScore = score;
+            }
+        }
+
+        if (bestHandle) {
+            return bestHandle;
+        }
+
+        let bestZone = null;
+        let bestZoneZ = -Infinity;
+
+        let bestOther = null;
+        let bestOtherZ = -Infinity;
+
+        const bodies = overlay.querySelectorAll(
+            ".learning-zone-rect, .learning-geometry-rect"
+        );
+
+        for (const element of bodies) {
+            if (
+                element.classList.contains("manual-setup-view-only") ||
+                !element.dataset.geometryObject
+            ) {
+                continue;
+            }
+
+            const rect = element.getBoundingClientRect();
+
+            if (
+                clientX < rect.left ||
+                clientX > rect.right ||
+                clientY < rect.top ||
+                clientY > rect.bottom
+            ) {
+                continue;
+            }
+
+            const parsedZ = Number.parseInt(
+                getComputedStyle(element).zIndex,
+                10
+            );
+
+            const zIndex = Number.isFinite(parsedZ)
+                ? parsedZ
+                : 0;
+
+            if (element.dataset.geometryObject === "zone") {
+                if (zIndex >= bestZoneZ) {
+                    bestZone = element;
+                    bestZoneZ = zIndex;
+                }
+            } else if (zIndex >= bestOtherZ) {
+                bestOther = element;
+                bestOtherZ = zIndex;
+            }
+        }
+
+        return bestZone || bestOther;
+    }
+
     function makeTouchMouseEvent(touch, currentTarget = null) {
         return {
             button: 0,
@@ -6148,12 +6278,7 @@ const chartContainer = document.getElementById("chart");
             const editableTarget =
                 pickerActive || drawingTool
                     ? null
-                    : findOverlayElementAtPoint(
-                        ".learning-trade-setup-edge, " +
-                        ".learning-geometry-resize-handle, " +
-                        ".learning-setup-level, " +
-                        ".learning-zone-rect, " +
-                        ".learning-geometry-rect",
+                    : findEditableGeometryAtPoint(
                         touch.clientX,
                         touch.clientY
                     );
@@ -6177,10 +6302,17 @@ const chartContainer = document.getElementById("chart");
                 startedAction: false
             };
 
-           if (activeAnchorPicker || drawingTool || editableTarget) {
+            if (activeAnchorPicker || drawingTool || editableTarget) {
                 mobileLongPressTimer = setTimeout(() => {
                     if (mobileGesture && !mobileGesture.moved) {
                         mobileGesture.longPressReady = true;
+
+                        if (
+                            mobileGesture.mode === "edit" &&
+                            typeof navigator.vibrate === "function"
+                        ) {
+                            navigator.vibrate(35);
+                        }
                     }
                 }, MOBILE_LONG_PRESS_MS);
             }
@@ -6352,8 +6484,23 @@ const chartContainer = document.getElementById("chart");
                 }
 
                 rememberMobileDragClick(touch);
-            } else if (mobileGesture.moved) {
+            } else if (
+
+                mobileGesture.mode === "edit" &&
+                mobileGesture.longPressReady
+
+            ) {
+
+                if (event.cancelable) {
+                    event.preventDefault();
+                }
+
                 rememberMobileDragClick(touch);
+
+            } else if (mobileGesture.moved) {
+
+                rememberMobileDragClick(touch);
+                
             }
 
             mobileGesture = null;
