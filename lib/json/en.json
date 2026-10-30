@@ -160,6 +160,10 @@
       {
         "title": "Performance results",
         "desc": "Review the final balance, profitable trades, and overall performance."
+      },
+      {
+        "title": "Automatic Levels",
+        "desc": "The software automatically identifies and plots price levels directly onto the chart."
       }
     ]
   },

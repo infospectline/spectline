@@ -3,7 +3,11 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
+  ChevronLeft,
+  ChevronRight,
+  X,
   Home as HomeIcon,
   Settings,
   Monitor,
@@ -571,7 +575,10 @@ export default function AndroidBasic({
   }, [contactLock]);
 
   const [reviewsPaused, setReviewsPaused] = useState(false);
-  const [activeportfolioIndex, setActiveportfolioIndex] = useState(1);
+
+  const [activeportfolioIndex, setActiveportfolioIndex] = useState(0);
+
+  const [isPortfolioFullscreen, setIsPortfolioFullscreen] = useState(false);
   const portfolioDragRef = useRef<{
     startX: number;
     startY: number;
@@ -583,6 +590,49 @@ export default function AndroidBasic({
     pointerId: null,
     fired: false,
   });
+
+  useEffect(() => {
+    const imageCount = copy.portfolio.shots.length;
+
+    if (!isPortfolioFullscreen || imageCount === 0) return;
+
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsPortfolioFullscreen(false);
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+
+        setActiveportfolioIndex((current) =>
+          (current + 1) % imageCount
+        );
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+
+        setActiveportfolioIndex((current) =>
+          (current - 1 + imageCount) % imageCount
+        );
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    isPortfolioFullscreen,
+    copy.portfolio.shots.length,
+  ]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -1901,7 +1951,14 @@ export default function AndroidBasic({
                         fired: false,
                       };
 
-                      e.currentTarget.setPointerCapture(e.pointerId);
+                      const target = e.target;
+
+                      const card =
+                        target instanceof HTMLElement
+                          ? target.closest<HTMLElement>("[data-portfolio-card]")
+                          : null;
+
+                      (card ?? e.currentTarget).setPointerCapture(e.pointerId);
                     }}
                     onPointerMove={(e) => {
                       const drag = portfolioDragRef.current;
@@ -1952,9 +2009,15 @@ export default function AndroidBasic({
                       return (
                         <div
                           key={index}
+                          data-portfolio-card
                           onClick={() => {
                             if (portfolioDragRef.current.fired || !isPortfolioActive) return;
+
                             setActiveportfolioIndex(index);
+
+                            if (isCenter) {
+                              setIsPortfolioFullscreen(true);
+                            }
                           }}
                           className={`absolute w-[85vw] md:w-[1000px] rounded-2xl border bg-[#19191A]/95 backdrop-blur-md overflow-hidden select-none transition-all duration-500 ease-out shadow-2xl ${
                             !isPortfolioActive
@@ -1992,6 +2055,93 @@ export default function AndroidBasic({
                       );
                     })}
                   </div>
+
+                  {isPortfolioFullscreen &&
+                  cards[activeportfolioIndex] &&
+                  createPortal(
+                    <div
+                      className="portfolio-lightbox"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label={cards[activeportfolioIndex].title}
+                      onClick={() => setIsPortfolioFullscreen(false)}
+                    >
+
+                      {/* ZATVORENIE */}
+                      <button
+                        type="button"
+                        className="portfolio-lightbox__close"
+                        aria-label="Zavrieť galériu"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setIsPortfolioFullscreen(false);
+                        }}
+                      >
+                        <X size={26} strokeWidth={1.7} />
+                      </button>
+
+
+                      {/* PREDCHÁDZAJÚCI OBRÁZOK */}
+                      <button
+                        type="button"
+                        className="portfolio-lightbox__nav portfolio-lightbox__nav--prev"
+                        aria-label="Predchádzajúci obrázok"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          prevSlide();
+                        }}
+                      >
+                        <ChevronLeft size={34} strokeWidth={1.6} />
+                      </button>
+
+
+                      {/* ZVÄČŠENÝ OBRÁZOK */}
+                      <div
+                        className="portfolio-lightbox__content"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="portfolio-lightbox__image-wrap">
+
+                          <Image
+                            src={cards[activeportfolioIndex].imgSrc}
+                            alt={cards[activeportfolioIndex].title}
+                            fill
+                            priority
+                            sizes="100vw"
+                            className="portfolio-lightbox__image"
+                            draggable={false}
+                          />
+
+                        </div>
+
+                        <div className="portfolio-lightbox__caption">
+                          <h3>
+                            {cards[activeportfolioIndex].title}
+                          </h3>
+
+                          <p>
+                            {cards[activeportfolioIndex].desc}
+                          </p>
+                        </div>
+                      </div>
+
+
+                      {/* NASLEDUJÚCI OBRÁZOK */}
+                      <button
+                        type="button"
+                        className="portfolio-lightbox__nav portfolio-lightbox__nav--next"
+                        aria-label="Nasledujúci obrázok"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          nextSlide();
+                        }}
+                      >
+                        <ChevronRight size={34} strokeWidth={1.6} />
+                      </button>
+
+                    </div>,
+                    document.body
+                  )}
                 </div>
               );
             })()}

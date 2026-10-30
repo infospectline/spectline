@@ -160,6 +160,10 @@
       {
         "title": "Vyhodnotenie výsledkov",
         "desc": "Pozrite si konečný zostatok, ziskové obchody a celkovú výkonnosť."
+      },
+      {
+        "title": "Automatické úrovne",
+        "desc": "Program automaticky identifikuje a vykresľuje cenové úrovne priamo do grafu."
       }
     ]
   },
