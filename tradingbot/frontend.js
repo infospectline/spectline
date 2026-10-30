@@ -1145,6 +1145,42 @@ const chartContainer = document.getElementById("chart");
             rectangle
         );
 
+        const entryY = geometry.entry?.price != null
+            ? geometryPriceToY(geometry.entry.price)
+            : null;
+
+        function addSetupArea(targetPrice, className) {
+            if (entryY == null || targetPrice == null) {
+                return;
+            }
+
+            const targetY = geometryPriceToY(targetPrice);
+
+            if (targetY == null) {
+                return;
+            }
+
+            const area = document.createElement("div");
+            area.className = `learning-setup-area ${className} manual-setup-view-only`;
+
+            area.style.left = `${left}px`;
+            area.style.top = `${Math.min(entryY, targetY)}px`;
+            area.style.width = `${width}px`;
+            area.style.height = `${Math.max(1, Math.abs(targetY - entryY))}px`;
+
+            overlay.appendChild(area);
+        }
+
+        addSetupArea(
+            geometry.tp?.price,
+            "learning-setup-profit-area"
+        );
+
+        addSetupArea(
+            geometry.sl?.price,
+            "learning-setup-risk-area"
+        );
+
         const levels = [
             {
                 key: "breakout",
