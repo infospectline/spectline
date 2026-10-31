@@ -56,9 +56,13 @@ from torch.utils.data import DataLoader, TensorDataset
 
 BASE_DIR = Path(__file__).resolve().parent
 
+WEB_MODE = os.getenv("WEB_MODE", "false").lower() == "true"
+
 TRADING_SETUP_ROOT = BASE_DIR / "TRADING SET UP"
 CHARTS_ROOT = BASE_DIR / "CHARTS"
 MODELS_ROOT = BASE_DIR / "MODELS"
+
+USER_DATA_ROOT = Path("/data/users")
 
 SETUP_FILENAME = "setups.json"
 CANDLE_FILENAME = "candles.csv"
@@ -141,23 +145,74 @@ def safe_market_folder(market: str) -> str:
     )
 
 
-def setup_path(market: str) -> Path:
-    """Return the Learning setup JSON path for one market."""
+def safe_user_folder(user_id: Optional[str]) -> str:
+    """Validate the authenticated user folder name."""
+
+    if user_id is None:
+        raise ValueError("user_id is required in WEB_MODE.")
+
+    user_folder = str(user_id).strip()
+
+    if (
+        not user_folder
+        or user_folder in {".", ".."}
+        or "/" in user_folder
+        or "\\" in user_folder
+    ):
+        raise ValueError("Invalid user_id.")
+
+    return user_folder
+
+
+def setup_path(
+    market: str,
+    user_id: Optional[str] = None,
+) -> Path:
+    """Return the Learning setup path for the correct user."""
+
+    market_folder = safe_market_folder(market)
+
+    if WEB_MODE:
+        return (
+            USER_DATA_ROOT
+            / safe_user_folder(user_id)
+            / market_folder
+            / SETUP_FILENAME
+        )
+
     return (
         TRADING_SETUP_ROOT
-        / safe_market_folder(market)
+        / market_folder
         / SETUP_FILENAME
     )
 
 
-def model_dir(market: str) -> Path:
-    """Return the model directory for one market."""
-    return MODELS_ROOT / safe_market_folder(market)
+def model_dir(
+    market: str,
+    user_id: Optional[str] = None,
+) -> Path:
+    """Return the model directory for the correct user."""
+
+    market_folder = safe_market_folder(market)
+
+    if WEB_MODE:
+        return (
+            USER_DATA_ROOT
+            / safe_user_folder(user_id)
+            / "MODELS"
+            / market_folder
+        )
+
+    return MODELS_ROOT / market_folder
 
 
-def model_path(market: str) -> Path:
-    """Return the trained model path for one market."""
-    return model_dir(market) / MODEL_FILENAME
+def model_path(
+    market: str,
+    user_id: Optional[str] = None,
+) -> Path:
+    """Return the trained model path for the correct user."""
+
+    return model_dir(market, user_id) / MODEL_FILENAME
 
 
 def chart_path(market: str, timeframe: str) -> Path:
@@ -275,9 +330,12 @@ def parse_timestamp(value: Any) -> Optional[int]:
 # JSON LEARNING DATA
 # ============================================================================
 
-def load_learning_setups(market: str) -> List[UserSetup]:
+def load_learning_setups(
+    market: str,
+    user_id: Optional[str] = None,
+) -> List[UserSetup]:
     """Load and normalize all saved Learning trades for a market."""
-    path = setup_path(market)
+    path = setup_path(market, user_id)
 
     if not path.is_file():
         raise FileNotFoundError(
@@ -336,9 +394,24 @@ def load_learning_setups(market: str) -> List[UserSetup]:
         anchor_time = parse_timestamp(anchor.get("time"))
         anchor_price = to_float(anchor.get("price"))
 
+        trade_geometry = item.get("trade_geometry")
+
+        if not isinstance(trade_geometry, dict):
+            trade_geometry = {}
+
+        entry_geometry = trade_geometry.get("entry")
+
+        if not isinstance(entry_geometry, dict):
+            entry_geometry = {}
+
         entry_candle_time = parse_timestamp(
             item.get("entry_candle")
         )
+
+        if entry_candle_time is None:
+            entry_candle_time = parse_timestamp(
+                entry_geometry.get("time")
+            )
 
         setup = UserSetup(
             setup_id=setup_id,
@@ -1734,15 +1807,16 @@ def save_model(
     model: TradingMicroModel,
     scaler: FeatureScaler,
     training_summary: Dict[str, Any],
+    user_id: Optional[str] = None,
 ) -> Path:
     """Save one complete market-specific model."""
-    directory = model_dir(market)
+    directory = model_dir(market, user_id)
     directory.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    path = model_path(market)
+    path = model_path(market, user_id)
 
     checkpoint = {
         "market": str(market),
@@ -1775,9 +1849,10 @@ def save_model(
 
 def load_model(
     market: str,
+    user_id: Optional[str] = None,
 ) -> Tuple[TradingMicroModel, FeatureScaler, Dict[str, Any]]:
     """Load a previously trained market-specific model."""
-    path = model_path(market)
+    path = model_path(market, user_id)
 
     if not path.is_file():
         raise FileNotFoundError(
@@ -1787,6 +1862,7 @@ def load_model(
     checkpoint = torch.load(
         path,
         map_location="cpu",
+        weights_only=False,
     )
 
     input_size = int(
@@ -2008,7 +2084,8 @@ def train_market(
     batch_size: int = DEFAULT_BATCH_SIZE,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     weight_decay: float = DEFAULT_WEIGHT_DECAY,
-) -> Path:
+    user_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Train a complete market-specific model from the user's Learning data.
 
@@ -2026,11 +2103,12 @@ def train_market(
     print("=" * 72)
 
     print(
-        f"Learning data: {setup_path(market)}"
+        f"Learning data: {setup_path(market, user_id)}"
     )
 
     setups = load_learning_setups(
-        market
+        market,
+        user_id=user_id,
     )
 
     print(
@@ -2100,6 +2178,7 @@ def train_market(
         model=model,
         scaler=scaler,
         training_summary=training_summary,
+        user_id=user_id,
     )
 
     print("")
@@ -2115,7 +2194,26 @@ def train_market(
     print("=" * 72)
     print("")
 
-    return saved_path
+    return {
+        "training": {
+            **training_summary,
+
+            "input_trade_count": len(setups),
+
+            "usable_positive_samples": int(
+                dataset["stats"]["positive_examples"]
+            ),
+
+            "background_samples": int(
+                dataset["stats"]["negative_examples"]
+            ),
+        },
+
+        "model": {
+            "market": market,
+            "model_path": str(saved_path),
+        },
+    }
 
 
 # ============================================================================

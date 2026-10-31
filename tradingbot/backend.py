@@ -2865,27 +2865,41 @@ def train_market_model(
     }
 
 
-def load_ai_runtime() -> bool:
-    """Load the market-specific PyTorch model produced by ai.py."""
+def load_ai_runtime(
+    user_id: Optional[str] = None,
+) -> bool:
+    """Load the market-specific model for the correct user."""
+
     global ai_model, ai_scaler, ai_checkpoint
     global ai_market_candles
     global model_available, model_info, last_training_info
 
     try:
-        ai_model, ai_scaler, ai_checkpoint = ai.load_model(SYMBOL)
+        ai_model, ai_scaler, ai_checkpoint = ai.load_model(
+            SYMBOL,
+            user_id=user_id,
+        )
+
         ai_market_candles = ai.load_all_market_candles(SYMBOL)
 
         model_available = True
+
         model_info = {
             "symbol": SYMBOL,
-            "model_path": str(ai.model_path(SYMBOL)),
+            "model_path": str(
+                ai.model_path(SYMBOL, user_id=user_id)
+            ),
             "trained_at": ai_checkpoint.get("trained_at"),
             "format_version": ai_checkpoint.get("format_version"),
-            "training_summary": ai_checkpoint.get("training_summary", {}),
+            "training_summary": ai_checkpoint.get(
+                "training_summary", {}
+            ),
         }
+
         last_training_info = copy.deepcopy(
             ai_checkpoint.get("training_summary", {})
         )
+
         return True
 
     except FileNotFoundError:
@@ -2895,18 +2909,25 @@ def load_ai_runtime() -> bool:
         ai_market_candles = None
         model_available = False
         model_info = {}
+        last_training_info = {}
+
         return False
 
     except Exception as error:
-        print(f"AI model load error for {SYMBOL}: {error}")
+        print(
+            f"AI model load error for {SYMBOL}, "
+            f"user={user_id}: {error}"
+        )
+
         ai_model = None
         ai_scaler = None
         ai_checkpoint = {}
         ai_market_candles = None
         model_available = False
         model_info = {}
-        return False
+        last_training_info = {}
 
+        return False
 
 def _load_legacy_market_model() -> Optional[Dict[str, Any]]:
     """Legacy JSON model loader retained only for backward compatibility."""
@@ -3407,7 +3428,9 @@ def step_testing() -> None:
         last_model_entry_index = current_index
 
 
-def reset() -> None:
+def reset(
+    user_id: Optional[str] = None,
+) -> None:
     global current_index, running, trading_enabled
     global balance, peak_equity, open_trade
     global trade_history, last_trade_result, major_levels
@@ -3448,13 +3471,16 @@ def reset() -> None:
     last_model_entry_index = -10_000_000
 
     # Load the market-specific PyTorch model created by ai.py.
-    load_ai_runtime()
+    load_ai_runtime(user_id)
 
     _capture_active_session()
 
 
-def train_runtime() -> Dict[str, Any]:
-    """Synchronous compatibility helper for training the active market with ai.py."""
+def train_runtime(
+    user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Train the active market model for the selected user."""
+
     global analysis_status, analysis_started, analysis_completed
     global analysis_phase, running, startup_progress, startup_message
 
@@ -3470,8 +3496,12 @@ def train_runtime() -> Dict[str, Any]:
         f"Training {SYMBOL} market model with ai.py..."
     )
 
-    path = ai.train_market(SYMBOL)
-    load_ai_runtime()
+    result = ai.train_market(
+        SYMBOL,
+        user_id=user_id,
+    )
+
+    load_ai_runtime(user_id)
 
     running = False
     analysis_status = "completed"
@@ -3482,12 +3512,14 @@ def train_runtime() -> Dict[str, Any]:
 
     return {
         "success": True,
-        "model_path": str(path),
+        "model_path": result["model"]["model_path"],
         "symbol": SYMBOL,
+        "training": result["training"],
+        "model": result["model"],
     }
 
 
-async def training_loop() -> None:
+async def training_loop(user_id: Optional[str]) -> None:
     global running, startup_progress, startup_message
     global analysis_status, analysis_started, analysis_completed, analysis_phase
 
@@ -3515,8 +3547,10 @@ async def training_loop() -> None:
         result = await asyncio.to_thread(
             ai.train_market,
             SYMBOL,
+            user_id=user_id,
         )
-        load_ai_runtime()
+
+        load_ai_runtime(user_id)
 
         startup_progress = 100
         startup_message = (
@@ -3568,11 +3602,13 @@ async def training_loop() -> None:
         await broadcast_snapshot(user_id)
 
 
-async def testing_loop() -> None:
+async def testing_loop(
+    user_id: Optional[str] = None,
+) -> None:
     global running, startup_progress, startup_message
     global analysis_status, analysis_started, analysis_completed, analysis_phase
 
-    if not load_ai_runtime():
+    if not load_ai_runtime(user_id):
         analysis_status = "error"
         analysis_phase = "testing_error"
         analysis_started = True
@@ -3587,7 +3623,7 @@ async def testing_loop() -> None:
         await broadcast_snapshot(user_id)
         return
 
-    reset()
+    reset(user_id)
     analysis_status = "testing"
     analysis_phase = "testing"
     analysis_started = True
@@ -3601,7 +3637,7 @@ async def testing_loop() -> None:
     print("")
     print("=== TESTING START ===")
     print(f"Market: {SYMBOL} | Timeframe: {TIMEFRAME}")
-    print(f"Model: {ai.model_path(SYMBOL)}")
+    print(f"Model: {ai.model_path(SYMBOL, user_id)}")
     print(f"Total candles: {total:,}")
 
     try:
@@ -3943,7 +3979,8 @@ async def lifespan(_app: FastAPI):
     _get_session_state(SYMBOL, TIMEFRAME)
     load_history()
     _restore_active_session()
-    load_ai_runtime()
+    if not WEB_MODE:
+        load_ai_runtime()
 
     startup_stage = "Chart ready"
     startup_progress = 100
@@ -4022,6 +4059,8 @@ async def websocket_endpoint(websocket: WebSocket):
     global last_training_info, last_model_signal, last_model_entry_index
 
     await websocket.accept()
+
+    load_ai_runtime(user_id)
 
     connected_clients.setdefault(
         user_id,
@@ -4109,7 +4148,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         new_symbol
                     )
 
-                    load_ai_runtime()
+                    load_ai_runtime(user_id)
 
                     data = snapshot(user_id)
                     data["startup_stage"] = "Chart ready"
@@ -4220,7 +4259,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         new_timeframe
                     )
 
-                    load_ai_runtime()
+                    load_ai_runtime(user_id)
 
                     data = snapshot(user_id)
                     data["startup_stage"] = "Chart ready"
@@ -4448,20 +4487,25 @@ async def websocket_endpoint(websocket: WebSocket):
                     results_source = "testing"
                     manual_analysis_results = {}
 
-                    analysis_task = None
-                    reset()
+                    reset(user_id)
+
+                    results_source = "testing"
+                    manual_analysis_results = {}
 
                     analysis_status = "training"
                     analysis_phase = "training"
                     analysis_started = True
                     analysis_completed = False
+
                     startup_stage = "Training model"
                     startup_progress = 70
                     startup_message = (
                         f"Starting TRAINING for {SYMBOL} {TIMEFRAME}..."
                     )
 
-                    analysis_task = asyncio.create_task(training_loop())
+                    analysis_task = asyncio.create_task(
+                        training_loop(user_id)
+                    )
 
                     data = snapshot(user_id)
                     data["startup_stage"] = startup_stage
@@ -4511,7 +4555,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         await websocket.send_text(json.dumps(data))
                         continue
 
-                    if not load_ai_runtime():
+                    if not load_ai_runtime(user_id):
                         data = snapshot(user_id)
                         data["startup_stage"] = "Testing unavailable"
                         data["startup_progress"] = 100
@@ -4527,20 +4571,22 @@ async def websocket_endpoint(websocket: WebSocket):
                     results_source = "testing"
                     manual_analysis_results = {}
 
-                    analysis_task = None
-                    reset()
+                    reset(user_id)
 
                     analysis_status = "testing"
                     analysis_phase = "testing"
                     analysis_started = True
                     analysis_completed = False
+
                     startup_stage = "Testing model"
                     startup_progress = 70
                     startup_message = (
                         f"Starting TESTING for {SYMBOL} {TIMEFRAME}..."
                     )
 
-                    analysis_task = asyncio.create_task(testing_loop())
+                    analysis_task = asyncio.create_task(
+                        testing_loop(user_id)
+                    )
 
                     data = snapshot(user_id)
                     data["startup_stage"] = startup_stage

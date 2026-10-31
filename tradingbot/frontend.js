@@ -5914,7 +5914,13 @@ const chartContainer = document.getElementById("chart");
 
                     renderLearningTradeList();
 
-                    lastData = data;
+                    if (
+                        data.ready === true &&
+                        Array.isArray(data.h1) &&
+                        Array.isArray(data.line)
+                    ) {
+                        lastData = data;
+                    }
 
                     requestAnimationFrame(() => {
                         renderOverlay();
