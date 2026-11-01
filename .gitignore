@@ -84,6 +84,9 @@ Thumbs.db
 /tradingbot/.env.*
 !/tradingbot/.env.example
 
+# Customer data and runtime storage
+/tradingbot/CUSTOMERS/
+
 # SSH keys and key directories
 /tradingbot/**/SSH/
 /tradingbot/**/id_ed25519

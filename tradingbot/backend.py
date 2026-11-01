@@ -1,4888 +1,1462 @@
-# backend.py
+# ============================================================================
+# IMPORTS
+# ============================================================================
+
+from __future__ import annotations
 
 import asyncio
 import copy
-import csv
+import inspect
 import json
-import math
+import logging
 import os
-import re
-import ai
-import base64
-import hashlib
-import hmac
-import time
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
-
-WEB_MODE = os.getenv("WEB_MODE", "false").lower() == "true"
-
-def verify_tradingbot_ticket(ticket: str) -> Optional[str]:
-    secret = os.getenv("TRADINGBOT_SHARED_SECRET")
-
-    if not secret:
-        print("AUTH REJECT: TRADINGBOT_SHARED_SECRET is missing.")
-        return None
-
-    if not ticket:
-        print("AUTH REJECT: WebSocket ticket is missing.")
-        return None
-
-    try:
-        parts = ticket.split(".")
-
-        if len(parts) != 2:
-            print("AUTH REJECT: Invalid ticket format.")
-            return None
-
-        payload_part, signature_part = parts
-
-        expected_signature = hmac.new(
-            secret.encode("utf-8"),
-            payload_part.encode("ascii"),
-            hashlib.sha256,
-        ).digest()
-
-        def decode_base64url(value: str) -> bytes:
-            return base64.urlsafe_b64decode(
-                value + "=" * (-len(value) % 4)
-            )
-
-        supplied_signature = decode_base64url(signature_part)
-
-        if not hmac.compare_digest(
-            expected_signature,
-            supplied_signature,
-        ):
-            print("AUTH REJECT: Signature mismatch.")
-            return None
-
-        payload = json.loads(decode_base64url(payload_part))
-
-        if not isinstance(payload, dict):
-            print("AUTH REJECT: Invalid payload.")
-            return None
-
-        if payload.get("aud") != "spectline-tradingbot":
-            print("AUTH REJECT: Audience mismatch.")
-            return None
-
-        user_id = payload.get("sub")
-
-        if not isinstance(user_id, str) or not user_id.strip():
-            print("AUTH REJECT: Invalid user identity.")
-            return None
-
-        expires_at = int(payload.get("exp", 0))
-
-        if expires_at <= int(time.time()):
-            print("AUTH REJECT: Ticket expired.")
-            return None
-
-        return user_id
-
-    except Exception as error:
-        print(
-            "AUTH REJECT: Invalid ticket data. "
-            f"Error type: {type(error).__name__}"
-        )
-        return None
-        
-if WEB_MODE:
-    mt5 = None
-else:
-    import MetaTrader5 as mt5
-import uvicorn
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-# Fixed strategy configuration
-SYMBOL = "EURUSD"
-YEARS_BACK = 5
-STARTING_BALANCE = 100_000.0
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 
-TIMEFRAME = "H1"
-mt5_connected = False
+try:
+    import ai
+except ImportError:
+    ai = None
 
-if WEB_MODE:
-    MT5_TIMEFRAMES = {
-        "M1": None,
-        "M5": None,
-        "M15": None,
-        "M30": None,
-        "H1": None,
-        "H4": None,
-        "D1": None,
-        "W1": None,
-    }
-else:
-    MT5_TIMEFRAMES = {
-        "M1": mt5.TIMEFRAME_M1,
-        "M5": mt5.TIMEFRAME_M5,
-        "M15": mt5.TIMEFRAME_M15,
-        "M30": mt5.TIMEFRAME_M30,
-        "H1": mt5.TIMEFRAME_H1,
-        "H4": mt5.TIMEFRAME_H4,
-        "D1": mt5.TIMEFRAME_D1,
-        "W1": mt5.TIMEFRAME_W1,
-    }
-
-analysis_task = None
-blocked_trades = 0
-blocked_trade_signal = False
-
-SL_PERCENT = 0.005
-TP_PERCENT = 0.010
-MAX_DRAWDOWN_PERCENT = 0.04
-LEVEL_DISTANCE_THRESHOLD = 0.50
-
-
-m1_data: List[Dict[str, Any]] = []
-h1_data: List[Dict[str, Any]] = []
-
-current_index = 0
-running = False
-trading_enabled = True
-
-balance = STARTING_BALANCE
-peak_equity = STARTING_BALANCE
-
-open_trade: Optional[Dict[str, Any]] = None
-trade_history: List[Dict[str, Any]] = []
-last_trade_result: Optional[str] = None
-major_levels: List[Dict[str, Any]] = []
-
-connected_clients: Dict[Optional[str], set] = {}
-
-startup_stage = "Starting"
-startup_progress = 0
-startup_message = "Starting backend..."
-
-zigzag_filter: Optional[Dict[str, float]] = None
-
-LEVEL_RECALC_INTERVAL = 20
-
-cached_strategy_levels = []
-last_level_calculation_index = -1
-
-blocked_trade_zone = None
-
-# ---------------------------------------------------------------------------
-# SESSION MANAGEMENT
-# ---------------------------------------------------------------------------
-# One market is one logical session. Each timeframe inside that market has
-# its own analysis state, levels and trades. The currently active session is
-# mirrored by the legacy globals below so the existing strategy code can stay
-# unchanged.
-
-SESSIONS: Dict[str, Dict[str, Dict[str, Any]]] = {}
-
-analysis_status = "idle"
-analysis_started = False
-analysis_completed = False
-
-results_source = "testing"
-manual_analysis_results: Dict[str, Any] = {}
-
-manual_analysis_progress = 0
-
-USER_MANUAL_ANALYSIS: Dict[
-    Optional[str],
-    Dict[str, Any]
-] = {}
-
-USER_MANUAL_ANALYSIS_TASKS: Dict[
-    Optional[str],
-    asyncio.Task
-] = {}
-
-
-def _new_manual_analysis_state() -> Dict[str, Any]:
-    return {
-        "analysis_status": "idle",
-        "analysis_started": False,
-        "analysis_completed": False,
-        "analysis_phase": "idle",
-        "manual_analysis_progress": 0,
-        "results_source": "testing",
-        "manual_analysis_results": {},
-        "startup_stage": "Waiting for analysis",
-        "startup_progress": 0,
-        "startup_message": "",
-    }
-
-
-def _get_manual_analysis_state(
-    user_id: Optional[str]
-) -> Dict[str, Any]:
-
-    if user_id not in USER_MANUAL_ANALYSIS:
-        USER_MANUAL_ANALYSIS[user_id] = (
-            _new_manual_analysis_state()
-        )
-
-    return USER_MANUAL_ANALYSIS[user_id]
-
-MANUAL_RISK_PERCENT = 1.0
-
-def _new_session_state() -> Dict[str, Any]:
-    return {
-        "current_index": 0,
-        "running": False,
-        "trading_enabled": True,
-        "balance": STARTING_BALANCE,
-        "peak_equity": STARTING_BALANCE,
-        "open_trade": None,
-        "trade_history": [],
-        "last_trade_result": None,
-        "major_levels": [],
-        "cached_strategy_levels": [],
-        "last_level_calculation_index": -1,
-        "blocked_trade_zone": None,
-        "zigzag_filter": None,
-        "blocked_trades": 0,
-        "analysis_status": "idle",
-        "analysis_started": False,
-        "analysis_completed": False,
-        "analysis_phase": "idle",
-        "model_available": False,
-        "model_info": {},
-        "last_training_info": {},
-        "last_model_signal": None,
-        "last_model_entry_index": -10_000_000,
-    }
-
-
-def _get_session_state(
-    symbol: str,
-    timeframe: str,
-) -> Dict[str, Any]:
-    market_sessions = SESSIONS.setdefault(symbol, {})
-
-    if timeframe not in market_sessions:
-        market_sessions[timeframe] = _new_session_state()
-
-    return market_sessions[timeframe]
-
-
-def _capture_active_session() -> None:
-    state = _get_session_state(SYMBOL, TIMEFRAME)
-
-    state["current_index"] = current_index
-    state["running"] = False
-    state["trading_enabled"] = trading_enabled
-    state["balance"] = balance
-    state["peak_equity"] = peak_equity
-    state["open_trade"] = copy.deepcopy(open_trade)
-    state["trade_history"] = copy.deepcopy(trade_history)
-    state["last_trade_result"] = last_trade_result
-    state["major_levels"] = copy.deepcopy(major_levels)
-    state["cached_strategy_levels"] = copy.deepcopy(cached_strategy_levels)
-    state["last_level_calculation_index"] = last_level_calculation_index
-    state["blocked_trade_zone"] = copy.deepcopy(blocked_trade_zone)
-    state["zigzag_filter"] = copy.deepcopy(zigzag_filter)
-    state["blocked_trades"] = blocked_trades
-    state["analysis_status"] = analysis_status
-    state["analysis_started"] = analysis_started
-    state["analysis_completed"] = analysis_completed
-    state["analysis_phase"] = analysis_phase
-    state["model_available"] = model_available
-    state["model_info"] = copy.deepcopy(model_info)
-    state["last_training_info"] = copy.deepcopy(last_training_info)
-    state["last_model_signal"] = copy.deepcopy(last_model_signal)
-    state["last_model_entry_index"] = last_model_entry_index
-
-
-def _restore_active_session() -> None:
-    global current_index, running, trading_enabled
-    global balance, peak_equity, open_trade, trade_history
-    global last_trade_result, major_levels
-    global cached_strategy_levels, last_level_calculation_index
-    global blocked_trade_zone, zigzag_filter, blocked_trades
-    global analysis_status, analysis_started, analysis_completed
-    global analysis_phase, model_available, model_info
-    global last_training_info, last_model_signal, last_model_entry_index
-
-    state = _get_session_state(SYMBOL, TIMEFRAME)
-
-    current_index = min(
-        max(0, int(state.get("current_index", 0))),
-        max(0, len(h1_data) - 1),
+try:
+    from client import (
+        BASE_DIR,
+        ClientIdentity,
+        ensure_client_directories,
+        get_model_path,
+        resolve_identity,
     )
-    running = False
-    trading_enabled = bool(state.get("trading_enabled", True))
-    balance = float(state.get("balance", STARTING_BALANCE))
-    peak_equity = float(state.get("peak_equity", STARTING_BALANCE))
-    open_trade = copy.deepcopy(state.get("open_trade"))
-    trade_history = copy.deepcopy(state.get("trade_history", []))
-    last_trade_result = state.get("last_trade_result")
-    major_levels = copy.deepcopy(state.get("major_levels", []))
-    cached_strategy_levels = copy.deepcopy(
-        state.get("cached_strategy_levels", [])
+    from runtime import RuntimeContext, RuntimeRegistry, cancel_runtime_tasks
+    from webmode import (
+        AuthenticationError,
+        VerifiedTradingBotClaims,
+        accept_customer_connection,
+        authenticate_websocket,
+        disconnect_customer_connection,
+        reject_websocket,
+        ticket_identity_for_market,
+        WEB_MODE,
     )
-    last_level_calculation_index = int(
-        state.get("last_level_calculation_index", -1)
+    from chart import ChartService, TIMEFRAME_SECONDS
+    import setups as setup_storage
+    import strategy as strategy_engine
+    import trading as trading_engine
+except ImportError:
+    from .client import (
+        BASE_DIR,
+        ClientIdentity,
+        ensure_client_directories,
+        get_model_path,
+        resolve_identity,
     )
-    blocked_trade_zone = copy.deepcopy(
-        state.get("blocked_trade_zone")
+    from .runtime import RuntimeContext, RuntimeRegistry, cancel_runtime_tasks
+    from .webmode import (
+        AuthenticationError,
+        VerifiedTradingBotClaims,
+        accept_customer_connection,
+        authenticate_websocket,
+        disconnect_customer_connection,
+        reject_websocket,
+        ticket_identity_for_market,
+        WEB_MODE,
     )
-    zigzag_filter = copy.deepcopy(state.get("zigzag_filter"))
-    blocked_trades = int(state.get("blocked_trades", 0))
-    analysis_status = state.get("analysis_status", "idle")
-    analysis_started = bool(state.get("analysis_started", False))
-    analysis_completed = bool(state.get("analysis_completed", False))
-    analysis_phase = state.get("analysis_phase", "idle")
-    model_available = bool(state.get("model_available", False))
-    model_info = copy.deepcopy(state.get("model_info", {}))
-    last_training_info = copy.deepcopy(state.get("last_training_info", {}))
-    last_model_signal = copy.deepcopy(state.get("last_model_signal"))
-    last_model_entry_index = int(state.get("last_model_entry_index", -10_000_000))
-
-    # A cancelled replay is never considered running when a session is
-    # re-entered. Its previous point-in-time state is preserved.
-    if analysis_status == "running":
-        analysis_status = "paused"
-        state["analysis_status"] = "paused"
+    from .chart import ChartService, TIMEFRAME_SECONDS
+    from . import setups as setup_storage
+    from . import strategy as strategy_engine
+    from . import trading as trading_engine
 
 
-def _mark_session_dirty() -> None:
-    _capture_active_session()
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
+LOGGER = logging.getLogger("spectline.backend")
 
-def _session_id() -> str:
-    return f"{SYMBOL}|{TIMEFRAME}"
+DEFAULT_MARKET = os.getenv("SPECTLINE_DEFAULT_MARKET", "EURUSD").strip().upper()
+DEFAULT_TIMEFRAME = os.getenv("SPECTLINE_DEFAULT_TIMEFRAME", "H1").strip().upper()
+STARTING_BALANCE = float(os.getenv("SPECTLINE_STARTING_BALANCE", "100000"))
+MANUAL_RISK_PERCENT = float(os.getenv("SPECTLINE_MANUAL_RISK_PERCENT", "1.0"))
+LEVEL_RECALC_INTERVAL = int(os.getenv("SPECTLINE_LEVEL_RECALC_INTERVAL", "20"))
 
+RUNTIME_REGISTRY = RuntimeRegistry()
+CHART_SERVICE = ChartService()
+TRADING_CONFIG = trading_engine.TradingConfig()
 
-# MT5 data
+# Shared chart files are protected from concurrent load/update operations.
+CHART_IO_LOCK = asyncio.Lock()
 
-def resolve_symbol(symbol: str) -> str:
-    if mt5.symbol_info(symbol) is not None:
-        return symbol
-
-    symbols = mt5.symbols_get()
-
-    if symbols:
-        exact_matches = [
-            s.name
-            for s in symbols
-            if s.name.upper() == symbol.upper()
-        ]
-
-        if exact_matches:
-            return exact_matches[0]
-
-        prefix_matches = [
-            s.name
-            for s in symbols
-            if s.name.upper().startswith(symbol.upper())
-        ]
-
-        if prefix_matches:
-            return prefix_matches[0]
-
-    raise RuntimeError(
-        f"MT5 symbol '{symbol}' was not found. "
-        "Check the symbol name in Market Watch."
-    )
-
-def initialize_mt5() -> bool:
-    global SYMBOL
-    global mt5_connected
-
-    mt5_connected = False
-
-    if not mt5.initialize():
-        print(
-            "MT5 is not available. "
-            "Application will use local CHARTS data."
-        )
-        return False
-
-    try:
-        global_symbol = resolve_symbol(SYMBOL)
-        SYMBOL = global_symbol
-
-        if not mt5.symbol_select(global_symbol, True):
-            print(
-                f"MT5 symbol selection failed for {global_symbol}. "
-                "Using local CHARTS data."
-            )
-            mt5.shutdown()
-            return False
-
-        mt5_connected = True
-
-        print("MT5 connected.")
-        return True
-
-    except Exception as error:
-        print(
-            f"MT5 connection setup failed: {error}"
-        )
-
-        mt5.shutdown()
-        mt5_connected = False
-        return False
-# ---------------------------------------------------------------------------
-# LOCAL CHART HISTORY
-# ---------------------------------------------------------------------------
-# Market data is permanently archived next to backend.py:
-#
-# CHARTS\
-#   EURUSD\
-#       H1\
-#           candles.csv
-#       M15\
-#           candles.csv
-#   XAUUSD\
-#       H1\
-#           candles.csv
-#
-# MT5 is used only to create/synchronize the archive. The chart itself loads
-# its history from the local archive.
-
-CHARTS_ROOT = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "CHARTS",
+FRONTEND_HTML_CANDIDATES = (
+    "frontend.html",
+    "index.html",
+    "frontend(1).html",
+)
+FRONTEND_JS_CANDIDATES = (
+    "frontend.js",
+    "frontend(1).js",
+)
+FRONTEND_CSS_CANDIDATES = (
+    "frontend.css",
+    "frontend(1).css",
 )
 
-if WEB_MODE:
-    TRADING_SETUP_ROOT = "/data/users"
-else:
-    TRADING_SETUP_ROOT = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "TRADING SET UP"
-    )
 
-TRADING_SETUP_FILENAME = "setups.json"
+# ============================================================================
+# SERIALIZATION HELPERS
+# ============================================================================
 
-LOCAL_CHART_FILENAME = "candles.csv"
+def _json_default(value: Any) -> Any:
+    """Convert common Python and NumPy values into JSON-safe values."""
+    if isinstance(value, Path):
+        return str(value)
 
-TIMEFRAME_SECONDS = {
-    "M1": 60,
-    "M5": 5 * 60,
-    "M15": 15 * 60,
-    "M30": 30 * 60,
-    "H1": 60 * 60,
-    "H4": 4 * 60 * 60,
-    "D1": 24 * 60 * 60,
-    "W1": 7 * 24 * 60 * 60,
-}
+    if isinstance(value, set):
+        return list(value)
 
-DOWNLOAD_CHUNK_DAYS = 90
+    if hasattr(value, "tolist") and callable(value.tolist):
+        return value.tolist()
 
+    if hasattr(value, "item") and callable(value.item):
+        return value.item()
 
-# ---------------------------------------------------------------------------
-# MODEL STORAGE
-# ---------------------------------------------------------------------------
-# Each market has its own isolated model. DEFAULT is always a clean model
-# template and is never modified by market-specific training.
+    if hasattr(value, "as_dict") and callable(value.as_dict):
+        return value.as_dict()
+
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable.")
 
 
-
-analysis_phase = "idle"
-model_available = False
-model_info: Dict[str, Any] = {}
-last_training_info: Dict[str, Any] = {}
-last_model_signal: Optional[Dict[str, Any]] = None
-last_model_entry_index = -10_000_000
-
-# ---------------------------------------------------------------------------
-# AI.PY RUNTIME
-# ---------------------------------------------------------------------------
-
-ai_model = None
-ai_scaler = None
-ai_checkpoint: Dict[str, Any] = {}
-ai_market_candles = None
+def _json_dumps(data: Dict[str, Any]) -> str:
+    return json.dumps(data, default=_json_default, ensure_ascii=False)
 
 
-
-def _chart_symbol_folder(symbol: str) -> str:
-    """Return a filesystem-safe symbol folder name."""
-    return str(symbol).strip().replace("/", "_").replace("\\", "_")
-
-
-def _chart_history_path(symbol: str, timeframe: str) -> str:
-    folder = os.path.join(
-        CHARTS_ROOT,
-        _chart_symbol_folder(symbol),
-        timeframe,
-    )
-    os.makedirs(folder, exist_ok=True)
-    return os.path.join(folder, LOCAL_CHART_FILENAME)
-
-# ---------------------------------------------------------------------------
-# TRADING SET UP STORAGE
-# ---------------------------------------------------------------------------
-
-def _trading_setup_symbol_folder(symbol: str) -> str:
-    return (
-        str(symbol)
-        .strip()
-        .replace("/", "_")
-        .replace("\\", "_")
-    )
+def _find_frontend_file(candidates: Sequence[str]) -> Optional[Path]:
+    for filename in candidates:
+        candidate = BASE_DIR / filename
+        if candidate.is_file():
+            return candidate
+    return None
 
 
-def _trading_setup_path(symbol: str, user_id: Optional[str] = None) -> str:
-    symbol_folder = _trading_setup_symbol_folder(symbol)
+# ============================================================================
+# IDENTITY AND RUNTIME RESOLUTION
+# ============================================================================
+
+def _identity_for_market(
+    market: str,
+    claims: Optional[VerifiedTradingBotClaims],
+    current_identity: Optional[ClientIdentity] = None,
+) -> ClientIdentity:
+    """Create a market-specific identity from trusted connection claims."""
+    if claims is not None:
+        return ticket_identity_for_market(claims, market)
 
     if WEB_MODE:
-        if not user_id:
-            raise ValueError("user_id is required in WEB_MODE")
+        raise AuthenticationError("Verified customer claims are required in WEB_MODE.")
 
-        user_root = os.path.join(
-            TRADING_SETUP_ROOT,
-            str(user_id)
+    if current_identity is not None:
+        return resolve_identity(
+            market=market,
+            user_id=current_identity.user_id,
+            strategy_id=current_identity.strategy_id,
+            tradingbot_id=current_identity.tradingbot_id,
         )
-    else:
-        user_root = TRADING_SETUP_ROOT
 
-    symbol_path = os.path.join(
-        user_root,
-        symbol_folder
-    )
-
-    os.makedirs(
-        symbol_path,
-        exist_ok=True
-    )
-
-    return os.path.join(
-        symbol_path,
-        TRADING_SETUP_FILENAME
-    )
+    return resolve_identity(market=market)
 
 
-def _load_trading_setups(
-    symbol: str,
-    user_id: Optional[str] = None
-) -> List[Dict[str, Any]]:
+def _get_or_create_runtime(
+    identity: ClientIdentity,
+    timeframe: str = DEFAULT_TIMEFRAME,
+) -> RuntimeContext:
+    runtime = RUNTIME_REGISTRY.get_or_create(identity, timeframe)
+    ensure_client_directories(identity)
+    return runtime
 
-    path = _trading_setup_path(symbol, user_id)
 
-    if not os.path.isfile(path):
-        return []
+# ============================================================================
+# AI INTEGRATION BOUNDARY
+# ============================================================================
 
+class AIIntegrationPending(RuntimeError):
+    """Raised until ai.py supports full TradingBot identity routing."""
+
+
+def _identity_kwargs_for_ai(function: Any, identity: ClientIdentity) -> Dict[str, Any]:
+    """Build identity arguments only when the AI API supports full isolation."""
     try:
-        with open(
-            path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-            data = json.load(file)
+        parameters = inspect.signature(function).parameters
+    except (TypeError, ValueError) as error:
+        raise AIIntegrationPending(
+            "Cannot inspect the AI function signature."
+        ) from error
 
-        if not isinstance(data, list):
-            return []
+    if "identity" in parameters:
+        return {"identity": identity}
 
-        return data
+    required_identity_fields = {"user_id", "strategy_id", "tradingbot_id"}
+    if required_identity_fields.issubset(parameters):
+        return {
+            "user_id": identity.user_id,
+            "strategy_id": identity.strategy_id,
+            "tradingbot_id": identity.tradingbot_id,
+        }
 
-    except (
-        OSError,
-        json.JSONDecodeError
-    ) as error:
-
-        print(
-            f"Could not load trading setups from {path}:",
-            error
-        )
-
-        return []
+    raise AIIntegrationPending(
+        "ai.py still accepts only market/user_id and does not yet accept "
+        "strategy_id and tradingbot_id. The backend will not load or train "
+        "a legacy model because it could belong to another TradingBot."
+    )
 
 
-def _save_trading_setups(
-    symbol: str,
-    setups: List[Dict[str, Any]],
-    user_id: Optional[str] = None
+def _verify_checkpoint_identity(
+    checkpoint: Dict[str, Any],
+    identity: ClientIdentity,
 ) -> None:
-
-    path = _trading_setup_path(symbol, user_id)
-    temp_path = f"{path}.tmp"
-
-    with open(
-        temp_path,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        json.dump(
-            setups,
-            file,
-            indent=4,
-            ensure_ascii=False
-        )
-
-    os.replace(
-        temp_path,
-        path
-    )
-
-
-def _next_trading_setup_id(
-    setups: List[Dict[str, Any]]
-) -> int:
-
-    ids = []
-
-    for setup in setups:
-
-        try:
-            ids.append(
-                int(setup.get("id"))
-            )
-
-        except (
-            TypeError,
-            ValueError
-        ):
-            continue
-
-    return max(ids, default=0) + 1
-
-
-def save_trading_setup(
-    symbol: str,
-    setup: Dict[str, Any],
-    user_id: Optional[str] = None
-) -> Dict[str, Any]:
-
-    setups = _load_trading_setups(symbol, user_id)
-
-    setup = copy.deepcopy(setup)
-
-    rr_mode = setup.get("rr_mode", "OFF")
-
-    if rr_mode not in {"OFF", "2x", "3x"}:
-        rr_mode = "OFF"
-
-    setup["rr_mode"] = rr_mode
-
-    try:
-        setup_id = int(setup.get("id"))
-
-    except (
-        TypeError,
-        ValueError
-    ):
-        setup_id = None
-
-    if setup_id is None:
-
-        setup_id = _next_trading_setup_id(
-            setups
-        )
-
-        setup["id"] = setup_id
-
-        setups.append(setup)
-
-    else:
-
-        updated = False
-
-        for index, existing in enumerate(setups):
-
-            try:
-                existing_id = int(
-                    existing.get("id")
-                )
-
-            except (
-                TypeError,
-                ValueError
-            ):
-                continue
-
-            if existing_id == setup_id:
-
-                setup["id"] = setup_id
-                setups[index] = setup
-                updated = True
-                break
-
-        if not updated:
-            setups.append(setup)
-
-    _save_trading_setups(
-        symbol,
-        setups,
-        user_id
-    )
-
-    return setup
-
-
-def get_trading_setups(
-    symbol: str,
-    user_id: Optional[str] = None
-) -> List[Dict[str, Any]]:
-
-    return _load_trading_setups(symbol, user_id)
-
-def _manual_parse_timestamp(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-
-    if isinstance(value, bool):
-        return None
-
-    if isinstance(value, (int, float)):
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return None
-
-        if not math.isfinite(number):
-            return None
-
-        if abs(number) > 10_000_000_000:
-            number /= 1000.0
-
-        return int(number)
-
-    text = str(value).strip()
-
-    if not text:
-        return None
-
-    try:
-        number = float(text.replace(",", ""))
-
-        if math.isfinite(number):
-            if abs(number) > 10_000_000_000:
-                number /= 1000.0
-
-            return int(number)
-
-    except ValueError:
-        pass
-
-    normalized = (
-        text
-        .replace(" UTC", "+00:00")
-        .replace("Z", "+00:00")
-    )
-
-    try:
-        parsed = datetime.fromisoformat(
-            normalized
-        )
-
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(
-                tzinfo=timezone.utc
-            )
-
-        return int(parsed.timestamp())
-
-    except ValueError:
-        return None
-
-
-def _manual_setup_value(
-    setup: Dict[str, Any],
-    key: str,
-    geometry_key: str,
-) -> Optional[float]:
-
-    value = _safe_float(
-        setup.get(key)
-    )
-
-    if value is not None:
-        return value
-
-    geometry = (
-        setup.get("trade_geometry")
-        or {}
-    )
-
-    point = (
-        geometry.get(geometry_key)
-        or {}
-    )
-
-    return _safe_float(
-        point.get("price")
-    )
-
-
-def _manual_setup_time(
-    setup: Dict[str, Any],
-) -> Optional[int]:
-
-    entry_candle = _manual_parse_timestamp(
-        setup.get("entry_candle")
-    )
-
-    if entry_candle is not None:
-        return entry_candle
-
-    geometry = (
-        setup.get("trade_geometry")
-        or {}
-    )
-
-    entry_point = (
-        geometry.get("entry")
-        or {}
-    )
-
-    geometry_time = _manual_parse_timestamp(
-        entry_point.get("time")
-    )
-
-    if geometry_time is not None:
-        return geometry_time
-
-    breakout_time = _manual_parse_timestamp(
-        setup.get("breakout_time")
-    )
-
-    return breakout_time
-
-
-def _analyze_one_manual_setup(
-    setup: Dict[str, Any],
-    ordinal: int,
-    current_balance: float,
-) -> Dict[str, Any]:
-
-    direction_raw = str(
-        setup.get("direction", "")
-    ).strip().upper()
-
-    if direction_raw == "LONG":
-        direction = "BUY"
-    elif direction_raw == "SHORT":
-        direction = "SELL"
-    elif direction_raw in {"BUY", "SELL"}:
-        direction = direction_raw
-    else:
-        return {
-            "valid": False,
-            "error": "Invalid direction.",
-        }
-
-    entry = _manual_setup_value(
-        setup,
-        "entry",
-        "entry",
-    )
-
-    sl = _manual_setup_value(
-        setup,
-        "sl",
-        "sl",
-    )
-
-    tp = _manual_setup_value(
-        setup,
-        "tp",
-        "tp",
-    )
-
-    entry_time = _manual_setup_time(
-        setup
-    )
-
-    if (
-        entry is None or
-        sl is None or
-        tp is None or
-        entry_time is None
-    ):
-        return {
-            "valid": False,
-            "error": "Missing entry, SL, TP or entry time.",
-        }
-
-    if direction == "BUY":
-        if not (sl < entry < tp):
-            return {
-                "valid": False,
-                "error": "Invalid BUY geometry.",
-            }
-    else:
-        if not (tp < entry < sl):
-            return {
-                "valid": False,
-                "error": "Invalid SELL geometry.",
-            }
-
-    entry_timeframe = str(
-        setup.get(
-            "entry_timeframe",
-            TIMEFRAME,
-        )
-    ).strip().upper()
-
-    if entry_timeframe not in TIMEFRAME_SECONDS:
-        entry_timeframe = TIMEFRAME
-
-    chart_path = _chart_history_path(
-        SYMBOL,
-        entry_timeframe,
-    )
-
-    candles = _load_local_chart_history(
-        chart_path
-    )
-
-    if not candles:
-        return {
-            "valid": False,
-            "error": (
-                f"No chart data for "
-                f"{SYMBOL} {entry_timeframe}."
-            ),
-        }
-
-    candle_duration = TIMEFRAME_SECONDS[
-        entry_timeframe
+    """Reject checkpoints that do not identify the exact TradingBot owner."""
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError("AI checkpoint is not a valid dictionary.")
+    stored_identity = checkpoint.get("identity")
+    if not isinstance(stored_identity, dict):
+        stored_identity = checkpoint
+
+    expected = identity.as_dict()
+    missing = [
+        field_name
+        for field_name in ("user_id", "market", "strategy_id", "tradingbot_id")
+        if stored_identity.get(field_name) != expected[field_name]
     ]
-
-    start_index = None
-
-    for index, candle in enumerate(candles):
-        candle_end = (
-            int(candle["time"]) +
-            candle_duration
+    if missing:
+        raise RuntimeError(
+            "AI checkpoint identity is missing or does not match this TradingBot: "
+            + ", ".join(missing)
         )
 
-        if candle_end > entry_time:
-            start_index = index
-            break
 
-    if start_index is None:
-        return {
-            "valid": False,
-            "error": "Entry time is outside chart history.",
-        }
+def load_ai_runtime(runtime: RuntimeContext) -> bool:
+    """Load the model and shared market features for one TradingBot runtime."""
+    session = runtime.current_session
 
-    risk_distance = abs(
-        entry - sl
-    )
+    runtime.ai_model = None
+    runtime.ai_scaler = None
+    runtime.ai_checkpoint = {}
+    runtime.ai_market_candles = None
+    runtime.ai_error = None
+    session.model_available = False
+    session.model_info = {}
+    session.last_training_info = {}
 
-    reward_distance = abs(
-        tp - entry
-    )
+    if ai is None:
+        runtime.ai_error = "The ai.py module could not be imported."
+        return False
 
-    if risk_distance <= 0:
-        return {
-            "valid": False,
-            "error": "Invalid SL distance.",
-        }
-
-    reward_r_multiple = (
-        reward_distance /
-        risk_distance
-    )
-
-    risk_amount = (
-        current_balance *
-        (MANUAL_RISK_PERCENT / 100.0)
-    )
-
-    result = None
-    exit_price = None
-    exit_time = None
-    exit_reason = None
-
-    for candle in candles[start_index:]:
-
-        candle_high = float(
-            candle["high"]
-        )
-
-        candle_low = float(
-            candle["low"]
-        )
-
-        if direction == "BUY":
-
-            sl_hit = (
-                candle_low <= sl
-            )
-
-            tp_hit = (
-                candle_high >= tp
-            )
-
-            if sl_hit and tp_hit:
-                result = "LOSS"
-                exit_price = sl
-                exit_reason = (
-                    "SL_AND_TP_SAME_CANDLE"
-                )
-                exit_time = int(
-                    candle["time"]
-                )
-                break
-
-            if sl_hit:
-                result = "LOSS"
-                exit_price = sl
-                exit_reason = "SL"
-                exit_time = int(
-                    candle["time"]
-                )
-                break
-
-            if tp_hit:
-                result = "WIN"
-                exit_price = tp
-                exit_reason = "TP"
-                exit_time = int(
-                    candle["time"]
-                )
-                break
-
-        else:
-
-            sl_hit = (
-                candle_high >= sl
-            )
-
-            tp_hit = (
-                candle_low <= tp
-            )
-
-            if sl_hit and tp_hit:
-                result = "LOSS"
-                exit_price = sl
-                exit_reason = (
-                    "SL_AND_TP_SAME_CANDLE"
-                )
-                exit_time = int(
-                    candle["time"]
-                )
-                break
-
-            if sl_hit:
-                result = "LOSS"
-                exit_price = sl
-                exit_reason = "SL"
-                exit_time = int(
-                    candle["time"]
-                )
-                break
-
-            if tp_hit:
-                result = "WIN"
-                exit_price = tp
-                exit_reason = "TP"
-                exit_time = int(
-                    candle["time"]
-                )
-                break
-
-    if result is None:
-
-        last_candle = candles[-1]
-
-        exit_price = float(
-            last_candle["close"]
-        )
-
-        exit_time = int(
-            last_candle["time"]
-        )
-
-        if direction == "BUY":
-            favorable_move = (
-                exit_price - entry
-            )
-        else:
-            favorable_move = (
-                entry - exit_price
-            )
-
-        realized_r = (
-            favorable_move /
-            risk_distance
-        )
-
-        result = (
-            "WIN"
-            if realized_r >= 0
-            else "LOSS"
-        )
-
-        exit_reason = "END_OF_DATA"
-
-    if result == "WIN":
-
-        pnl = (
-            risk_amount *
-            reward_r_multiple
-        )
-
-    elif exit_reason == "END_OF_DATA":
-
-        if direction == "BUY":
-            realized_r = (
-                exit_price - entry
-            ) / risk_distance
-        else:
-            realized_r = (
-                entry - exit_price
-            ) / risk_distance
-
-        pnl = (
-            risk_amount *
-            realized_r
-        )
-
-    else:
-
-        pnl = -risk_amount
-
-    return {
-        "valid": True,
-
-        "trade_id": (
-            int(setup.get("id"))
-            if str(setup.get("id", "")).isdigit()
-            else ordinal
-        ),
-
-        "source": "MANUAL_ANALYSIS",
-
-        "direction": direction,
-
-        "entry": entry,
-        "sl": sl,
-        "tp": tp,
-
-        "opened_at": entry_time,
-        "exit": exit_price,
-        "closed_at": exit_time,
-
-        "result": result,
-        "exit_reason": exit_reason,
-
-        "risk_amount": risk_amount,
-        "reward_r_multiple": reward_r_multiple,
-        "pnl": pnl,
-
-        "setup_id": setup.get("id"),
-        "setup_snapshot": copy.deepcopy(
-            setup
-        ),
-    }
-
-
-async def manual_analysis_loop(user_id: Optional[str] = None) -> None:
-
-    manual_state = _get_manual_analysis_state(user_id)
-
-    global running
-    
     try:
-
-        setups = await asyncio.to_thread(
-            get_trading_setups,
-            SYMBOL,
-            user_id
+        identity_kwargs = _identity_kwargs_for_ai(ai.load_model, runtime.identity)
+        model, scaler, checkpoint = ai.load_model(
+            runtime.market,
+            **identity_kwargs,
         )
+        _verify_checkpoint_identity(checkpoint, runtime.identity)
 
-        if not setups:
-            raise ValueError(
-                "No manually saved Learning trades."
-            )
-
-        results = []
-
-        balance_value = STARTING_BALANCE
-
-        invalid_trades = 0
-
-        total = max(
-            1,
-            len(setups)
-        )
-
-        running = True
-
-        manual_state["analysis_status"] = "manual_analysis"
-
-        manual_state["manual_analysis_progress"] = 0
-
-        manual_state["analysis_phase"] = "manual_analysis"
-
-        manual_state["analysis_started"] = True
-        manual_state["analysis_completed"] = False
-
-        manual_state["results_source"] = "manual"
-
-        manual_state["manual_analysis_results"] = {}
-
-        for index, setup in enumerate(
-            setups,
-            start=1
-        ):
-
-            analysis = await asyncio.to_thread(
-                _analyze_one_manual_setup,
-                setup,
-                index,
-                balance_value,
-            )
-
-            if not analysis["valid"]:
-                invalid_trades += 1
-
-            else:
-
-                balance_value += float(
-                    analysis["pnl"]
-                )
-
-                results.append(
-                    analysis
-                )
-
-            manual_state["manual_analysis_progress"] = int(
-                (index / total) * 100
-            )
-
-            await broadcast_snapshot(user_id)
-
-            await asyncio.sleep(0.05)
-
-        wins = sum(
-            1
-            for trade in results
-            if trade.get("result") == "WIN"
-        )
-
-        losses = sum(
-            1
-            for trade in results
-            if trade.get("result") == "LOSS"
-        )
-
-        total_resolved = (
-            wins + losses
-        )
-
-        winning_percentage = (
-            (wins / total_resolved) * 100.0
-            if total_resolved
-            else 0.0
-        )
-
-        losing_percentage = (
-            (losses / total_resolved) * 100.0
-            if total_resolved
-            else 0.0
-        )
-
-        total_return = (
-            (
-                (
-                    balance_value -
-                    STARTING_BALANCE
-                )
-                /
-                STARTING_BALANCE
-            )
-            * 100.0
-            if STARTING_BALANCE
-            else 0.0
-        )
-
-        manual_state["manual_analysis_results"] = {
-            "symbol": SYMBOL,
-            "timeframe": TIMEFRAME,
-
-            "starting_balance":
-                STARTING_BALANCE,
-
-            "final_balance":
-                balance_value,
-
-            "total_return":
-                total_return,
-
-            "trades":
-                results,
-
-            "invalid_trades":
-                invalid_trades,
-
-            "winning_trades":
-                wins,
-
-            "losing_trades":
-                losses,
-
-            "winning_percentage":
-                winning_percentage,
-
-            "losing_percentage":
-                losing_percentage,
-        }
-
-        manual_state["startup_progress"] = 100
-
-        manual_state["startup_message"] = (
-            "MANUAL ANALYSIS complete."
-        )
-
-        manual_state["manual_analysis_progress"] = 100
-
-        running = False
-
-        manual_state["analysis_status"] = "completed"
-
-        manual_state["analysis_phase"] = (
-            "manual_analysis_completed"
-        )
-
-        manual_state["analysis_completed"] = True
-
-        await broadcast_snapshot(user_id)
-
-    except asyncio.CancelledError:
-
-        manual_state["manual_analysis_progress"] = 0
-
-        running = False
-
-        manual_state["analysis_status"] = "paused"
-
-        manual_state["analysis_phase"] = (
-            "manual_analysis_paused"
-        )
-
-        manual_state["analysis_completed"] = False
-
-        raise
-
-    except Exception as error:
-
-        manual_state["manual_analysis_progress"] = 0
-        manual_state["analysis_status"] = "error"
-        manual_state["analysis_phase"] = "manual_analysis_error"
-        manual_state["analysis_completed"] = False
-        manual_state["startup_progress"] = 100
-        manual_state["startup_message"] = f"MANUAL ANALYSIS error: {error}"
-        manual_state["results_source"] = "manual"
-        manual_state["manual_analysis_results"] = {}
-
-        print(
-            "MANUAL ANALYSIS ERROR:",
-            error
-        )
-
-        await broadcast_snapshot(user_id)
-
-def delete_trading_setup(
-    symbol: str,
-    setup_id: int,
-    user_id: Optional[str] = None
-) -> bool:
-
-    setups = _load_trading_setups(symbol, user_id)
-
-    new_setups = []
-
-    deleted = False
-
-    for setup in setups:
-
-        try:
-            current_id = int(
-                setup.get("id")
-            )
-
-        except (
-            TypeError,
-            ValueError
-        ):
-            current_id = None
-
-        if current_id == setup_id:
-            deleted = True
-            continue
-
-        new_setups.append(setup)
-
-    if deleted:
-
-        _save_trading_setups(
-            symbol,
-            new_setups,
-            user_id
-        )
-
-    return deleted
-
-def _candle_to_dict(row: Any) -> Dict[str, Any]:
-    return {
-        "time": int(row["time"]),
-        "open": float(row["open"]),
-        "high": float(row["high"]),
-        "low": float(row["low"]),
-        "close": float(row["close"]),
-        "volume": int(row["tick_volume"]),
-    }
-
-
-def _load_local_chart_history(path: str) -> List[Dict[str, Any]]:
-    if not os.path.isfile(path):
-        return []
-
-    data: List[Dict[str, Any]] = []
-
-    with open(path, "r", newline="", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-
-        for row in reader:
-            try:
-                data.append({
-                    "time": int(row["time"]),
-                    "open": float(row["open"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "close": float(row["close"]),
-                    "volume": int(float(row["volume"])),
-                })
-            except (KeyError, TypeError, ValueError):
-                # Ignore malformed rows instead of destroying a valid archive.
-                continue
-
-    data.sort(key=lambda candle: candle["time"])
-    return data
-
-
-def _save_local_chart_history(
-    path: str,
-    data: List[Dict[str, Any]],
-) -> None:
-    temp_path = f"{path}.tmp"
-
-    with open(temp_path, "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "time",
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(data)
-
-    os.replace(temp_path, path)
-
-
-def _filter_closed_candles(
-    rates: Any,
-    timeframe: str,
-) -> List[Dict[str, Any]]:
-    if rates is None:
-        return []
-
-    tf_seconds = TIMEFRAME_SECONDS[timeframe]
-    now_ts = int(datetime.now(timezone.utc).timestamp())
-    current_candle_start = (now_ts // tf_seconds) * tf_seconds
-
-    result = []
-    for row in rates:
-        candle = _candle_to_dict(row)
-        if candle["time"] < current_candle_start:
-            result.append(candle)
-
-    return result
-
-
-def _download_mt5_history(
-    symbol: str,
-    timeframe_name: str,
-    utc_from: datetime,
-    utc_to: datetime,
-) -> List[Dict[str, Any]]:
-    """Download a requested range in smaller date chunks to avoid huge IPC calls."""
-    timeframe = MT5_TIMEFRAMES[timeframe_name]
-    result_by_time: Dict[int, Dict[str, Any]] = {}
-
-    cursor = utc_from
-    chunk_delta = timedelta(days=DOWNLOAD_CHUNK_DAYS)
-
-    while cursor <= utc_to:
-        chunk_end = min(cursor + chunk_delta, utc_to)
-
-        rates = mt5.copy_rates_range(
-            symbol,
-            timeframe,
-            cursor,
-            chunk_end,
-        )
-
-        if rates is None:
+        market_candles = ai.load_all_market_candles(runtime.market)
+        if not market_candles:
             raise RuntimeError(
-                f"MT5 copy_rates_range failed for "
-                f"{symbol} {timeframe_name}: {mt5.last_error()}"
+                f"No AI market candle history is available for {runtime.market}."
             )
 
-        for candle in _filter_closed_candles(rates, timeframe_name):
-            result_by_time[candle["time"]] = candle
-
-        cursor = chunk_end + timedelta(seconds=1)
-
-    return [
-        result_by_time[timestamp]
-        for timestamp in sorted(result_by_time)
-    ]
-
-
-def load_history() -> None:
-    if WEB_MODE:
-        global h1_data
-        global startup_stage, startup_progress, startup_message
-
-        path = _chart_history_path(SYMBOL, TIMEFRAME)
-
-        startup_stage = "Loading market data"
-        startup_progress = 5
-        startup_message = (
-            f"Loading local {SYMBOL} {TIMEFRAME} history..."
-        )
-
-        local_data = _load_local_chart_history(path)
-
-        if not local_data:
-            raise RuntimeError(
-                f"No local chart history available for "
-                f"{SYMBOL} {TIMEFRAME}."
-            )
-
-        h1_data = local_data
-
-        startup_stage = "Chart ready"
-        startup_progress = 100
-        startup_message = (
-            f"{SYMBOL} {TIMEFRAME} ready. "
-            f"{len(h1_data):,} candles loaded from local archive."
-        )
-
-        print(
-            f"WEB_MODE: loaded {len(h1_data):,} "
-            f"{SYMBOL} {TIMEFRAME} candles from CHARTS."
-        )
-
-        return
-    
-    if WEB_MODE and TIMEFRAME in {"M1", "M5"}:
-        raise RuntimeError(
-            "M1 and M5 are not available in web mode."
-        )
-
-    path = _chart_history_path(SYMBOL, TIMEFRAME)
-
-    startup_stage = "Loading market data"
-    startup_progress = 5
-    startup_message = (
-        f"Loading local {SYMBOL} {TIMEFRAME} history..."
-    )
-
-    local_data = _load_local_chart_history(path)
-    local_count = len(local_data)
-
-    print()
-    print("========================================")
-    print("LOCAL CHART HISTORY")
-    print("========================================")
-    print("SYMBOL:    ", SYMBOL)
-    print("TIMEFRAME: ", TIMEFRAME)
-    print("FILE:      ", path)
-    print("LOCAL:     ", f"{local_count:,} candles")
-    print("========================================")
-    print()
-
-    utc_to = datetime.now(timezone.utc)
-    utc_from = utc_to - timedelta(days=365 * YEARS_BACK)
-
-    try:
-        if local_data:
-            last_local_ts = local_data[-1]["time"]
-            tf_seconds = TIMEFRAME_SECONDS[TIMEFRAME]
-
-            sync_from_ts = last_local_ts + tf_seconds
-            sync_from = datetime.fromtimestamp(
-                sync_from_ts,
-                tz=timezone.utc,
-            )
-
-            if sync_from <= utc_to:
-                startup_stage = "Updating local history"
-                startup_progress = 35
-                startup_message = (
-                    f"Updating {SYMBOL} {TIMEFRAME} with new MT5 candles..."
-                )
-
-                new_data = _download_mt5_history(
-                    SYMBOL,
-                    TIMEFRAME,
-                    sync_from,
-                    utc_to,
-                )
-
-                if new_data:
-                    existing_times = {
-                        candle["time"]
-                        for candle in local_data
-                    }
-
-                    for candle in new_data:
-                        if candle["time"] not in existing_times:
-                            local_data.append(candle)
-
-                    local_data.sort(key=lambda candle: candle["time"])
-                    _save_local_chart_history(path, local_data)
-
-                    print(
-                        f"Added {len(new_data):,} new "
-                        f"{SYMBOL} {TIMEFRAME} candles."
-                    )
-                else:
-                    print("No new MT5 candles to add.")
-        else:
-            startup_stage = "Creating local chart history"
-            startup_progress = 10
-            startup_message = (
-                f"Downloading {YEARS_BACK} years of "
-                f"{SYMBOL} {TIMEFRAME} history..."
-            )
-
-            local_data = _download_mt5_history(
-                SYMBOL,
-                TIMEFRAME,
-                utc_from,
-                utc_to,
-            )
-
-            if not local_data:
-                raise RuntimeError(
-                    f"No MT5 data returned for "
-                    f"{SYMBOL} {TIMEFRAME}."
-                )
-
-            _save_local_chart_history(path, local_data)
-
-            print(
-                f"Created local archive with "
-                f"{len(local_data):,} candles."
-            )
-
-    except Exception as error:
-        if local_data:
-            # A local archive is already usable even when MT5 cannot provide
-            # the newest candles right now.
-            print(
-                f"MT5 sync warning for {SYMBOL} {TIMEFRAME}: {error}"
-            )
-            print("Using existing local chart history.")
-        else:
-            raise
-
-    if not local_data:
-        raise RuntimeError(
-            f"No chart history available for {SYMBOL} {TIMEFRAME}."
-        )
-
-    startup_progress = 70
-    startup_message = (
-        f"Preparing {len(local_data):,} "
-        f"{TIMEFRAME} candles from local archive..."
-    )
-
-    h1_data = local_data
-
-    startup_stage = "Chart ready"
-    startup_progress = 100
-    startup_message = (
-        f"{SYMBOL} {TIMEFRAME} ready. "
-        f"{len(h1_data):,} candles loaded from local archive."
-    )
-
-    print(
-        f"Loaded {len(h1_data):,} "
-        f"{SYMBOL} {TIMEFRAME} candles from local archive."
-    )
-
-def update_all_chart_data() -> Dict[str, Any]:
-    global startup_stage, startup_progress, startup_message
-
-    if not mt5_connected:
-        return {
-            "success": False,
-            "updated": 0,
-            "message": "MT5 is switched off. Data are not updated."
-        }
-
-    updated_candles = 0
-    updated_charts = 0
-    checked_charts = 0
-
-    startup_stage = "Updating chart data"
-    startup_progress = 5
-    startup_message = "Updating all local chart data..."
-
-    if not os.path.isdir(CHARTS_ROOT):
-        return {
-            "success": True,
-            "updated": 0,
-            "message": "No local charts found."
-        }
-
-    for symbol_folder in sorted(os.listdir(CHARTS_ROOT)):
-        symbol_path = os.path.join(
-            CHARTS_ROOT,
-            symbol_folder
-        )
-
-        if not os.path.isdir(symbol_path):
-            continue
-
-        try:
-            resolved_symbol = resolve_symbol(symbol_folder)
-
-            if not mt5.symbol_select(
-                resolved_symbol,
-                True
-            ):
-                print(
-                    f"Skipping {symbol_folder}: "
-                    "MT5 symbol could not be selected."
-                )
-                continue
-
-        except Exception as error:
-            print(
-                f"Skipping {symbol_folder}: {error}"
-            )
-            continue
-
-        for timeframe_name in MT5_TIMEFRAMES:
-
-            if WEB_MODE and timeframe_name in {"M1", "M5"}:
-                continue
-
-            timeframe_path = os.path.join(
-                symbol_path,
-                timeframe_name
-            )
-
-            history_path = os.path.join(
-                timeframe_path,
-                LOCAL_CHART_FILENAME
-            )
-
-            if not os.path.isfile(history_path):
-                continue
-
-            checked_charts += 1
-
-            local_data = _load_local_chart_history(
-                history_path
-            )
-
-            if not local_data:
-                continue
-
-            last_local_ts = local_data[-1]["time"]
-            tf_seconds = TIMEFRAME_SECONDS[timeframe_name]
-
-            sync_from_ts = last_local_ts + tf_seconds
-            utc_to = datetime.now(timezone.utc)
-
-            if sync_from_ts > int(utc_to.timestamp()):
-                continue
-
-            sync_from = datetime.fromtimestamp(
-                sync_from_ts,
-                tz=timezone.utc
-            )
-
-            try:
-                new_data = _download_mt5_history(
-                    resolved_symbol,
-                    timeframe_name,
-                    sync_from,
-                    utc_to,
-                )
-
-                if not new_data:
-                    continue
-
-                existing_times = {
-                    candle["time"]
-                    for candle in local_data
-                }
-
-                added_here = 0
-
-                for candle in new_data:
-                    if candle["time"] not in existing_times:
-                        local_data.append(candle)
-                        added_here += 1
-
-                if added_here > 0:
-                    local_data.sort(
-                        key=lambda candle: candle["time"]
-                    )
-
-                    _save_local_chart_history(
-                        history_path,
-                        local_data
-                    )
-
-                    updated_candles += added_here
-                    updated_charts += 1
-
-                    print(
-                        f"[UPDATE] "
-                        f"{symbol_folder} {timeframe_name}: "
-                        f"+{added_here} candles"
-                    )
-
-            except Exception as error:
-                print(
-                    f"[UPDATE] "
-                    f"{symbol_folder} {timeframe_name} failed: "
-                    f"{error}"
-                )
-
-    startup_stage = "Chart ready"
-    startup_progress = 100
-    startup_message = (
-        f"Data update complete. "
-        f"{updated_candles:,} new candles added."
-    )
-
-    return {
-        "success": True,
-        "updated": updated_candles,
-        "charts_updated": updated_charts,
-        "charts_checked": checked_charts,
-        "message": startup_message,
-    }
-
-def switch_symbol(new_symbol: str) -> None:
-    global SYMBOL
-    global h1_data
-
-    new_symbol = str(new_symbol).strip()
-
-    if not new_symbol:
-        return
-
-    # ---------------------------------------------------------
-    # LOCAL CHARTS FIRST
-    # ---------------------------------------------------------
-    # If the symbol already exists locally, use it directly.
-    # MT5 is NOT required for switching to an existing chart.
-    # ---------------------------------------------------------
-
-    local_symbol_folder = os.path.join(
-        CHARTS_ROOT,
-        _chart_symbol_folder(new_symbol),
-    )
-
-    if os.path.isdir(local_symbol_folder):
-        SYMBOL = new_symbol
-
-        load_history()
-        _restore_active_session()
-        return
-
-    # ---------------------------------------------------------
-    # NO LOCAL DATA
-    # ---------------------------------------------------------
-    # Only now do we need MT5 to resolve/download the symbol.
-    # ---------------------------------------------------------
-
-    if not mt5_connected:
-        raise RuntimeError(
-            f"No local chart history found for {new_symbol} "
-            "and MT5 is switched off."
-        )
-
-    resolved_symbol = resolve_symbol(new_symbol)
-
-    if not mt5.symbol_select(
-        resolved_symbol,
-        True
-    ):
-        raise RuntimeError(
-            f"Cannot select symbol: {resolved_symbol}"
-        )
-
-    SYMBOL = resolved_symbol
-
-    load_history()
-    _restore_active_session()
-
-def switch_timeframe(new_timeframe: str) -> None:
-    global TIMEFRAME
-    global h1_data
-
-    new_timeframe = str(new_timeframe).strip().upper()
-
-    if WEB_MODE and new_timeframe in {"M1", "M5"}:
-        raise RuntimeError(
-            "M1 and M5 are not available in web mode."
-        )
-
-    if new_timeframe not in MT5_TIMEFRAMES:
-        raise RuntimeError(
-            f"Unsupported timeframe: {new_timeframe}"
-        )
-
-    TIMEFRAME = new_timeframe
-
-    # Same market session, different timeframe state.
-    load_history()
-    _restore_active_session()
-
-# Strategy
-# ---------------------------------------------------------------------------
-# The chart keeps using the existing level-generation logic above. The
-# strategy itself uses an additional filter so that only the strongest/main
-# levels are considered for entries.
-# ---------------------------------------------------------------------------
-
-# Strategy configuration. These values are intentionally centralized so the
-# first backtest can be tuned without changing the trading logic.
-STRATEGY_LEVEL_TOP_FRACTION = 0.20
-STRATEGY_MAX_LEVELS = 6
-STRATEGY_MIN_LEVEL_TOUCHES = 2
-
-SWING_WINDOW = 4
-MIN_SWING_SEPARATION = 4
-SETUP_MAX_AGE_CANDLES = 80
-
-# Trade audit / explanation
-TRADE_DETAIL_ACTION = "trade_detail"
-
-REWARD_R_MULTIPLE = 3.0
-PROTECTION_TRIGGER_FRACTION = 0.33
-PROTECTION_SL_FRACTION = 0.05
-STRUCTURE_SL_BUFFER_PERCENT = 0.0
-
-
-def price_distance(a: float, b: float) -> float:
-    return abs(a - b) / a if a else 0.0
-
-
-def candle_body_ratio(candle: Dict[str, Any]) -> float:
-    candle_range = candle["high"] - candle["low"]
-
-    if candle_range <= 0:
-        return 0.0
-
-    return abs(candle["close"] - candle["open"]) / candle_range
-
-
-def find_major_levels(
-    data: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
-
-    if len(data) < 30:
-        return []
-
-    prices = [c["close"] for c in data]
-
-    # ---------------------------------------------------------
-    # 1. Determine the complete visible price range.
-    # ---------------------------------------------------------
-
-    lowest = min(prices)
-    highest = max(prices)
-
-    price_range = highest - lowest
-
-    if price_range <= 0:
-        return []
-
-    # ---------------------------------------------------------
-    # 2. High and Low are always important levels.
-    # ---------------------------------------------------------
-
-    candidates = [
-        {
-            "price": lowest,
-            "touches": 0,
-            "strength": 100.0,
-        },
-        {
-            "price": highest,
-            "touches": 0,
-            "strength": 100.0,
-        }
-    ]
-
-    # ---------------------------------------------------------
-    # 3. Build potential levels from meaningful turning points.
-    #
-    # We deliberately use a larger swing window.
-    # Small micro-swings are NOT major levels.
-    # ---------------------------------------------------------
-
-    swing_window = max(
-        5,
-        min(15, len(prices) // 30)
-    )
-
-    for i in range(
-        swing_window,
-        len(prices) - swing_window
-    ):
-
-        price = prices[i]
-
-        left = prices[
-            i - swing_window:i
-        ]
-
-        right = prices[
-            i + 1:i + swing_window + 1
-        ]
-
-        if (
-            price >= max(left)
-            and price >= max(right)
-        ):
-            candidates.append({
-                "price": price,
-                "touches": 0,
-                "strength": 0.0,
-            })
-
-        elif (
-            price <= min(left)
-            and price <= min(right)
-        ):
-            candidates.append({
-                "price": price,
-                "touches": 0,
-                "strength": 0.0,
-            })
-
-    # ---------------------------------------------------------
-    # 4. Calculate how strongly price respected each candidate.
-    #
-    # The tolerance is based on the COMPLETE visible range.
-    # ---------------------------------------------------------
-
-    touch_tolerance = price_range * 0.015
-
-    for candidate in candidates:
-
-        level = candidate["price"]
-
-        touches = 0
-        reactions = 0
-
-        last_touch_index = -999
-
-        for i, price in enumerate(prices):
-
-            if abs(price - level) <= touch_tolerance:
-
-                # Do not count every candle inside the same visit.
-                if i - last_touch_index >= 8:
-
-                    touches += 1
-                    last_touch_index = i
-
-                    # Check whether price moved away strongly
-                    # after touching the level.
-                    future_end = min(
-                        len(prices),
-                        i + 12
-                    )
-
-                    future = prices[
-                        i + 1:future_end
-                    ]
-
-                    if future:
-
-                        movement = max(
-                            abs(p - level)
-                            for p in future
-                        )
-
-                        if movement >= price_range * 0.04:
-                            reactions += 1
-
-        candidate["touches"] = touches
-
-        candidate["strength"] = (
-            touches * 2.0
-            + reactions * 5.0
-        )
-
-    # ---------------------------------------------------------
-    # 5. Remove weak candidates.
-    # ---------------------------------------------------------
-
-    candidates = [
-        c for c in candidates
-        if (
-            c["price"] == lowest
-            or c["price"] == highest
-            or c["touches"] >= 2
-        )
-    ]
-
-    # ---------------------------------------------------------
-    # 6. Sort strongest levels first.
-    # ---------------------------------------------------------
-
-    candidates.sort(
-        key=lambda c: c["strength"],
-        reverse=True
-    )
-
-    # ---------------------------------------------------------
-    # 7. IMPORTANT:
-    # Levels must be spread across the COMPLETE range.
-    #
-    # We use a minimum spacing based on the visible range.
-    # This prevents 5 levels from sitting on top of each other.
-    # ---------------------------------------------------------
-
-    minimum_spacing = price_range * 0.08
-
-    selected = []
-
-    # High and Low are protected.
-    selected.append({
-        "price": lowest,
-        "touches": candidates[0]["touches"],
-        "strength": 100.0,
-    })
-
-    selected.append({
-        "price": highest,
-        "touches": candidates[1]["touches"],
-        "strength": 100.0,
-    })
-
-    # ---------------------------------------------------------
-    # 8. Select strong levels while enforcing spacing.
-    # ---------------------------------------------------------
-
-    for candidate in candidates:
-
-        price = candidate["price"]
-
-        # High / Low already exist.
-        if (
-            abs(price - lowest) < minimum_spacing
-            or
-            abs(price - highest) < minimum_spacing
-        ):
-            continue
-
-        too_close = False
-
-        for existing in selected:
-
-            if abs(
-                price - existing["price"]
-            ) < minimum_spacing:
-
-                too_close = True
-                break
-
-        if too_close:
-            continue
-
-        selected.append(candidate)
-
-    # ---------------------------------------------------------
-    # 9. Convert candidates into the format used by the strategy.
-    # ---------------------------------------------------------
-
-    levels = []
-
-    for candidate in selected:
-
-        price = candidate["price"]
-
-        levels.append({
-            "low": price,
-            "high": price,
-            "center": price,
-            "touches": candidate["touches"],
-            "breakouts": 0,
-            "reaction_strength": candidate["strength"],
-            "strength": candidate["strength"],
-        })
-
-    # ---------------------------------------------------------
-    # 10. Sort from LOW to HIGH.
-    # ---------------------------------------------------------
-
-    levels.sort(
-        key=lambda level: level["center"]
-    )
-
-    return levels
-
-
-def find_levels_for_view(from_time: int, to_time: int):
-
-    if not h1_data:
-        return []
-
-    # Use EXACTLY the candles currently visible
-    # in the frontend viewport.
-    visible = [
-        candle
-        for candle in h1_data
-        if from_time <= candle["time"] <= to_time
-    ]
-
-    if len(visible) < 30:
-        return []
-
-    return find_major_levels(visible)
-
-
-def nearest_above(
-    price: float,
-    zones: List[Dict[str, Any]]
-) -> Optional[Dict[str, Any]]:
-    values = [
-        zone
-        for zone in zones
-        if zone["center"] > price
-    ]
-
-    if not values:
-        return None
-
-    return min(
-        values,
-        key=lambda zone: zone["center"]
-    )
-
-
-def nearest_below(
-    price: float,
-    zones: List[Dict[str, Any]]
-) -> Optional[Dict[str, Any]]:
-    values = [
-        zone
-        for zone in zones
-        if zone["center"] < price
-    ]
-
-    if not values:
-        return None
-
-    return max(
-        values,
-        key=lambda zone: zone["center"]
-    )
-
-
-def detect_zigzag_range(line_data: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
-    if len(line_data) < 5:
-        return None
-
-    recent = line_data[-50:]
-
-    highs = []
-    lows = []
-
-    for i in range(1, len(recent) - 1):
-        prev_value = recent[i - 1]["close"]
-        value = recent[i]["close"]
-        next_value = recent[i + 1]["close"]
-
-        if value > prev_value and value > next_value:
-            highs.append(value)
-
-        if value < prev_value and value < next_value:
-            lows.append(value)
-
-    if not highs or not lows:
-        return None
-
-    return {
-        "high": max(highs),
-        "low": min(lows),
-    }
-
-
-
-# ---------------------------------------------------------------------------
-# NUMERIC MICRO-MODEL STRATEGY
-# ---------------------------------------------------------------------------
-# The chart level engine above stays unchanged because the frontend uses it
-# for the visual support/resistance map. The old hard-coded trading strategy
-# is removed from decision making. TRAINING creates a market-specific model.
-# TESTING loads that model and makes independent decisions from candle data.
-
-FEATURE_NAMES = [
-    "return_3",
-    "return_8",
-    "return_20",
-    "trend_slope",
-    "range_mean_8",
-    "range_mean_20",
-    "body_mean_8",
-    "bull_ratio_8",
-    "close_position_20",
-    "distance_to_high_20",
-    "distance_to_low_20",
-    "nearest_level_distance",
-    "nearest_level_strength",
-    "nearest_level_touches",
-    "volatility_ratio",
-]
-
-
-def _model_symbol_dir(symbol: str) -> str:
-    return os.path.join(MODEL_ROOT, _chart_symbol_folder(symbol))
-
-
-def _market_model_path(symbol: str) -> str:
-    folder = _model_symbol_dir(symbol)
-    os.makedirs(folder, exist_ok=True)
-    return os.path.join(folder, MODEL_FILENAME)
-
-
-def _market_training_info_path(symbol: str) -> str:
-    folder = _model_symbol_dir(symbol)
-    os.makedirs(folder, exist_ok=True)
-    return os.path.join(folder, TRAINING_INFO_FILENAME)
-
-
-def _default_model_path() -> str:
-    os.makedirs(DEFAULT_MODEL_DIR, exist_ok=True)
-    return os.path.join(DEFAULT_MODEL_DIR, MODEL_FILENAME)
-
-
-def _default_model_template() -> Dict[str, Any]:
-    return {
-        "schema_version": MODEL_SCHEMA_VERSION,
-        "model_type": "numeric_logistic_micro_model",
-        "symbol": "DEFAULT",
-        "timeframe": None,
-        "trained": False,
-        "feature_names": FEATURE_NAMES.copy(),
-        "feature_mean": [0.0] * len(FEATURE_NAMES),
-        "feature_std": [1.0] * len(FEATURE_NAMES),
-        "long_weights": [0.0] * len(FEATURE_NAMES),
-        "long_bias": 0.0,
-        "short_weights": [0.0] * len(FEATURE_NAMES),
-        "short_bias": 0.0,
-        "signal_threshold": MODEL_MIN_SIGNAL_PROBABILITY,
-        "probability_edge": MODEL_MIN_PROBABILITY_EDGE,
-        "risk": {
-            "sl_fraction": SL_PERCENT,
-            "tp_fraction": TP_PERCENT,
-            "reward_multiple": TP_PERCENT / SL_PERCENT if SL_PERCENT else 2.0,
-        },
-        "training_stats": {},
-    }
-
-
-def _ensure_default_model() -> Dict[str, Any]:
-    path = _default_model_path()
-    if not os.path.isfile(path):
-        template = _default_model_template()
-        with open(path, "w", encoding="utf-8") as file:
-            json.dump(template, file, indent=4, ensure_ascii=False)
-        return template
-
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        if not isinstance(data, dict):
-            raise ValueError("Default model is not a JSON object.")
-        return data
-    except (OSError, json.JSONDecodeError, ValueError):
-        template = _default_model_template()
-        with open(path, "w", encoding="utf-8") as file:
-            json.dump(template, file, indent=4, ensure_ascii=False)
-        return template
-
-def _save_market_model(symbol: str, model: Dict[str, Any]) -> None:
-    path = _market_model_path(symbol)
-    temp_path = f"{path}.tmp"
-    with open(temp_path, "w", encoding="utf-8") as file:
-        json.dump(model, file, indent=4, ensure_ascii=False)
-    os.replace(temp_path, path)
-
-
-def _save_training_info(symbol: str, info: Dict[str, Any]) -> None:
-    path = _market_training_info_path(symbol)
-    temp_path = f"{path}.tmp"
-    with open(temp_path, "w", encoding="utf-8") as file:
-        json.dump(info, file, indent=4, ensure_ascii=False)
-    os.replace(temp_path, path)
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(number):
-        return None
-    return number
-
-
-def _nearest_level_features(
-    price: float,
-    levels: List[Dict[str, Any]],
-) -> tuple[float, float, float]:
-    if not levels or price == 0:
-        return 1.0, 0.0, 0.0
-
-    nearest = min(
-        levels,
-        key=lambda level: abs(float(level.get("center", 0.0)) - price),
-    )
-
-    center = float(nearest.get("center", price))
-    distance = abs(center - price) / abs(price) if price else 1.0
-    strength = float(nearest.get("strength", 0.0)) / 100.0
-    touches = min(1.0, float(nearest.get("touches", 0)) / 10.0)
-    return min(distance, 10.0), strength, touches
-
-
-def _calculate_features(
-    data: List[Dict[str, Any]],
-) -> Optional[List[float]]:
-    if len(data) < MODEL_LOOKBACK + 2:
-        return None
-
-    closes = [float(c["close"]) for c in data]
-    ranges = [
-        max(0.0, float(c["high"]) - float(c["low"]))
-        for c in data
-    ]
-
-    current = data[-1]
-    price = float(current["close"])
-
-    def pct_return(period: int) -> float:
-        if len(closes) <= period or closes[-period - 1] == 0:
-            return 0.0
-        return (closes[-1] - closes[-period - 1]) / closes[-period - 1]
-
-    trend_window = min(20, len(closes))
-    trend_slice = closes[-trend_window:]
-    trend_start = trend_slice[0]
-    trend_end = trend_slice[-1]
-    trend_slope = (
-        (trend_end - trend_start) / trend_start / max(1, trend_window - 1)
-        if trend_start
-        else 0.0
-    )
-
-    range_mean_8 = (
-        sum(ranges[-8:]) / max(1, len(ranges[-8:])) / price
-        if price else 0.0
-    )
-    range_mean_20 = (
-        sum(ranges[-20:]) / max(1, len(ranges[-20:])) / price
-        if price else 0.0
-    )
-
-    body_values = []
-    bull_values = []
-    for candle in data[-8:]:
-        candle_range = float(candle["high"]) - float(candle["low"])
-        if candle_range > 0:
-            body_values.append(
-                abs(float(candle["close"]) - float(candle["open"])) / candle_range
-            )
-        bull_values.append(
-            1.0 if float(candle["close"]) >= float(candle["open"]) else 0.0
-        )
-
-    body_mean_8 = sum(body_values) / max(1, len(body_values))
-    bull_ratio_8 = sum(bull_values) / max(1, len(bull_values))
-
-    lookback_closes = closes[-20:]
-    highest = max(lookback_closes)
-    lowest = min(lookback_closes)
-    span = highest - lowest
-    close_position_20 = (price - lowest) / span if span > 0 else 0.5
-    distance_to_high_20 = (highest - price) / price if price else 0.0
-    distance_to_low_20 = (price - lowest) / price if price else 0.0
-
-    recent_mean = range_mean_8
-    long_mean = range_mean_20
-    volatility_ratio = recent_mean / long_mean if long_mean > 0 else 1.0
-
-    level_data = find_major_levels(data[-min(240, len(data)):])
-    level_distance, level_strength, level_touches = _nearest_level_features(
-        price,
-        level_data,
-    )
-
-    values = [
-        pct_return(3),
-        pct_return(8),
-        pct_return(20),
-        trend_slope,
-        range_mean_8,
-        range_mean_20,
-        body_mean_8,
-        bull_ratio_8,
-        close_position_20,
-        distance_to_high_20,
-        distance_to_low_20,
-        level_distance,
-        level_strength,
-        level_touches,
-        volatility_ratio,
-    ]
-
-    return [
-        value if math.isfinite(value) else 0.0
-        for value in values
-    ]
-
-
-def _sigmoid(value: float) -> float:
-    value = max(-60.0, min(60.0, value))
-    return 1.0 / (1.0 + math.exp(-value))
-
-
-def _standardize_dataset(
-    features: List[List[float]],
-) -> tuple[List[float], List[float], List[List[float]]]:
-    if not features:
-        return [], [], []
-
-    count = len(features)
-    width = len(features[0])
-    means = []
-    stds = []
-
-    for column in range(width):
-        values = [row[column] for row in features]
-        mean = sum(values) / count
-        variance = sum((value - mean) ** 2 for value in values) / count
-        std = math.sqrt(variance)
-        means.append(mean)
-        stds.append(std if std > 1e-12 else 1.0)
-
-    normalized = [
-        [
-            (value - means[column]) / stds[column]
-            for column, value in enumerate(row)
-        ]
-        for row in features
-    ]
-    return means, stds, normalized
-
-
-def _fit_binary_logistic(
-    features: List[List[float]],
-    targets: List[float],
-) -> tuple[List[float], float]:
-    if not features:
-        return [0.0] * len(FEATURE_NAMES), 0.0
-
-    width = len(features[0])
-    weights = [0.0] * width
-    bias = 0.0
-    count = len(features)
-
-    for _ in range(MODEL_TRAINING_EPOCHS):
-        grad_w = [0.0] * width
-        grad_b = 0.0
-
-        for row, target in zip(features, targets):
-            score = bias + sum(weight * value for weight, value in zip(weights, row))
-            prediction = _sigmoid(score)
-            error = prediction - target
-            grad_b += error
-            for index, value in enumerate(row):
-                grad_w[index] += error * value
-
-        step = MODEL_LEARNING_RATE / max(1, count)
-        bias -= step * grad_b
-        for index in range(width):
-            weights[index] -= step * grad_w[index]
-
-    return weights, bias
-
-
-def _time_to_index(timestamp: Any) -> Optional[int]:
-    value = _safe_float(timestamp)
-    if value is None or not h1_data:
-        return None
-
-    target = int(value)
-    low = 0
-    high = len(h1_data) - 1
-
-    while low <= high:
-        middle = (low + high) // 2
-        current = int(h1_data[middle]["time"])
-        if current == target:
-            return middle
-        if current < target:
-            low = middle + 1
-        else:
-            high = middle - 1
-
-    candidates = []
-    if 0 <= low < len(h1_data):
-        candidates.append(low)
-    if 0 <= high < len(h1_data):
-        candidates.append(high)
-    if not candidates:
-        return None
-    return min(candidates, key=lambda index: abs(int(h1_data[index]["time"]) - target))
-
-
-def _setup_anchor_index(setup: Dict[str, Any]) -> Optional[int]:
-    anchor = setup.get("anchor")
-    if isinstance(anchor, dict):
-        index = _time_to_index(anchor.get("time"))
-        if index is not None:
-            return index
-
-    entry_candle = setup.get("entry_candle")
-    if isinstance(entry_candle, str) and entry_candle.strip():
-        match = re.search(r"(\d{9,})", entry_candle)
-        if match:
-            index = _time_to_index(match.group(1))
-            if index is not None:
-                return index
-
-    entry_price = _safe_float(setup.get("entry"))
-    if entry_price is None:
-        return None
-
-    # Fallback: use the closest candle price when a timestamp is missing.
-    return min(
-        range(len(h1_data)),
-        key=lambda index: abs(float(h1_data[index]["close"]) - entry_price),
-    )
-
-
-def _setup_risk_profile(setups: List[Dict[str, Any]]) -> Dict[str, float]:
-    sl_values = []
-    tp_values = []
-
-    for setup in setups:
-        entry = _safe_float(setup.get("entry"))
-        sl = _safe_float(setup.get("sl"))
-        tp = _safe_float(setup.get("tp"))
-        if entry is None or entry == 0:
-            continue
-        if sl is not None:
-            sl_values.append(abs(entry - sl) / abs(entry))
-        if tp is not None:
-            tp_values.append(abs(tp - entry) / abs(entry))
-
-    sl_fraction = (
-        sorted(sl_values)[len(sl_values) // 2]
-        if sl_values
-        else SL_PERCENT
-    )
-    tp_fraction = (
-        sorted(tp_values)[len(tp_values) // 2]
-        if tp_values
-        else TP_PERCENT
-    )
-
-    sl_fraction = max(0.0001, min(sl_fraction, 0.25))
-    tp_fraction = max(0.0002, min(tp_fraction, 0.50))
-
-    return {
-        "sl_fraction": sl_fraction,
-        "tp_fraction": tp_fraction,
-        "reward_multiple": tp_fraction / sl_fraction if sl_fraction else 2.0,
-    }
-
-
-def _build_training_dataset(
-    setups: List[Dict[str, Any]],
-) -> tuple[List[List[float]], List[int], Dict[str, Any]]:
-    positive_samples: List[tuple[List[float], int]] = []
-    used_indices = set()
-
-    for setup in setups:
-        index = _setup_anchor_index(setup)
-        if index is None or index < MODEL_LOOKBACK:
-            continue
-
-        context = h1_data[:index + 1]
-        features = _calculate_features(context)
-        if features is None:
-            continue
-
-        direction = str(setup.get("direction", "")).upper().strip()
-        label = 1 if direction in ("LONG", "BUY") else -1 if direction in ("SHORT", "SELL") else 0
-        if label == 0:
-            continue
-
-        positive_samples.append((features, label))
-        used_indices.add(index)
-
-    background: List[List[float]] = []
-    if h1_data:
-        step = max(1, len(h1_data) // MODEL_BACKGROUND_SAMPLE_LIMIT)
-        for index in range(MODEL_LOOKBACK, len(h1_data), step):
-            if any(abs(index - used) <= 5 for used in used_indices):
-                continue
-            features = _calculate_features(h1_data[:index + 1])
-            if features is not None:
-                background.append(features)
-            if len(background) >= MODEL_BACKGROUND_SAMPLE_LIMIT:
-                break
-
-    features = [row for row, _ in positive_samples]
-    labels = [label for _, label in positive_samples]
-
-    features.extend(background)
-    labels.extend([0] * len(background))
-
-    info = {
-        "symbol": SYMBOL,
-        "timeframe": TIMEFRAME,
-        "input_trade_count": len(setups),
-        "usable_positive_samples": len(positive_samples),
-        "background_samples": len(background),
-        "total_samples": len(features),
-    }
-
-    return features, labels, info
-
-
-def _load_training_model_base() -> Dict[str, Any]:
-    # Always start from the clean DEFAULT template. Never mutate DEFAULT.
-    return copy.deepcopy(_ensure_default_model())
-
-
-def train_market_model(
-    symbol: str,
-    timeframe: str,
-) -> Dict[str, Any]:
-    global model_available, model_info, last_training_info
-
-    if symbol != SYMBOL or timeframe != TIMEFRAME:
-        raise RuntimeError("Training context does not match the active market session.")
-
-    setups = get_trading_setups(symbol)
-    if not setups:
-        raise RuntimeError(
-            f"No Learning trades found for {symbol}."
-        )
-
-    features, labels, dataset_info = _build_training_dataset(setups)
-
-    if not features:
-        raise RuntimeError(
-            f"No usable Learning samples could be extracted for {symbol} {timeframe}."
-        )
-
-    means, stds, normalized = _standardize_dataset(features)
-
-    long_targets = [1.0 if label == 1 else 0.0 for label in labels]
-    short_targets = [1.0 if label == -1 else 0.0 for label in labels]
-
-    long_weights, long_bias = _fit_binary_logistic(normalized, long_targets)
-    short_weights, short_bias = _fit_binary_logistic(normalized, short_targets)
-
-    default_model = _load_training_model_base()
-    model = default_model
-    model.update({
-        "schema_version": MODEL_SCHEMA_VERSION,
-        "model_type": "numeric_logistic_micro_model",
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "trained": True,
-        "trained_at": datetime.now(timezone.utc).isoformat(),
-        "feature_names": FEATURE_NAMES.copy(),
-        "feature_mean": means,
-        "feature_std": stds,
-        "long_weights": long_weights,
-        "long_bias": long_bias,
-        "short_weights": short_weights,
-        "short_bias": short_bias,
-        "signal_threshold": MODEL_MIN_SIGNAL_PROBABILITY,
-        "probability_edge": MODEL_MIN_PROBABILITY_EDGE,
-        "risk": _setup_risk_profile(setups),
-        "training_stats": dataset_info,
-    })
-
-    _save_market_model(symbol, model)
-
-    training_info = {
-        **dataset_info,
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "model_path": _market_model_path(symbol),
-        "default_model_path": _default_model_path(),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        "message": "Market-specific model trained from Learning trades.",
-    }
-    _save_training_info(symbol, training_info)
-
-    model_available = True
-    model_info = {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "model_path": _market_model_path(symbol),
-        "trained_at": model.get("trained_at"),
-        "training_stats": dataset_info,
-    }
-    last_training_info = training_info
-
-    return {
-        "success": True,
-        "model": model_info,
-        "training": training_info,
-    }
-
-
-def load_ai_runtime(
-    user_id: Optional[str] = None,
-) -> bool:
-    """Load the market-specific model for the correct user."""
-
-    global ai_model, ai_scaler, ai_checkpoint
-    global ai_market_candles
-    global model_available, model_info, last_training_info
-
-    try:
-        ai_model, ai_scaler, ai_checkpoint = ai.load_model(
-            SYMBOL,
-            user_id=user_id,
-        )
-
-        ai_market_candles = ai.load_all_market_candles(SYMBOL)
-
-        model_available = True
+        runtime.ai_model = model
+        runtime.ai_scaler = scaler
+        runtime.ai_checkpoint = checkpoint
+        runtime.ai_market_candles = market_candles
+        session.model_available = True
 
         model_info = {
-            "symbol": SYMBOL,
-            "model_path": str(
-                ai.model_path(SYMBOL, user_id=user_id)
-            ),
-            "trained_at": ai_checkpoint.get("trained_at"),
-            "format_version": ai_checkpoint.get("format_version"),
-            "training_summary": ai_checkpoint.get(
-                "training_summary", {}
-            ),
+            **runtime.identity.as_dict(),
+            "model_path": str(get_model_path(runtime.identity)),
+            "trained_at": checkpoint.get("trained_at"),
+            "format_version": checkpoint.get("format_version"),
+            "training_summary": checkpoint.get("training_summary", {}),
         }
-
-        last_training_info = copy.deepcopy(
-            ai_checkpoint.get("training_summary", {})
+        session.model_info = model_info
+        session.last_training_info = copy.deepcopy(
+            checkpoint.get("training_summary", {})
         )
-
         return True
 
-    except FileNotFoundError:
-        ai_model = None
-        ai_scaler = None
-        ai_checkpoint = {}
-        ai_market_candles = None
-        model_available = False
-        model_info = {}
-        last_training_info = {}
-
+    except FileNotFoundError as error:
+        runtime.ai_error = str(error)
+        session.model_available = False
         return False
 
     except Exception as error:
-        print(
-            f"AI model load error for {SYMBOL}, "
-            f"user={user_id}: {error}"
+        runtime.ai_error = str(error)
+        session.model_available = False
+        LOGGER.warning(
+            "AI model load failed for %s: %s",
+            runtime.identity.key,
+            error,
         )
-
-        ai_model = None
-        ai_scaler = None
-        ai_checkpoint = {}
-        ai_market_candles = None
-        model_available = False
-        model_info = {}
-        last_training_info = {}
-
         return False
 
-def _load_legacy_market_model() -> Optional[Dict[str, Any]]:
-    """Legacy JSON model loader retained only for backward compatibility."""
-    model = _load_market_model(SYMBOL)
-    if model is None:
-        return None
-    return model
 
+def _train_ai_for_runtime(runtime: RuntimeContext) -> Dict[str, Any]:
+    """Call ai.py only when its API accepts the complete TradingBot identity."""
+    if ai is None:
+        raise AIIntegrationPending("The ai.py module could not be imported.")
 
-def _recent_swing_setup(
-    data: List[Dict[str, Any]],
-    direction: str,
-    level_price: float,
-) -> Dict[str, Any]:
-    recent = data[-min(len(data), 80):]
-    if direction == "BUY":
-        lows = sorted(
-            [
-                {
-                    "index": index,
-                    "time": candle["time"],
-                    "price": float(candle["low"]),
-                }
-                for index, candle in enumerate(recent)
-            ],
-            key=lambda item: item["price"],
-        )[:2]
-        if len(lows) < 2:
-            lows = [
-                {
-                    "index": max(0, len(recent) - 2),
-                    "time": recent[-2]["time"],
-                    "price": float(recent[-2]["low"]),
-                },
-                {
-                    "index": len(recent) - 1,
-                    "time": recent[-1]["time"],
-                    "price": float(recent[-1]["low"]),
-                },
-            ]
-        lows = sorted(lows, key=lambda item: item["index"])
-        return {
-            "low1": copy.deepcopy(lows[0]),
-            "low2": copy.deepcopy(lows[1]),
-            "level": level_price,
-        }
-
-    highs = sorted(
-        [
-            {
-                "index": index,
-                "time": candle["time"],
-                "price": float(candle["high"]),
-            }
-            for index, candle in enumerate(recent)
-        ],
-        key=lambda item: item["price"],
-        reverse=True,
-    )[:2]
-    if len(highs) < 2:
-        highs = [
-            {
-                "index": max(0, len(recent) - 2),
-                "time": recent[-2]["time"],
-                "price": float(recent[-2]["high"]),
-            },
-            {
-                "index": len(recent) - 1,
-                "time": recent[-1]["time"],
-                "price": float(recent[-1]["high"]),
-            },
-        ]
-    highs = sorted(highs, key=lambda item: item["index"])
-    return {
-        "high1": copy.deepcopy(highs[0]),
-        "high2": copy.deepcopy(highs[1]),
-        "level": level_price,
-    }
-
-
-def _choose_model_level(
-    price: float,
-    levels: List[Dict[str, Any]],
-    direction: str,
-) -> Optional[Dict[str, Any]]:
-    if not levels:
-        return None
-
-    if direction == "BUY":
-        below = [
-            level for level in levels
-            if float(level.get("center", price)) <= price
-        ]
-        if below:
-            return max(below, key=lambda level: float(level.get("center", price)))
-
-    else:
-        above = [
-            level for level in levels
-            if float(level.get("center", price)) >= price
-        ]
-        if above:
-            return min(above, key=lambda level: float(level.get("center", price)))
-
-    return min(
-        levels,
-        key=lambda level: abs(float(level.get("center", price)) - price),
+    identity_kwargs = _identity_kwargs_for_ai(ai.train_market, runtime.identity)
+    return ai.train_market(
+        runtime.market,
+        **identity_kwargs,
     )
 
-def evaluate_strategy(
-    visible_h1: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Compatibility wrapper that exposes ai.py predictions to the frontend."""
-    global major_levels, cached_strategy_levels, last_level_calculation_index
-    global last_model_signal, model_available
 
-    if not visible_h1:
-        return {
-            "action": "WAIT",
-            "reason": "No visible market data.",
-            "levels": [],
-            "model_available": model_available,
-        }
+# ============================================================================
+# CHART AND SNAPSHOT HELPERS
+# ============================================================================
 
-    # Keep the existing level engine purely for chart visualization.
-    if (
-        last_level_calculation_index < 0
-        or current_index - last_level_calculation_index >= LEVEL_RECALC_INTERVAL
-    ):
-        cached_strategy_levels = find_major_levels(
-            visible_h1[-min(240, len(visible_h1)):]
-        )
-        last_level_calculation_index = current_index
-
-    major_levels = cached_strategy_levels
-
-    if ai_model is None or ai_scaler is None or ai_market_candles is None:
-        return {
-            "action": "WAIT",
-            "reason": f"No trained ai.py model exists for {SYMBOL}. Run TRAINING first.",
-            "levels": major_levels,
-            "model_available": False,
-        }
-
-    target_time = int(visible_h1[-1]["time"]) + TIMEFRAME_SECONDS[TIMEFRAME]
-
-    try:
-        features = ai.market_state_at(
-            ai_market_candles,
-            target_time,
-        )
-
-        prediction = ai.predict_from_features(
-            model=ai_model,
-            scaler=ai_scaler,
-            features=features,
-        )
-
-    except Exception as error:
-        model_available = True
-        return {
-            "action": "WAIT",
-            "reason": f"ai.py prediction error: {error}",
-            "levels": major_levels,
-            "model_available": True,
-        }
-
-    current_price = ai.current_price_at(
-        ai_market_candles,
-        target_time,
-    )
-    atr = ai.atr_at(
-        ai_market_candles,
-        target_time,
-    )
-
-    last_model_signal = {
-        "time": target_time,
-        "price": float(visible_h1[-1]["close"]),
-        "prediction": copy.deepcopy(prediction),
-        "current_price": current_price,
-        "atr": atr,
-    }
-
-    direction_name = prediction.get("direction", "WAIT")
-
-    if direction_name == "WAIT":
-        action = "WAIT"
-    elif direction_name == "LONG":
-        action = "BUY"
-    else:
-        action = "SELL"
-
-    reason = (
-        f"ai.py {direction_name} | "
-        f"setup probability: {float(prediction.get('setup_probability', 0.0)):.2%}"
-    )
-
-    result = {
-        "action": action,
-        "reason": reason,
-        "levels": major_levels,
-        "model_available": True,
-        "probabilities": prediction.get("direction_probabilities", {}),
-        "setup_probability": prediction.get("setup_probability", 0.0),
-        "setup_timeframe": prediction.get("setup_timeframe"),
-        "entry_timeframe": prediction.get("entry_timeframe"),
-        "prediction": prediction,
-    }
-
-    return result
-
-
-# Virtual execution
-
-
-
-def open_trade_position(
-    direction: str,
-    price: float,
-    setup: Optional[Dict[str, Any]] = None,
-) -> None:
-    global open_trade
-
-    if open_trade is not None or not trading_enabled or setup is None:
-        return
-
-    entry_price = float(price)
-    sl = _safe_float(setup.get("sl"))
-    tp = _safe_float(setup.get("tp"))
-    if sl is None or tp is None:
-        return
-
-    if direction == "BUY" and not (sl < entry_price < tp):
-        return
-    if direction == "SELL" and not (tp < entry_price < sl):
-        return
-
-    risk_distance = abs(entry_price - sl)
-    tp_distance = abs(tp - entry_price)
-    if risk_distance <= 0 or tp_distance <= 0:
-        return
-
-    trade_id = len(trade_history) + 1
-    opened_at = int(h1_data[current_index]["time"])
-
-    if direction == "BUY":
-        structural_reference_price = float(
-            min(
-                float(setup.get("low1", {}).get("price", sl)),
-                float(setup.get("low2", {}).get("price", sl)),
-            )
-        )
-        structural_reference_name = "model-derived lower structure"
-        setup_swings = {
-            "low1": copy.deepcopy(setup.get("low1")),
-            "low2": copy.deepcopy(setup.get("low2")),
-        }
-    else:
-        structural_reference_price = float(
-            max(
-                float(setup.get("high1", {}).get("price", sl)),
-                float(setup.get("high2", {}).get("price", sl)),
-            )
-        )
-        structural_reference_name = "model-derived upper structure"
-        setup_swings = {
-            "high1": copy.deepcopy(setup.get("high1")),
-            "high2": copy.deepcopy(setup.get("high2")),
-        }
-
-    trigger_price = _safe_float(setup.get("protection_trigger"))
-    protected_sl = _safe_float(setup.get("protection_sl"))
-
-    if trigger_price is None:
-        trigger_price = (
-            entry_price + tp_distance * PROTECTION_TRIGGER_FRACTION
-            if direction == "BUY"
-            else entry_price - tp_distance * PROTECTION_TRIGGER_FRACTION
-        )
-
-    if protected_sl is None:
-        protected_sl = (
-            entry_price + tp_distance * PROTECTION_SL_FRACTION
-            if direction == "BUY"
-            else entry_price - tp_distance * PROTECTION_SL_FRACTION
-        )
-
-    open_trade = {
-        "trade_id": trade_id,
-        "direction": direction,
-        "entry": entry_price,
-        "opened_at": opened_at,
-        "sl": sl,
-        "initial_sl": sl,
-        "tp": tp,
-        "risk_distance": risk_distance,
-        "tp_distance": tp_distance,
-        "reward_r_multiple": tp_distance / risk_distance if risk_distance else 0.0,
-        "protection_trigger": trigger_price,
-        "protection_sl": protected_sl,
-        "protection_trigger_fraction": PROTECTION_TRIGGER_FRACTION,
-        "protection_sl_fraction": PROTECTION_SL_FRACTION,
-        "protected": False,
-        "protected_at": None,
-        "sl_before_protection": None,
-        "sl_after_protection": None,
-        "pattern": setup.get("pattern", "MODEL SIGNAL"),
-        "entry_reason": setup.get("reason", "Market model signal"),
-        "setup_level": float(setup.get("level", entry_price)),
-        "selected_level": copy.deepcopy(setup.get("selected_level")),
-        "level_strength": float(setup.get("level_strength", 0.0)),
-        "level_touches": int(setup.get("level_touches", 0)),
-        "sl_basis": {
-            "type": "MODEL",
-            "reference": structural_reference_name,
-            "reference_price": structural_reference_price,
-            "buffer_percent": 0.0,
-        },
-        "breakout_time": setup.get("breakout_time"),
-        "breakout_index": setup.get("breakout_index"),
-        "breakout_candle": copy.deepcopy(setup.get("breakout_candle")),
-        "setup_swings": setup_swings,
-        "setup_snapshot": copy.deepcopy(setup),
-        "model_probabilities": copy.deepcopy(setup.get("model_probabilities", {})),
-        "model_symbol": SYMBOL,
-        "model_timeframe": TIMEFRAME,
-    }
-
-    if direction == "BUY":
-        open_trade["low1"] = float(setup_swings["low1"]["price"])
-        open_trade["low2"] = float(setup_swings["low2"]["price"])
-    else:
-        open_trade["high1"] = float(setup_swings["high1"]["price"])
-        open_trade["high2"] = float(setup_swings["high2"]["price"])
-
-
-def stop_trading() -> None:
-    global trading_enabled
-    trading_enabled = False
-
-
-# ---------------------------------------------------------------------------
-# TRAINING AND TESTING RUNTIME
-# ---------------------------------------------------------------------------
-
-
-def step_testing() -> None:
-    """Advance the selected chart timeframe and let ai.py make one decision."""
-    global current_index, blocked_trades, last_model_entry_index
-    global last_model_signal, major_levels, cached_strategy_levels
-    global last_level_calculation_index
-
-    if current_index >= len(h1_data) - 1:
-        return
-
-    current_index += 1
-    candle = h1_data[current_index]
-
-    update_trade(candle)
-
-    if ai_model is None or ai_scaler is None or ai_market_candles is None:
-        return
-
-    target_time = int(candle["time"]) + TIMEFRAME_SECONDS[TIMEFRAME]
-
-    features = ai.market_state_at(
-        ai_market_candles,
-        target_time,
-    )
-
-    prediction = ai.predict_from_features(
-        model=ai_model,
-        scaler=ai_scaler,
-        features=features,
-    )
-
-    current_price = ai.current_price_at(
-        ai_market_candles,
-        target_time,
-    )
-    atr = ai.atr_at(
-        ai_market_candles,
-        target_time,
-    )
-
-    last_model_signal = {
-        "time": target_time,
-        "price": float(candle["close"]),
-        "prediction": copy.deepcopy(prediction),
-        "current_price": current_price,
-        "atr": atr,
-    }
-
-    if current_price is None or atr <= 0:
-        blocked_trades += 1
-        return
-
-    if open_trade is not None or not trading_enabled:
-        return
-
-    if prediction.get("direction") == "WAIT":
-        blocked_trades += 1
-        return
-
-    if float(prediction.get("setup_probability", 0.0)) < 0.50:
-        blocked_trades += 1
-        return
-
-    if current_index - last_model_entry_index < MODEL_TESTING_COOLDOWN:
-        blocked_trades += 1
-        return
-
-    direction = (
-        "BUY"
-        if prediction.get("direction") == "LONG"
-        else "SELL"
-    )
-
-    offsets = prediction.get("price_offsets_atr", {})
-
-    entry_price = (
-        current_price
-        + float(offsets.get("entry", 0.0)) * atr
-    )
-    sl_price = (
-        current_price
-        + float(offsets.get("sl", 0.0)) * atr
-    )
-    tp_price = (
-        current_price
-        + float(offsets.get("tp", 0.0)) * atr
-    )
-
-    # A model can predict arbitrary numeric offsets. Only accept a geometrically
-    # valid LONG or SHORT setup for the existing execution engine.
-    if direction == "BUY":
-        if not (sl_price < entry_price < tp_price):
-            blocked_trades += 1
-            return
-    else:
-        if not (tp_price < entry_price < sl_price):
-            blocked_trades += 1
-            return
-
-    setup = {
-        "direction": direction,
-        "pattern": "AI.PY MODEL SIGNAL",
-        "level": current_price + float(offsets.get("level", 0.0)) * atr,
-        "focus_1": current_price + float(offsets.get("focus_1", 0.0)) * atr,
-        "focus_2": current_price + float(offsets.get("focus_2", 0.0)) * atr,
-        "breakout": current_price + float(offsets.get("breakout", 0.0)) * atr,
-        "entry": entry_price,
-        "sl": sl_price,
-        "tp": tp_price,
-        "model_probabilities": copy.deepcopy(
-            prediction.get("direction_probabilities", {})
-        ),
-        "setup_probability": float(
-            prediction.get("setup_probability", 0.0)
-        ),
-        "setup_timeframe": prediction.get("setup_timeframe"),
-        "entry_timeframe": prediction.get("entry_timeframe"),
-        "breakout_time": target_time,
-        "breakout_index": current_index,
-        "breakout_candle": copy.deepcopy(candle),
-        "model_symbol": SYMBOL,
-        "model_timeframe": TIMEFRAME,
-        "price_offsets_atr": copy.deepcopy(offsets),
-    }
-
-    if direction == "BUY":
-        setup["low1"] = {
-            "time": target_time,
-            "price": float(candle["low"]),
-        }
-        setup["low2"] = {
-            "time": target_time,
-            "price": float(candle["low"]),
-        }
-    else:
-        setup["high1"] = {
-            "time": target_time,
-            "price": float(candle["high"]),
-        }
-        setup["high2"] = {
-            "time": target_time,
-            "price": float(candle["high"]),
-        }
-
-    open_trade_position(
-        direction,
-        entry_price,
-        setup,
-    )
-
-    if open_trade is not None:
-        last_model_entry_index = current_index
-
-
-def reset(
-    user_id: Optional[str] = None,
-) -> None:
-    global current_index, running, trading_enabled
-    global balance, peak_equity, open_trade
-    global trade_history, last_trade_result, major_levels
-    global blocked_trades
-    global cached_strategy_levels
-    global blocked_trade_zone
-    global last_level_calculation_index
-    global zigzag_filter
-    global analysis_status, analysis_started, analysis_completed
-    global analysis_phase, model_available, model_info
-    global last_training_info, last_model_signal, last_model_entry_index
-    global manual_analysis_progress
-
-    cached_strategy_levels = []
-    last_level_calculation_index = -1
-
-    current_index = 0
-    running = False
-    trading_enabled = True
-
-    balance = STARTING_BALANCE
-    peak_equity = STARTING_BALANCE
-
-    open_trade = None
-    trade_history = []
-    last_trade_result = None
-    major_levels = []
-    blocked_trades = 0
-
-    blocked_trade_zone = None
-    zigzag_filter = None
-
-    analysis_status = "idle"
-    analysis_started = False
-    analysis_completed = False
-    analysis_phase = "idle"
-    last_model_signal = None
-    last_model_entry_index = -10_000_000
-
-    # Load the market-specific PyTorch model created by ai.py.
-    load_ai_runtime(user_id)
-
-    _capture_active_session()
-
-
-def train_runtime(
-    user_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Train the active market model for the selected user."""
-
-    global analysis_status, analysis_started, analysis_completed
-    global analysis_phase, running, startup_progress, startup_message
-
-    analysis_status = "training"
-    analysis_phase = "training"
-    analysis_started = True
-    analysis_completed = False
-    running = True
-
-    startup_stage = "Training model"
-    startup_progress = 75
-    startup_message = (
-        f"Training {SYMBOL} market model with ai.py..."
-    )
-
-    result = ai.train_market(
-        SYMBOL,
-        user_id=user_id,
-    )
-
-    load_ai_runtime(user_id)
-
-    running = False
-    analysis_status = "completed"
-    analysis_phase = "training_completed"
-    analysis_completed = True
-
-    _capture_active_session()
-
-    return {
-        "success": True,
-        "model_path": result["model"]["model_path"],
-        "symbol": SYMBOL,
-        "training": result["training"],
-        "model": result["model"],
-    }
-
-
-async def training_loop(user_id: Optional[str]) -> None:
-    global running, startup_progress, startup_message
-    global analysis_status, analysis_started, analysis_completed, analysis_phase
-
-    running = True
-    analysis_status = "training"
-    analysis_phase = "training"
-    analysis_started = True
-    analysis_completed = False
-
-    try:
-        startup_progress = 70
-        startup_message = (
-            f"Loading Learning trades for {SYMBOL} {TIMEFRAME}..."
-        )
-        await broadcast_snapshot(user_id)
-
-        await asyncio.sleep(0)
-
-        startup_progress = 82
-        startup_message = "Building numeric training dataset..."
-        await broadcast_snapshot(user_id)
-
-        await asyncio.sleep(0)
-
-        result = await asyncio.to_thread(
-            ai.train_market,
-            SYMBOL,
-            user_id=user_id,
-        )
-
-        load_ai_runtime(user_id)
-
-        startup_progress = 100
-        startup_message = (
-            f"TRAINING complete for {SYMBOL} {TIMEFRAME}."
-        )
-        running = False
-        analysis_status = "completed"
-        analysis_phase = "training_completed"
-        analysis_completed = True
-
-        _capture_active_session()
-
-        print("")
-        print("=== TRAINING COMPLETE ===")
-        print(f"Market: {SYMBOL} | Timeframe: {TIMEFRAME}")
-        print(
-            f"Learning trades: "
-            f"{result['training']['input_trade_count']}"
-        )
-        print(
-            f"Usable samples: "
-            f"{result['training']['usable_positive_samples']}"
-        )
-        print(
-            f"Background samples: "
-            f"{result['training']['background_samples']}"
-        )
-        print(f"Model: {result['model']['model_path']}")
-
-        await broadcast_snapshot(user_id)
-
-    except asyncio.CancelledError:
-        running = False
-        if analysis_started and not analysis_completed:
-            analysis_status = "paused"
-            analysis_phase = "training_paused"
-        _capture_active_session()
-        raise
-
-    except Exception as error:
-        running = False
-        analysis_status = "error"
-        analysis_phase = "training_error"
-        analysis_completed = False
-        startup_progress = 100
-        startup_message = f"TRAINING error: {error}"
-        _capture_active_session()
-        print("TRAINING ERROR:", error)
-        await broadcast_snapshot(user_id)
-
-
-async def testing_loop(
-    user_id: Optional[str] = None,
-) -> None:
-    global running, startup_progress, startup_message
-    global analysis_status, analysis_started, analysis_completed, analysis_phase
-
-    if not load_ai_runtime(user_id):
-        analysis_status = "error"
-        analysis_phase = "testing_error"
-        analysis_started = True
-        analysis_completed = False
-        running = False
-        startup_progress = 100
-        startup_message = (
-            f"No trained ai.py model exists for {SYMBOL}. "
-            "Run TRAINING first."
-        )
-        _capture_active_session()
-        await broadcast_snapshot(user_id)
-        return
-
-    reset(user_id)
-    analysis_status = "testing"
-    analysis_phase = "testing"
-    analysis_started = True
-    analysis_completed = False
-    running = True
-
-    total = max(1, len(h1_data) - 1)
-    last_reported = -1
-    last_trade_count = len(trade_history)
-
-    print("")
-    print("=== TESTING START ===")
-    print(f"Market: {SYMBOL} | Timeframe: {TIMEFRAME}")
-    print(f"Model: {ai.model_path(SYMBOL, user_id)}")
-    print(f"Total candles: {total:,}")
-
-    try:
-        while current_index < len(h1_data) - 1:
-            check_for_quit()
-            step_testing()
-
-            progress = int((current_index / total) * 100)
-            trade_count = len(trade_history)
-
-            if progress != last_reported or trade_count != last_trade_count:
-                startup_progress = 70 + int((current_index / total) * 30)
-                startup_message = (
-                    f"Testing {current_index:,}/{total:,} "
-                    f"| {progress}% | Trades: {trade_count}"
-                )
-
-                if progress != last_reported:
-                    print(
-                        f"[TESTING] {progress:3d}% | "
-                        f"Candles: {current_index:,}/{total:,} | "
-                        f"Trades: {trade_count} | "
-                        f"Balance: {balance:,.2f}"
-                    )
-
-                if trade_count != last_trade_count:
-                    trade = trade_history[-1]
-                    print(
-                        f"[TRADE] #{trade_count} "
-                        f"{trade['direction']} "
-                        f"{trade['result']} "
-                        f"Entry={trade['entry']:.5f} "
-                        f"Exit={trade['exit']:.5f}"
-                    )
-
-                last_reported = progress
-                last_trade_count = trade_count
-                _capture_active_session()
-                await broadcast_snapshot(user_id)
-
-            await asyncio.sleep(0)
-
-        # The final candle closes any still-open test position at the last
-        # available market price so the test has a deterministic final result.
-        if open_trade is not None:
-            final_price = float(h1_data[-1]["close"])
-            if open_trade["direction"] == "BUY":
-                result = "WIN" if final_price >= open_trade["entry"] else "LOSS"
-            else:
-                result = "WIN" if final_price <= open_trade["entry"] else "LOSS"
-            close_trade(result, final_price, "END_OF_TEST_DATA")
-
-        startup_progress = 100
-        startup_message = "TESTING complete."
-        running = False
-        analysis_status = "completed"
-        analysis_phase = "testing_completed"
-        analysis_started = True
-        analysis_completed = True
-
-        _capture_active_session()
-
-        print("")
-        print("=== TESTING COMPLETE ===")
-        print(f"Market: {SYMBOL} | Timeframe: {TIMEFRAME}")
-        print(f"Trades: {len(trade_history)}")
-        print(f"Balance: {balance:,.2f}")
-        print(
-            f"WIN: {sum(1 for trade in trade_history if trade['result'] == 'WIN')}"
-        )
-        print(
-            f"LOSS: {sum(1 for trade in trade_history if trade['result'] == 'LOSS')}"
-        )
-
-        await broadcast_snapshot(user_id)
-
-    except asyncio.CancelledError:
-        running = False
-        if analysis_started and not analysis_completed:
-            analysis_status = "paused"
-            analysis_phase = "testing_paused"
-        _capture_active_session()
-        raise
-
-    except Exception as error:
-        running = False
-        analysis_status = "error"
-        analysis_phase = "testing_error"
-        analysis_completed = False
-        startup_progress = 100
-        startup_message = f"TESTING error: {error}"
-        _capture_active_session()
-        print("TESTING ERROR:", error)
-        await broadcast_snapshot(user_id)
-
-
-def startup_snapshot() -> Dict[str, Any]:
+def startup_snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
+    session = runtime.current_session
     return {
         "ready": False,
         "loading": True,
-        "startup_stage": startup_stage,
-        "startup_progress": startup_progress,
-        "startup_message": startup_message,
-        "mt5_connected": mt5_connected,
-        "symbol": SYMBOL,
-        "timeframe": TIMEFRAME,
-        "session_id": _session_id(),
-        "candles_loaded": len(h1_data),
-        "analysis_status": analysis_status,
-        "analysis_phase": analysis_phase,
-        "model_available": model_available,
-        "model_info": model_info,
-        "last_training_info": last_training_info,
+        "startup_stage": runtime.startup_stage,
+        "startup_progress": runtime.startup_progress,
+        "startup_message": runtime.startup_message,
+        "mt5_connected": CHART_SERVICE.mt5_connected,
+        "symbol": runtime.market,
+        "timeframe": runtime.active_timeframe,
+        "session_id": runtime.session_id,
+        "candles_loaded": len(runtime.get_chart_data()),
+        "analysis_status": session.analysis_status,
+        "analysis_phase": session.analysis_phase,
+        "model_available": session.model_available,
+        "model_info": session.model_info,
+        "last_training_info": session.last_training_info,
     }
 
-def get_trade_detail(
-    trade_id: int,
-) -> Optional[Dict[str, Any]]:
-    """
-    Return an exact, point-in-time explanation of one trade.
 
-    No strategy is recalculated here.
-    We only return the data that was stored when the trade was created.
-    """
+def snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
+    """Build the legacy-compatible frontend snapshot for one TradingBot."""
+    session = runtime.current_session
+    candles = runtime.get_chart_data()
+    visible = candles[:session.current_index + 1]
+    manual = runtime.manual_analysis
 
-    # Closed trades.
-    for trade in trade_history:
-        if int(trade.get("trade_id", -1)) == int(trade_id):
-            return copy.deepcopy(trade)
+    use_manual_state = manual.analysis_phase != "idle"
+    analysis_status = manual.analysis_status if use_manual_state else session.analysis_status
+    analysis_started = manual.analysis_started if use_manual_state else session.analysis_started
+    analysis_completed = manual.analysis_completed if use_manual_state else session.analysis_completed
+    analysis_phase = manual.analysis_phase if use_manual_state else session.analysis_phase
+    manual_progress = manual.progress if use_manual_state else 0
+    results_source = manual.results_source if use_manual_state else runtime.results_source
+    manual_results = manual.results if use_manual_state else {}
 
-    # Currently open trade.
-    if (
-        open_trade is not None
-        and int(open_trade.get("trade_id", -1)) == int(trade_id)
-    ):
-        return copy.deepcopy(open_trade)
+    learning_trades: List[Dict[str, Any]] = []
+    try:
+        learning_trades = setup_storage.get_trading_setups(runtime.identity)
+    except Exception as error:
+        LOGGER.warning("Could not load Learning setups for %s: %s", runtime.key, error)
 
-    return None
+    decision = {
+        "action": "WAIT",
+        "reason": "No chart data available.",
+        "levels": session.major_levels,
+        "model_available": session.model_available,
+    }
+    if visible:
+        try:
+            decision = strategy_engine.evaluate_strategy(
+                runtime,
+                visible,
+                ai_api=ai,
+                level_recalc_interval=LEVEL_RECALC_INTERVAL,
+            )
+        except Exception as error:
+            decision = {
+                "action": "WAIT",
+                "reason": f"Strategy evaluation error: {error}",
+                "levels": session.major_levels,
+                "model_available": session.model_available,
+            }
 
-def snapshot(user_id: Optional[str] = None) -> Dict[str, Any]:
-    visible = h1_data[:current_index + 1]
-
-    manual_state = _get_manual_analysis_state(user_id)
-    use_manual_state = manual_state["analysis_phase"] != "idle"
-
-    analysis_status_value = (
-        manual_state["analysis_status"]
-        if use_manual_state
-        else analysis_status
-    )
-
-    analysis_started_value = (
-        manual_state["analysis_started"]
-        if use_manual_state
-        else analysis_started
-    )
-
-    analysis_completed_value = (
-        manual_state["analysis_completed"]
-        if use_manual_state
-        else analysis_completed
-    )
-
-    analysis_phase_value = (
-        manual_state["analysis_phase"]
-        if use_manual_state
-        else analysis_phase
-    )
-
-    manual_analysis_progress_value = (
-        manual_state["manual_analysis_progress"]
-        if use_manual_state
-        else manual_analysis_progress
-    )
-
-    results_source_value = (
-        manual_state["results_source"]
-        if use_manual_state
-        else results_source
-    )
-
-    manual_analysis_results_value = (
-        manual_state["manual_analysis_results"]
-        if use_manual_state
-        else manual_analysis_results
-    )
+    common = {
+        "symbol": runtime.market,
+        "timeframe": runtime.active_timeframe,
+        "session_id": runtime.session_id,
+        "mt5_connected": CHART_SERVICE.mt5_connected,
+        "analysis_status": analysis_status,
+        "analysis_started": analysis_started,
+        "analysis_completed": analysis_completed,
+        "analysis_phase": analysis_phase,
+        "manual_analysis_progress": manual_progress,
+        "model_available": session.model_available,
+        "model_info": session.model_info,
+        "last_training_info": session.last_training_info,
+        "learning_trades": learning_trades,
+        "results_source": results_source,
+        "manual_analysis_results": manual_results,
+        "startup_stage": manual.startup_stage if use_manual_state else runtime.startup_stage,
+        "startup_progress": manual.startup_progress if use_manual_state else runtime.startup_progress,
+        "startup_message": manual.startup_message if use_manual_state else runtime.startup_message,
+        "running": session.running,
+        "trading_enabled": session.trading_enabled,
+    }
 
     if not visible:
         return {
+            **common,
             "ready": False,
-            "symbol": SYMBOL,
-            "timeframe": TIMEFRAME,
-            "session_id": _session_id(),
-            "mt5_connected": mt5_connected,
-            "analysis_status": analysis_status_value,
-            "analysis_started": analysis_started_value,
-            "analysis_completed": analysis_completed_value,
-            "analysis_phase": analysis_phase_value,
-            "manual_analysis_progress": manual_analysis_progress_value,
-            "model_available": model_available,
-            "model_info": model_info,
-            "last_training_info": last_training_info,
-            "learning_trades": get_trading_setups(SYMBOL, user_id),
+            "loading": runtime.startup_progress < 100,
+            "candles_loaded": len(candles),
+            "strategy": decision,
+            "levels": decision.get("levels", []),
+            "trade": session.open_trade,
+            "trades": session.trade_history,
+            "balance": session.balance,
+            "equity": session.balance,
+            "starting_balance": STARTING_BALANCE,
+            "final_balance": session.balance,
+            "blocked_trades": session.blocked_trades,
+            "last_model_signal": session.last_model_signal,
         }
 
-    decision = evaluate_strategy(visible)
-
-    # Keep the currently active session synchronized whenever a snapshot is
-    # produced. This is what makes a browser reload recover the exact active
-    # market + timeframe state without starting analysis again.
-    _capture_active_session()
+    current = visible[-1]
+    total_return = (
+        ((session.balance - STARTING_BALANCE) / STARTING_BALANCE) * 100.0
+        if STARTING_BALANCE
+        else 0.0
+    )
 
     return {
+        **common,
         "ready": True,
-        "symbol": SYMBOL,
-        "timeframe": TIMEFRAME,
-        "session_id": _session_id(),
-        "analysis_status": analysis_status_value,
-        "analysis_started": analysis_started_value,
-        "analysis_completed": analysis_completed_value,
-        "analysis_phase": analysis_phase_value,
-        "manual_analysis_progress": manual_analysis_progress_value,
-        "current_time": visible[-1]["time"],
-        "current_price": visible[-1]["close"],
-        "h1": h1_data,
+        "loading": False,
+        "current_time": current.get("time"),
+        "current_price": current.get("close"),
+        "h1": candles,
         "line": [
-            {
-                "time": candle["time"],
-                "value": candle["close"],
-            }
-            for candle in h1_data
+            {"time": candle.get("time"), "value": candle.get("close")}
+            for candle in candles
         ],
-        "levels": decision["levels"],
+        "levels": decision.get("levels", []),
         "strategy": decision,
-        "trade": open_trade,
-        "trades": trade_history,
-        "balance": balance,
-        "equity": balance,
-
+        "trade": session.open_trade,
+        "trades": session.trade_history,
+        "balance": session.balance,
+        "equity": session.balance,
         "starting_balance": STARTING_BALANCE,
-        "final_balance": balance,
+        "final_balance": session.balance,
+        "total_return": total_return,
+        "blocked_trades": session.blocked_trades,
+        "last_model_signal": session.last_model_signal,
+    }
 
-        "total_return": (
+
+async def send_snapshot(websocket: WebSocket, runtime: RuntimeContext) -> None:
+    await websocket.send_text(_json_dumps(snapshot(runtime)))
+
+
+async def broadcast_snapshot(runtime: RuntimeContext) -> None:
+    """Broadcast only to WebSocket clients attached to the supplied runtime."""
+    payload = _json_dumps(snapshot(runtime))
+    dead_clients = []
+
+    for websocket in runtime.get_websocket_clients():
+        try:
+            await websocket.send_text(payload)
+        except Exception:
+            dead_clients.append(websocket)
+
+    for websocket in dead_clients:
+        disconnect_customer_connection(websocket, runtime)
+
+
+async def _load_runtime_chart(runtime: RuntimeContext) -> None:
+    async with CHART_IO_LOCK:
+        candles = await asyncio.to_thread(
+            CHART_SERVICE.load_runtime_history,
+            runtime,
+        )
+
+    runtime.startup_stage = "Chart ready"
+    runtime.startup_progress = 100
+    runtime.startup_message = (
+        f"{runtime.market} {runtime.active_timeframe} ready. "
+        f"{len(candles):,} candles loaded."
+    )
+
+
+# ============================================================================
+# MANUAL LEARNING TRADE ANALYSIS
+# ============================================================================
+
+def _manual_hit_flags(
+    direction: str,
+    candle: Dict[str, Any],
+    sl: float,
+    tp: float,
+) -> Tuple[bool, bool]:
+    if direction == "BUY":
+        return float(candle["low"]) <= sl, float(candle["high"]) >= tp
+    return float(candle["high"]) >= sl, float(candle["low"]) <= tp
+
+
+def _resolve_manual_collision(
+    market: str,
+    parent_candle: Dict[str, Any],
+    parent_timeframe: str,
+    direction: str,
+    sl: float,
+    tp: float,
+    lower_cache: Dict[str, List[Dict[str, Any]]],
+) -> Tuple[str, Optional[float], Optional[int], str]:
+    """Resolve a same-candle TP/SL collision through M5 and then M1."""
+    parent_start = int(parent_candle["time"])
+    parent_duration = TIMEFRAME_SECONDS[parent_timeframe]
+    parent_end = parent_start + parent_duration
+
+    for lower_timeframe in ("M5", "M1"):
+        lower_duration = TIMEFRAME_SECONDS[lower_timeframe]
+        if lower_duration >= parent_duration:
+            continue
+
+        if lower_timeframe not in lower_cache:
+            path = CHART_SERVICE.history_path(market, lower_timeframe)
+            lower_cache[lower_timeframe] = CHART_SERVICE.load_local_history(path)
+
+        relevant = [
+            candle
+            for candle in lower_cache[lower_timeframe]
+            if (
+                parent_start <= int(candle["time"])
+                and int(candle["time"]) + lower_duration <= parent_end
+            )
+        ]
+        relevant.sort(key=lambda candle: int(candle["time"]))
+
+        if not relevant:
+            continue
+
+        collision_on_this_timeframe = False
+        for candle in relevant:
+            sl_hit, tp_hit = _manual_hit_flags(direction, candle, sl, tp)
+
+            if sl_hit and tp_hit:
+                if lower_timeframe == "M1":
+                    return (
+                        "AMBIGUOUS",
+                        None,
+                        int(candle["time"]),
+                        "SL_AND_TP_SAME_M1_CANDLE",
+                    )
+                collision_on_this_timeframe = True
+                break
+
+            if sl_hit:
+                return "LOSS", sl, int(candle["time"]), f"SL_RESOLVED_ON_{lower_timeframe}"
+
+            if tp_hit:
+                return "WIN", tp, int(candle["time"]), f"TP_RESOLVED_ON_{lower_timeframe}"
+
+        if collision_on_this_timeframe:
+            continue
+
+    return "AMBIGUOUS", None, None, "SL_TP_ORDER_UNRESOLVED"
+
+
+def _analyze_manual_setup(
+    runtime: RuntimeContext,
+    setup: Dict[str, Any],
+    ordinal: int,
+    current_balance: float,
+    lower_cache: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    direction_raw = str(setup.get("direction", "")).strip().upper()
+    direction = {"LONG": "BUY", "SHORT": "SELL"}.get(direction_raw, direction_raw)
+    if direction not in {"BUY", "SELL"}:
+        return {"valid": False, "error": "Invalid direction."}
+
+    entry = setup_storage._manual_setup_value(setup, "entry", "entry")
+    sl = setup_storage._manual_setup_value(setup, "sl", "sl")
+    tp = setup_storage._manual_setup_value(setup, "tp", "tp")
+    entry_time = setup_storage._manual_setup_time(setup)
+
+    if entry is None or sl is None or tp is None or entry_time is None:
+        return {"valid": False, "error": "Missing entry, SL, TP or entry time."}
+
+    if direction == "BUY" and not (sl < entry < tp):
+        return {"valid": False, "error": "Invalid BUY geometry."}
+    if direction == "SELL" and not (tp < entry < sl):
+        return {"valid": False, "error": "Invalid SELL geometry."}
+
+    timeframe = str(setup.get("entry_timeframe", runtime.active_timeframe)).strip().upper()
+    if timeframe not in TIMEFRAME_SECONDS:
+        timeframe = runtime.active_timeframe
+
+    history_path = CHART_SERVICE.history_path(runtime.market, timeframe)
+    candles = CHART_SERVICE.load_local_history(history_path)
+    if not candles:
+        return {"valid": False, "error": f"No chart data for {runtime.market} {timeframe}."}
+
+    duration = TIMEFRAME_SECONDS[timeframe]
+    start_index = next(
+        (
+            index
+            for index, candle in enumerate(candles)
+            if int(candle["time"]) + duration > int(entry_time)
+        ),
+        None,
+    )
+    if start_index is None:
+        return {"valid": False, "error": "Entry time is outside chart history."}
+
+    risk_distance = abs(float(entry) - float(sl))
+    reward_distance = abs(float(tp) - float(entry))
+    if risk_distance <= 0:
+        return {"valid": False, "error": "Invalid SL distance."}
+
+    reward_r_multiple = reward_distance / risk_distance
+    risk_amount = current_balance * (MANUAL_RISK_PERCENT / 100.0)
+
+    result = "OPEN"
+    exit_price: Optional[float] = None
+    exit_time: Optional[int] = None
+    exit_reason = "END_OF_AVAILABLE_HISTORY"
+
+    for candle in candles[start_index:]:
+        sl_hit, tp_hit = _manual_hit_flags(direction, candle, float(sl), float(tp))
+        if sl_hit and tp_hit:
+            result, exit_price, exit_time, exit_reason = _resolve_manual_collision(
+                runtime.market,
+                candle,
+                timeframe,
+                direction,
+                float(sl),
+                float(tp),
+                lower_cache,
+            )
+            break
+        if sl_hit:
+            result = "LOSS"
+            exit_price = float(sl)
+            exit_time = int(candle["time"])
+            exit_reason = "SL"
+            break
+        if tp_hit:
+            result = "WIN"
+            exit_price = float(tp)
+            exit_time = int(candle["time"])
+            exit_reason = "TP"
+            break
+
+    if result == "WIN":
+        pnl = risk_amount * reward_r_multiple
+    elif result == "LOSS":
+        pnl = -risk_amount
+    else:
+        pnl = 0.0
+
+    return {
+        "valid": True,
+        "trade_id": int(setup.get("id")) if str(setup.get("id", "")).isdigit() else ordinal,
+        "source": "MANUAL_ANALYSIS",
+        "direction": direction,
+        "entry": float(entry),
+        "sl": float(sl),
+        "tp": float(tp),
+        "opened_at": int(entry_time),
+        "exit": exit_price,
+        "closed_at": exit_time,
+        "result": result,
+        "exit_reason": exit_reason,
+        "risk_amount": risk_amount,
+        "reward_r_multiple": reward_r_multiple,
+        "pnl": pnl,
+        "training_eligible": result in {"WIN", "LOSS"},
+        "setup_id": setup.get("id"),
+        "setup_snapshot": copy.deepcopy(setup),
+    }
+
+
+async def manual_analysis_loop(runtime: RuntimeContext) -> None:
+    """Analyze all saved manual Learning trades for one TradingBot."""
+    manual = runtime.manual_analysis
+    session = runtime.current_session
+
+    try:
+        setups = await asyncio.to_thread(
+            setup_storage.load_learning_setups,
+            runtime.identity,
+        )
+        if not setups:
+            raise ValueError("No manually saved Learning trades.")
+
+        manual.analysis_status = "manual_analysis"
+        manual.analysis_phase = "manual_analysis"
+        manual.analysis_started = True
+        manual.analysis_completed = False
+        manual.progress = 0
+        manual.results_source = "manual"
+        manual.results = {}
+        manual.startup_stage = "Manual analysis"
+        manual.startup_progress = 70
+        manual.startup_message = f"Analyzing {len(setups)} Learning trades..."
+
+        results: List[Dict[str, Any]] = []
+        invalid_trades = 0
+        ambiguous_trades = 0
+        open_trades = 0
+        balance = STARTING_BALANCE
+        lower_cache: Dict[str, List[Dict[str, Any]]] = {}
+
+        total = max(len(setups), 1)
+        for index, setup in enumerate(setups, start=1):
+            analysis = await asyncio.to_thread(
+                _analyze_manual_setup,
+                runtime,
+                setup,
+                index,
+                balance,
+                lower_cache,
+            )
+
+            if not analysis.get("valid"):
+                invalid_trades += 1
+            else:
+                results.append(analysis)
+                if analysis["result"] == "WIN":
+                    balance += float(analysis["pnl"])
+                elif analysis["result"] == "LOSS":
+                    balance += float(analysis["pnl"])
+                elif analysis["result"] == "AMBIGUOUS":
+                    ambiguous_trades += 1
+                else:
+                    open_trades += 1
+
+            manual.progress = int(index / total * 100)
+            manual.startup_progress = 70 + int(index / total * 30)
+            manual.startup_message = f"Analyzed {index}/{total} Learning trades."
+            await broadcast_snapshot(runtime)
+            await asyncio.sleep(0)
+
+        wins = sum(1 for trade in results if trade.get("result") == "WIN")
+        losses = sum(1 for trade in results if trade.get("result") == "LOSS")
+        resolved = wins + losses
+        total_return = (
             ((balance - STARTING_BALANCE) / STARTING_BALANCE) * 100.0
             if STARTING_BALANCE
             else 0.0
-        ),
-
-        "blocked_trades": blocked_trades,
-
-        "trading_enabled": trading_enabled,
-        "model_available": model_available,
-        "model_info": model_info,
-        "last_training_info": last_training_info,
-        "last_model_signal": last_model_signal,
-
-        "learning_trades": get_trading_setups(SYMBOL, user_id),
-
-        "results_source": results_source_value,
-        "manual_analysis_results": manual_analysis_results_value,
-    }
-
-
-async def broadcast_snapshot(
-    user_id: Optional[str] = None
-) -> None:
-
-    clients = connected_clients.get(
-        user_id,
-        set()
-    )
-
-    if not clients:
-        return
-
-    data = snapshot(user_id)
-
-    manual_state = _get_manual_analysis_state(user_id)
-
-    if manual_state["analysis_phase"] != "idle":
-        data["startup_stage"] = manual_state["startup_stage"]
-        data["startup_progress"] = manual_state["startup_progress"]
-        data["startup_message"] = manual_state["startup_message"]
-    else:
-        data["startup_stage"] = startup_stage
-        data["startup_progress"] = startup_progress
-        data["startup_message"] = startup_message
-
-    payload = json.dumps(data)
-
-    dead_clients = []
-
-    for client in list(clients):
-        try:
-            await client.send_text(payload)
-        except Exception:
-            dead_clients.append(client)
-
-    for client in dead_clients:
-        clients.discard(client)
-
-    if not clients:
-        connected_clients.pop(user_id, None)
-
-def check_for_quit():
-    if msvcrt.kbhit():
-        key = msvcrt.getwch().lower()
-
-        if key == "q":
-            print("")
-            print("Q pressed -> shutting down immediately.")
-            os._exit(0)
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-
-    global startup_stage, startup_progress, startup_message
-    global analysis_status, analysis_started, analysis_completed
-
-    if WEB_MODE:
-        mt5_available = False
-        print("WEB_MODE: MT5 disabled. Using CHARTS data.")
-    else:
-        mt5_available = initialize_mt5()
-
-    startup_stage = "Loading market data"
-    startup_progress = 3
-
-    if mt5_available:
-        startup_message = "Loading local history and synchronizing MT5..."
-    else:
-        startup_message = (
-            "MT5 is switched off. "
-            "Loading local chart history..."
         )
 
-    # First application state is always the backend defaults. Once a browser
-    # session is active, page reloads keep using this exact live state.
-    _get_session_state(SYMBOL, TIMEFRAME)
-    load_history()
-    _restore_active_session()
-    if not WEB_MODE:
-        load_ai_runtime()
+        manual.results = {
+            "symbol": runtime.market,
+            "timeframe": runtime.active_timeframe,
+            "starting_balance": STARTING_BALANCE,
+            "final_balance": balance,
+            "total_return": total_return,
+            "trades": results,
+            "invalid_trades": invalid_trades,
+            "ambiguous_trades": ambiguous_trades,
+            "open_trades": open_trades,
+            "winning_trades": wins,
+            "losing_trades": losses,
+            "winning_percentage": (wins / resolved * 100.0) if resolved else 0.0,
+            "losing_percentage": (losses / resolved * 100.0) if resolved else 0.0,
+        }
+        manual.analysis_status = "completed"
+        manual.analysis_phase = "manual_analysis_completed"
+        manual.analysis_completed = True
+        manual.progress = 100
+        manual.startup_stage = "Manual analysis complete"
+        manual.startup_progress = 100
+        manual.startup_message = "MANUAL ANALYSIS complete."
 
-    startup_stage = "Chart ready"
-    startup_progress = 100
-    startup_message = (
-        f"{SYMBOL} {TIMEFRAME} ready. Waiting for analysis..."
-    )
+    except asyncio.CancelledError:
+        manual.analysis_status = "paused"
+        manual.analysis_phase = "manual_analysis_paused"
+        manual.analysis_completed = False
+        manual.startup_message = "Manual analysis was cancelled."
+        raise
 
-    global analysis_task
-
-    try:
-        yield
+    except Exception as error:
+        manual.analysis_status = "error"
+        manual.analysis_phase = "manual_analysis_error"
+        manual.analysis_started = True
+        manual.analysis_completed = False
+        manual.startup_progress = 100
+        manual.startup_message = str(error)
+        LOGGER.exception("Manual analysis failed for %s", runtime.key)
 
     finally:
-        if analysis_task is not None:
-            analysis_task.cancel()
+        await broadcast_snapshot(runtime)
 
-            try:
-                await analysis_task
-            except asyncio.CancelledError:
-                pass
 
-        analysis_task = None
+# ============================================================================
+# TRAINING AND TESTING TASKS
+# ============================================================================
 
-        if h1_data:
-            _capture_active_session()
+async def training_loop(runtime: RuntimeContext) -> None:
+    session = runtime.current_session
+    session.running = True
+    session.analysis_status = "training"
+    session.analysis_phase = "training"
+    session.analysis_started = True
+    session.analysis_completed = False
+    runtime.results_source = "testing"
+    runtime.manual_analysis.reset()
+    runtime.startup_stage = "Training model"
+    runtime.startup_progress = 70
+    runtime.startup_message = f"Starting TRAINING for {runtime.market}..."
+    await broadcast_snapshot(runtime)
 
-        startup_stage = "Stopped"
-        startup_progress = 100
-        startup_message = "Backend stopped."
+    try:
+        await asyncio.sleep(0)
+        runtime.startup_stage = "Training model"
+        runtime.startup_progress = 82
+        runtime.startup_message = "Building identity-scoped AI training dataset..."
+        await broadcast_snapshot(runtime)
 
-        if not WEB_MODE:
-            mt5.shutdown()
+        result = await asyncio.to_thread(_train_ai_for_runtime, runtime)
+        if not load_ai_runtime(runtime):
+            raise RuntimeError(
+                runtime.ai_error or "The newly trained model could not be loaded."
+            )
 
+        session.running = False
+        session.analysis_status = "completed"
+        session.analysis_phase = "training_completed"
+        session.analysis_completed = True
+        runtime.startup_stage = "Training complete"
+        runtime.startup_progress = 100
+        runtime.startup_message = f"TRAINING complete for {runtime.market}."
+        session.last_training_info = copy.deepcopy(result.get("training", {}))
+        session.model_info = copy.deepcopy(result.get("model", {}))
+
+    except asyncio.CancelledError:
+        session.running = False
+        session.analysis_status = "paused"
+        session.analysis_phase = "training_paused"
+        session.analysis_completed = False
+        runtime.startup_message = "Training was cancelled."
+        raise
+
+    except Exception as error:
+        session.running = False
+        session.analysis_status = "error"
+        session.analysis_phase = "training_error"
+        session.analysis_completed = False
+        runtime.startup_stage = "Training error"
+        runtime.startup_progress = 100
+        runtime.startup_message = str(error)
+        LOGGER.exception("Training failed for %s", runtime.key)
+
+    finally:
+        await broadcast_snapshot(runtime)
+
+
+async def testing_loop(runtime: RuntimeContext) -> None:
+    session = runtime.current_session
+    session.reset(STARTING_BALANCE)
+    session.running = True
+    session.analysis_status = "testing"
+    session.analysis_phase = "testing"
+    session.analysis_started = True
+    session.analysis_completed = False
+    runtime.results_source = "testing"
+    runtime.manual_analysis.reset()
+
+    if not load_ai_runtime(runtime):
+        session.running = False
+        session.analysis_status = "error"
+        session.analysis_phase = "testing_error"
+        session.analysis_started = True
+        session.analysis_completed = False
+        runtime.startup_stage = "Testing unavailable"
+        runtime.startup_progress = 100
+        runtime.startup_message = (
+            runtime.ai_error
+            or f"No identity-compatible trained model exists for {runtime.market}."
+        )
+        await broadcast_snapshot(runtime)
+        return
+
+    candles = runtime.get_chart_data()
+    if len(candles) < 2:
+        session.running = False
+        session.analysis_status = "error"
+        session.analysis_phase = "testing_error"
+        runtime.startup_stage = "Testing unavailable"
+        runtime.startup_progress = 100
+        runtime.startup_message = "At least two chart candles are required for testing."
+        await broadcast_snapshot(runtime)
+        return
+
+    total = max(1, len(candles) - 1)
+    last_reported = -1
+    last_trade_count = 0
+
+    runtime.startup_stage = "Testing model"
+    runtime.startup_progress = 70
+    runtime.startup_message = f"Starting TESTING for {runtime.market} {runtime.active_timeframe}..."
+    await broadcast_snapshot(runtime)
+
+    try:
+        while session.current_index < len(candles) - 1:
+            trading_engine.step_testing(
+                runtime,
+                ai_api=ai,
+                config=TRADING_CONFIG,
+            )
+
+            progress = int(session.current_index / total * 100)
+            trade_count = len(session.trade_history)
+            if progress != last_reported or trade_count != last_trade_count:
+                runtime.startup_stage = "Testing model"
+                runtime.startup_progress = 70 + int(progress * 0.30)
+                runtime.startup_message = (
+                    f"Testing {session.current_index:,}/{total:,} "
+                    f"| {progress}% | Trades: {trade_count}"
+                )
+                last_reported = progress
+                last_trade_count = trade_count
+                await broadcast_snapshot(runtime)
+
+            if session.current_index % 50 == 0:
+                await asyncio.sleep(0)
+
+        session.running = False
+        session.analysis_status = "completed"
+        session.analysis_phase = "testing_completed"
+        session.analysis_completed = True
+        runtime.startup_stage = "Testing complete"
+        runtime.startup_progress = 100
+        runtime.startup_message = f"TESTING complete for {runtime.market}."
+
+    except asyncio.CancelledError:
+        session.running = False
+        session.analysis_status = "paused"
+        session.analysis_phase = "testing_paused"
+        session.analysis_completed = False
+        runtime.startup_message = "Testing was cancelled."
+        raise
+
+    except Exception as error:
+        session.running = False
+        session.analysis_status = "error"
+        session.analysis_phase = "testing_error"
+        session.analysis_completed = False
+        runtime.startup_stage = "Testing error"
+        runtime.startup_progress = 100
+        runtime.startup_message = str(error)
+        LOGGER.exception("Testing failed for %s", runtime.key)
+
+    finally:
+        await broadcast_snapshot(runtime)
+
+
+# ============================================================================
+# TASK MANAGEMENT
+# ============================================================================
+
+def _start_runtime_task(
+    runtime: RuntimeContext,
+    task_name: str,
+    coroutine: Any,
+) -> Tuple[asyncio.Task, bool]:
+    existing = runtime.get_task(task_name)
+    if existing is not None and not existing.done():
+        return existing, False
+
+    task = asyncio.create_task(coroutine)
+    runtime.set_task(task_name, task)
+    task.add_done_callback(
+        lambda completed: runtime.clear_task(task_name, completed)
+    )
+    return task, True
+
+
+async def _cancel_runtime_task(runtime: RuntimeContext, task_name: str) -> None:
+    task = runtime.get_task(task_name)
+    if task is None or task.done():
+        runtime.clear_task(task_name)
+        return
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    runtime.clear_task(task_name, task)
+
+
+# ============================================================================
+# WEBSOCKET ACTION HANDLERS
+# ============================================================================
+
+async def _handle_market_switch(
+    websocket: WebSocket,
+    current_runtime: RuntimeContext,
+    claims: Optional[VerifiedTradingBotClaims],
+    new_market: str,
+) -> RuntimeContext:
+    market = str(new_market).strip().upper()
+    if not market:
+        raise ValueError("Market symbol must not be empty.")
+
+    identity = _identity_for_market(
+        market,
+        claims,
+        current_identity=current_runtime.identity,
+    )
+    new_runtime = _get_or_create_runtime(identity, current_runtime.active_timeframe)
+
+    if new_runtime is current_runtime:
+        return current_runtime
+
+    disconnect_customer_connection(websocket, current_runtime)
+    new_runtime.add_websocket_client(websocket)
+
+    if not new_runtime.get_chart_data():
+        try:
+            await _load_runtime_chart(new_runtime)
+        except Exception as error:
+            new_runtime.startup_stage = "Chart error"
+            new_runtime.startup_progress = 100
+            new_runtime.startup_message = str(error)
+
+    load_ai_runtime(new_runtime)
+    return new_runtime
+
+
+async def _handle_action(
+    websocket: WebSocket,
+    runtime: RuntimeContext,
+    claims: Optional[VerifiedTradingBotClaims],
+    message: Dict[str, Any],
+) -> RuntimeContext:
+    action = message.get("action")
+
+    if action == "symbol":
+        new_runtime = await _handle_market_switch(
+            websocket,
+            runtime,
+            claims,
+            message.get("symbol", ""),
+        )
+        await send_snapshot(websocket, new_runtime)
+        return new_runtime
+
+    if action == "timeframe":
+        timeframe = str(message.get("timeframe", "")).strip().upper()
+        async with CHART_IO_LOCK:
+            await asyncio.to_thread(
+                CHART_SERVICE.switch_timeframe,
+                runtime,
+                timeframe,
+            )
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action == "update_data":
+        runtime.startup_stage = "Updating chart data"
+        runtime.startup_progress = 5
+        runtime.startup_message = "Synchronizing local chart archives with MT5..."
+        await send_snapshot(websocket, runtime)
+
+        async with CHART_IO_LOCK:
+            result = await asyncio.to_thread(CHART_SERVICE.update_all_chart_data)
+            if result.get("success"):
+                await asyncio.to_thread(
+                    CHART_SERVICE.load_runtime_history,
+                    runtime,
+                    runtime.active_timeframe,
+                )
+
+        runtime.startup_stage = "Chart ready" if result.get("success") else "Update unavailable"
+        runtime.startup_progress = 100
+        runtime.startup_message = result.get("message", "Chart update finished.")
+        response = snapshot(runtime)
+        response["update_result"] = result
+        await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action == "manual_analysis":
+        manual = runtime.manual_analysis
+        existing = runtime.get_task("manual_analysis")
+        if existing is not None and not existing.done():
+            await send_snapshot(websocket, runtime)
+            return runtime
+
+        manual.reset()
+        manual.results_source = "manual"
+        manual.analysis_status = "manual_analysis"
+        manual.analysis_phase = "manual_analysis"
+        manual.analysis_started = True
+        manual.startup_stage = "Manual analysis"
+        manual.startup_progress = 70
+        manual.startup_message = f"Starting MANUAL ANALYSIS for {runtime.market}..."
+        runtime.results_source = "manual"
+        _start_runtime_task(
+            runtime,
+            "manual_analysis",
+            manual_analysis_loop(runtime),
+        )
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action in {"training", "play"}:
+        existing = runtime.get_task("training")
+        if existing is not None and not existing.done():
+            await send_snapshot(websocket, runtime)
+            return runtime
+
+        await _cancel_runtime_task(runtime, "testing")
+        session = runtime.current_session
+        session.reset(STARTING_BALANCE)
+        runtime.results_source = "testing"
+        runtime.manual_analysis.reset()
+        task, started = _start_runtime_task(
+            runtime,
+            "training",
+            training_loop(runtime),
+        )
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action == "testing":
+        existing = runtime.get_task("testing")
+        if existing is not None and not existing.done():
+            await send_snapshot(websocket, runtime)
+            return runtime
+
+        await _cancel_runtime_task(runtime, "training")
+        runtime.results_source = "testing"
+        runtime.manual_analysis.reset()
+        _start_runtime_task(
+            runtime,
+            "testing",
+            testing_loop(runtime),
+        )
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action == "stop":
+        await _cancel_runtime_task(runtime, "testing")
+        await _cancel_runtime_task(runtime, "training")
+        await _cancel_runtime_task(runtime, "manual_analysis")
+        runtime.current_session.running = False
+        runtime.current_session.trading_enabled = False
+        runtime.startup_stage = "Stopped"
+        runtime.startup_progress = 100
+        runtime.startup_message = "TradingBot stopped."
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action == "learning_save":
+        setup = message.get("setup")
+        if not isinstance(setup, dict):
+            raise ValueError("Invalid learning setup data.")
+
+        saved_setup = await asyncio.to_thread(
+            setup_storage.save_learning_setup,
+            runtime.identity,
+            setup,
+        )
+        response = snapshot(runtime)
+        response["learning_action"] = "saved"
+        response["learning_setup"] = saved_setup
+        response["learning_trades"] = await asyncio.to_thread(
+            setup_storage.load_learning_setups,
+            runtime.identity,
+        )
+        await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action == "learning_delete":
+        try:
+            setup_id = int(message.get("setup_id"))
+        except (TypeError, ValueError):
+            raise ValueError("Invalid setup_id.")
+
+        deleted = await asyncio.to_thread(
+            setup_storage.delete_learning_setup,
+            runtime.identity,
+            setup_id,
+        )
+        response = snapshot(runtime)
+        response["learning_action"] = "deleted"
+        response["learning_setup_id"] = setup_id
+        response["learning_deleted"] = deleted
+        response["learning_trades"] = await asyncio.to_thread(
+            setup_storage.load_learning_setups,
+            runtime.identity,
+        )
+        await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action == "learning_load":
+        learning_trades = await asyncio.to_thread(
+            setup_storage.load_learning_setups,
+            runtime.identity,
+        )
+        await websocket.send_text(_json_dumps({
+            "learning_action": "loaded",
+            "success": True,
+            "symbol": runtime.market,
+            "learning_trades": learning_trades,
+        }))
+        return runtime
+
+    if action == "trade_detail":
+        try:
+            trade_id = int(message.get("trade_id"))
+        except (TypeError, ValueError):
+            await websocket.send_text(_json_dumps({
+                "type": "trade_detail",
+                "success": False,
+                "error": "Invalid trade_id.",
+            }))
+            return runtime
+
+        detail = trading_engine.get_trade_detail(runtime, trade_id)
+        await websocket.send_text(_json_dumps({
+            "type": "trade_detail",
+            "success": detail is not None,
+            "trade_id": trade_id,
+            "symbol": runtime.market,
+            "timeframe": runtime.active_timeframe,
+            "trade": detail,
+            "error": None if detail is not None else f"Trade #{trade_id} was not found.",
+        }))
+        return runtime
+
+    if action == "viewport":
+        try:
+            from_time = int(message.get("from", 0))
+            to_time = int(message.get("to", 0))
+        except (TypeError, ValueError):
+            raise ValueError("Invalid viewport range.")
+
+        view_levels = strategy_engine.find_levels_for_view(
+            runtime.get_chart_data(),
+            from_time,
+            to_time,
+        )
+        response = snapshot(runtime)
+        response["levels"] = view_levels
+        await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action == "stop_trading":
+        trading_engine.stop_trading(runtime)
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action == "enable_trading":
+        trading_engine.enable_trading(runtime)
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    await websocket.send_text(_json_dumps({
+        "success": False,
+        "error": f"Unknown action: {action}",
+    }))
+    return runtime
+
+
+# ============================================================================
+# APPLICATION LIFECYCLE
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    LOGGER.info("Starting Spectline backend. WEB_MODE=%s", WEB_MODE)
+
+    if not WEB_MODE:
+        try:
+            connected = await asyncio.to_thread(
+                CHART_SERVICE.initialize_mt5,
+                DEFAULT_MARKET,
+            )
+            LOGGER.info("MT5 connected: %s", connected)
+        except Exception as error:
+            LOGGER.warning("MT5 initialization failed: %s", error)
+
+    yield
+
+    for runtime in RUNTIME_REGISTRY.list_runtimes():
+        try:
+            await cancel_runtime_tasks(runtime)
+        except Exception:
+            LOGGER.exception("Could not stop runtime tasks for %s", runtime.key)
+
+    try:
+        CHART_SERVICE.shutdown_mt5()
+    except Exception:
+        LOGGER.exception("Could not shut down MT5 cleanly.")
+
+    LOGGER.info("Spectline backend stopped.")
+
+
+# ============================================================================
+# FASTAPI APPLICATION
+# ============================================================================
 
 app = FastAPI(lifespan=lifespan)
 
+
 @app.get("/api/config")
-async def get_config():
+async def get_config() -> Dict[str, Any]:
     return {
-        "web_mode": WEB_MODE
+        "web_mode": WEB_MODE,
+        "default_market": DEFAULT_MARKET,
+        "supported_timeframes": sorted(TIMEFRAME_SECONDS),
     }
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+@app.get("/api/health")
+async def health_check() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "web_mode": WEB_MODE,
+        "active_runtimes": len(RUNTIME_REGISTRY),
+    }
+
+
+@app.get("/")
 @app.get("/frontend.html")
 async def frontend_page():
-    return FileResponse(os.path.join(BASE_DIR, "frontend.html"))
+    frontend_file = _find_frontend_file(FRONTEND_HTML_CANDIDATES)
+    if frontend_file is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Frontend file was not found.",
+                "expected": list(FRONTEND_HTML_CANDIDATES),
+            },
+        )
+    return FileResponse(frontend_file)
+
+
+@app.get("/frontend.js")
+async def frontend_script():
+    frontend_file = _find_frontend_file(FRONTEND_JS_CANDIDATES)
+    if frontend_file is None:
+        return JSONResponse(status_code=404, content={"error": "Frontend JavaScript file was not found."})
+    return FileResponse(frontend_file, media_type="application/javascript")
+
+
+@app.get("/frontend.css")
+async def frontend_styles():
+    frontend_file = _find_frontend_file(FRONTEND_CSS_CANDIDATES)
+    if frontend_file is None:
+        return JSONResponse(status_code=404, content={"error": "Frontend CSS file was not found."})
+    return FileResponse(frontend_file, media_type="text/css")
+
+
+@app.get("/images/{filename:path}")
+async def frontend_image(filename: str):
+    images_root = (BASE_DIR / "images").resolve()
+    requested = (images_root / filename).resolve()
+    if images_root not in requested.parents or not requested.is_file():
+        return JSONResponse(status_code=404, content={"error": "Image was not found."})
+    return FileResponse(requested)
+
+
+# ============================================================================
+# WEBSOCKET ENTRY POINT
+# ============================================================================
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    claims: Optional[VerifiedTradingBotClaims] = None
+    runtime: Optional[RuntimeContext] = None
 
-    global WEB_MODE
+    try:
+        claims = await authenticate_websocket(websocket)
+        identity = _identity_for_market(DEFAULT_MARKET, claims)
+        runtime = _get_or_create_runtime(identity, DEFAULT_TIMEFRAME)
 
-    user_id = None
+        await accept_customer_connection(websocket, runtime)
 
-    if WEB_MODE:
-        ticket = websocket.query_params.get("ticket", "")
-        user_id = verify_tradingbot_ticket(ticket)
+        if not runtime.get_chart_data():
+            try:
+                await _load_runtime_chart(runtime)
+            except Exception as error:
+                runtime.startup_stage = "Chart unavailable"
+                runtime.startup_progress = 100
+                runtime.startup_message = str(error)
+                LOGGER.warning("Initial chart load failed for %s: %s", runtime.key, error)
 
-        if user_id is None:
-            await websocket.close(code=1008)
-            return
+        load_ai_runtime(runtime)
+        await websocket.send_text(_json_dumps(startup_snapshot(runtime)))
 
-    global analysis_task
-    
-    global startup_stage, startup_progress, startup_message
-    global results_source
-    global manual_analysis_results
-    global current_index, running, trading_enabled
-    global balance, peak_equity, open_trade
-    global trade_history, last_trade_result, major_levels
-    global cached_strategy_levels, last_level_calculation_index
-    global blocked_trade_zone, zigzag_filter, blocked_trades
-    global analysis_status, analysis_started, analysis_completed
-    global analysis_phase, model_available, model_info
-    global last_training_info, last_model_signal, last_model_entry_index
+        if runtime.get_chart_data():
+            await send_snapshot(websocket, runtime)
 
-    await websocket.accept()
-
-    load_ai_runtime(user_id)
-
-    connected_clients.setdefault(
-        user_id,
-        set()
-    ).add(websocket)
-
-    # The backend is the single source of truth for market + timeframe.
-    await websocket.send_text(
-        json.dumps(startup_snapshot())
-    )
-
-    if h1_data:
-        data = snapshot(user_id)
-
-        data["startup_stage"] = startup_stage
-        data["startup_progress"] = startup_progress
-        data["startup_message"] = startup_message
-
-        await websocket.send_text(
-            json.dumps(data)
-        )
-
-    while True:
-        try:
+        while True:
             raw_message = await websocket.receive_text()
-            message = json.loads(raw_message)
-
-            action = message.get("action")
-
-            # =====================================================
-            # MARKET SWITCH
-            # =====================================================
-
-            if action == "symbol":
-                new_symbol = message.get("symbol", "")
-
-                try:
-                    print("")
-                    print(
-                        f"=== SWITCHING MARKET TO {new_symbol} ==="
-                    )
-
-                    user_analysis_task = USER_MANUAL_ANALYSIS_TASKS.get(user_id)
-
-                    if user_analysis_task is not None:
-                        if not user_analysis_task.done():
-                            user_analysis_task.cancel()
-
-                            try:
-                                await user_analysis_task
-                            except asyncio.CancelledError:
-                                pass
-
-                        USER_MANUAL_ANALYSIS_TASKS.pop(
-                            user_id,
-                            None
-                        )
-
-                    if analysis_task is not None:
-                        analysis_task.cancel()
-
-                        try:
-                            await analysis_task
-                        except asyncio.CancelledError:
-                            pass
-
-                        analysis_task = None
-
-                    # Save the old market/timeframe session before switching.
-                    _capture_active_session()
-
-                    data = snapshot(user_id)
-                    data["startup_stage"] = "Loading market data"
-                    data["startup_progress"] = 5
-                    data["startup_message"] = (
-                        f"Loading {new_symbol} {TIMEFRAME}..."
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    await asyncio.to_thread(
-                        switch_symbol,
-                        new_symbol
-                    )
-
-                    load_ai_runtime(user_id)
-
-                    data = snapshot(user_id)
-                    data["startup_stage"] = "Chart ready"
-                    data["startup_progress"] = 100
-                    data["startup_message"] = (
-                        f"{SYMBOL} {TIMEFRAME} ready. "
-                        f"Waiting for analysis..."
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-                except Exception as error:
-                    print(
-                        f"Symbol switch error for {new_symbol}:",
-                        error
-                    )
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "ready": False,
-                            "loading": False,
-                            "symbol": SYMBOL,
-                            "timeframe": TIMEFRAME,
-                            "session_id": _session_id(),
-                            "startup_stage": "Error",
-                            "startup_progress": 0,
-                            "startup_message": str(error),
-                        })
-                    )
-
-                    continue
-
-            # =====================================================
-            # TIMEFRAME SWITCH
-            # =====================================================
-
-            if action == "timeframe":
-                new_timeframe = message.get("timeframe", "")
-
-                if WEB_MODE and new_timeframe in {"M1", "M5"}:
-                    await websocket.send_text(
-                        json.dumps({
-                            "ready": False,
-                            "loading": False,
-                            "symbol": SYMBOL,
-                            "timeframe": TIMEFRAME,
-                            "session_id": _session_id(),
-                            "startup_stage": "Error",
-                            "startup_progress": 0,
-                            "startup_message": "M1 and M5 are not available in web mode.",
-                        })
-                    )
-                    continue
-
-                try:
-                    print("")
-                    print(
-                        f"=== SWITCHING TIMEFRAME TO {new_timeframe} ==="
-                    )
-
-                    user_analysis_task = USER_MANUAL_ANALYSIS_TASKS.get(user_id)
-
-                    if user_analysis_task is not None:
-                        if not user_analysis_task.done():
-                            user_analysis_task.cancel()
-
-                            try:
-                                await user_analysis_task
-                            except asyncio.CancelledError:
-                                pass
-
-                        USER_MANUAL_ANALYSIS_TASKS.pop(
-                            user_id,
-                            None
-                        )
-
-                    if analysis_task is not None:
-                        analysis_task.cancel()
-
-                        try:
-                            await analysis_task
-                        except asyncio.CancelledError:
-                            pass
-
-                        analysis_task = None
-
-                    # Keep this market as the same logical session. Only the
-                    # timeframe child-session changes.
-                    _capture_active_session()
-
-                    data = snapshot(user_id)
-                    data["startup_stage"] = "Loading market data"
-                    data["startup_progress"] = 5
-                    data["startup_message"] = (
-                        f"Loading {SYMBOL} {new_timeframe}..."
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    await asyncio.to_thread(
-                        switch_timeframe,
-                        new_timeframe
-                    )
-
-                    load_ai_runtime(user_id)
-
-                    data = snapshot(user_id)
-                    data["startup_stage"] = "Chart ready"
-                    data["startup_progress"] = 100
-                    data["startup_message"] = (
-                        f"{SYMBOL} {TIMEFRAME} ready. "
-                        f"Waiting for analysis..."
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-                except Exception as error:
-                    print(
-                        f"Timeframe switch error for {new_timeframe}:",
-                        error
-                    )
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "ready": False,
-                            "loading": False,
-                            "symbol": SYMBOL,
-                            "timeframe": TIMEFRAME,
-                            "session_id": _session_id(),
-                            "startup_stage": "Error",
-                            "startup_progress": 0,
-                            "startup_message": str(error),
-                        })
-                    )
-
-                    continue
-
-            # =====================================================
-            # UPDATE ALL LOCAL CHART DATA
-            # =====================================================
-
-            if action == "update_data":
-                try:
-                    print("")
-                    print("=== UPDATING ALL LOCAL CHART DATA ===")
-
-                    result = await asyncio.to_thread(
-                        update_all_chart_data
-                    )
-
-                    data = snapshot(user_id)
-
-                    data["startup_stage"] = startup_stage
-                    data["startup_progress"] = startup_progress
-                    data["startup_message"] = result["message"]
-                    data["mt5_connected"] = mt5_connected
-                    data["data_update"] = result
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-                except Exception as error:
-                    print(
-                        "Update data error:",
-                        error
-                    )
-
-                    data = snapshot(user_id)
-
-                    data["startup_stage"] = "Error"
-                    data["startup_progress"] = 100
-                    data["startup_message"] = str(error)
-                    data["mt5_connected"] = mt5_connected
-                    data["data_update"] = {
-                        "success": False,
-                        "message": str(error)
-                    }
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-            # =====================================================
-            # MANUAL ANALYSIS
-            # =====================================================
-
-            if action == "manual_analysis":
-                try:
-
-                    manual_state = _get_manual_analysis_state(user_id)
-                    user_analysis_task = USER_MANUAL_ANALYSIS_TASKS.get(user_id)
-
-                    if (
-                        user_analysis_task is not None
-                        and not user_analysis_task.done()
-                    ):
-                        data = snapshot(user_id)
-
-                        data["startup_stage"] = (
-                            "Manual analysis running"
-                        )
-
-                        data["startup_progress"] = (
-                            startup_progress
-                        )
-
-                        data["startup_message"] = (
-                            f"MANUAL ANALYSIS is already "
-                            f"running for "
-                            f"{SYMBOL} {TIMEFRAME}..."
-                        )
-
-                        await websocket.send_text(
-                            json.dumps(data)
-                        )
-
-                        continue
-
-                    manual_state["results_source"] = "manual"
-                    manual_state["manual_analysis_results"] = {}
-                    manual_state["manual_analysis_progress"] = 0
-
-                    manual_state["analysis_status"] = "manual_analysis"
-                    manual_state["analysis_phase"] = "manual_analysis"
-                    manual_state["analysis_started"] = True
-                    manual_state["analysis_completed"] = False
-
-                    manual_state["startup_stage"] = "Manual analysis"
-                    manual_state["startup_progress"] = 70
-                    manual_state["startup_message"] = (
-                        f"Starting MANUAL ANALYSIS "
-                        f"for {SYMBOL} {TIMEFRAME}..."
-                    )
-
-                    USER_MANUAL_ANALYSIS_TASKS[user_id] = asyncio.create_task(
-                        manual_analysis_loop(user_id)
-                    )
-
-                    data = snapshot(user_id)
-
-                    data["manual_analysis_progress"] = (
-                        manual_state["manual_analysis_progress"]
-                    )
-
-                    data["startup_stage"] = (
-                        manual_state["startup_stage"]
-                    )
-
-                    data["startup_progress"] = (
-                        manual_state["startup_progress"]
-                    )
-
-                    data["startup_message"] = (
-                        manual_state["startup_message"]
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-                except Exception as error:
-
-                    print(
-                        "MANUAL ANALYSIS start error:",
-                        error
-                    )
-
-                    manual_state = _get_manual_analysis_state(user_id)
-
-                    manual_state["results_source"] = "testing"
-                    manual_state["manual_analysis_results"] = {}
-                    manual_state["analysis_status"] = "error"
-                    manual_state["analysis_phase"] = "manual_analysis_error"
-                    manual_state["analysis_started"] = True
-                    manual_state["analysis_completed"] = False
-                    manual_state["startup_progress"] = 100
-                    manual_state["startup_message"] = str(error)
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "ready": False,
-                            "loading": False,
-                            "symbol": SYMBOL,
-                            "timeframe": TIMEFRAME,
-                            "session_id": _session_id(),
-                            "startup_stage": "Error",
-                            "startup_progress": 100,
-                            "startup_message": str(error),
-                            "analysis_status": "error",
-                            "analysis_phase":
-                                "manual_analysis_error",
-                        })
-                    )
-
-                    continue
-                    
-            # =====================================================
-            # TRAINING
-            # =====================================================
-
-            if action in ("training", "play"):
-                try:
-                    print("")
-                    print(
-                        f"=== TRAINING REQUESTED: {SYMBOL} {TIMEFRAME} ==="
-                    )
-
-                    if analysis_task is not None and not analysis_task.done():
-                        data = snapshot(user_id)
-                        data["startup_stage"] = "Training running"
-                        data["startup_progress"] = startup_progress
-                        data["startup_message"] = (
-                            f"TRAINING is already running for "
-                            f"{SYMBOL} {TIMEFRAME}..."
-                        )
-                        await websocket.send_text(json.dumps(data))
-                        continue
-                       
-                    results_source = "testing"
-                    manual_analysis_results = {}
-
-                    reset(user_id)
-
-                    results_source = "testing"
-                    manual_analysis_results = {}
-
-                    analysis_status = "training"
-                    analysis_phase = "training"
-                    analysis_started = True
-                    analysis_completed = False
-
-                    startup_stage = "Training model"
-                    startup_progress = 70
-                    startup_message = (
-                        f"Starting TRAINING for {SYMBOL} {TIMEFRAME}..."
-                    )
-
-                    analysis_task = asyncio.create_task(
-                        training_loop(user_id)
-                    )
-
-                    data = snapshot(user_id)
-                    data["startup_stage"] = startup_stage
-                    data["startup_progress"] = startup_progress
-                    data["startup_message"] = startup_message
-                    await websocket.send_text(json.dumps(data))
-                    continue
-
-                except Exception as error:
-                    print("TRAINING start error:", error)
-                    await websocket.send_text(
-                        json.dumps({
-                            "ready": False,
-                            "loading": False,
-                            "symbol": SYMBOL,
-                            "timeframe": TIMEFRAME,
-                            "session_id": _session_id(),
-                            "startup_stage": "Error",
-                            "startup_progress": 0,
-                            "startup_message": str(error),
-                            "analysis_status": "error",
-                            "analysis_phase": "training_error",
-                        })
-                    )
-                    continue
-
-
-            # =====================================================
-            # TESTING
-            # =====================================================
-
-            if action == "testing":
-                try:
-                    print("")
-                    print(
-                        f"=== TESTING REQUESTED: {SYMBOL} {TIMEFRAME} ==="
-                    )
-
-                    if analysis_task is not None and not analysis_task.done():
-                        data = snapshot(user_id)
-                        data["startup_stage"] = "Testing running"
-                        data["startup_progress"] = startup_progress
-                        data["startup_message"] = (
-                            f"TESTING is already running for "
-                            f"{SYMBOL} {TIMEFRAME}..."
-                        )
-                        await websocket.send_text(json.dumps(data))
-                        continue
-
-                    if not load_ai_runtime(user_id):
-                        data = snapshot(user_id)
-                        data["startup_stage"] = "Testing unavailable"
-                        data["startup_progress"] = 100
-                        data["startup_message"] = (
-                            f"No trained ai.py model exists for {SYMBOL}. "
-                            "Run TRAINING first."
-                        )
-                        data["analysis_status"] = "error"
-                        data["analysis_phase"] = "testing_error"
-                        await websocket.send_text(json.dumps(data))
-                        continue
-
-                    results_source = "testing"
-                    manual_analysis_results = {}
-
-                    reset(user_id)
-
-                    analysis_status = "testing"
-                    analysis_phase = "testing"
-                    analysis_started = True
-                    analysis_completed = False
-
-                    startup_stage = "Testing model"
-                    startup_progress = 70
-                    startup_message = (
-                        f"Starting TESTING for {SYMBOL} {TIMEFRAME}..."
-                    )
-
-                    analysis_task = asyncio.create_task(
-                        testing_loop(user_id)
-                    )
-
-                    data = snapshot(user_id)
-                    data["startup_stage"] = startup_stage
-                    data["startup_progress"] = startup_progress
-                    data["startup_message"] = startup_message
-                    await websocket.send_text(json.dumps(data))
-                    continue
-
-                except Exception as error:
-                    print("TESTING start error:", error)
-                    await websocket.send_text(
-                        json.dumps({
-                            "ready": False,
-                            "loading": False,
-                            "symbol": SYMBOL,
-                            "timeframe": TIMEFRAME,
-                            "session_id": _session_id(),
-                            "startup_stage": "Error",
-                            "startup_progress": 0,
-                            "startup_message": str(error),
-                            "analysis_status": "error",
-                            "analysis_phase": "testing_error",
-                        })
-                    )
-                    continue
-
-
-            # =====================================================
-            # LEARNING / TRADING SET UP SAVE
-            # =====================================================
-
-            if action == "learning_save":
-                try:
-                    setup = message.get("setup")
-
-                    if not isinstance(setup, dict):
-                        raise ValueError(
-                            "Invalid learning setup data."
-                        )
-
-                    saved_setup = await asyncio.to_thread(
-                        save_trading_setup,
-                        SYMBOL,
-                        setup,
-                        user_id
-                    )
-
-                    data = snapshot(user_id)
-
-                    data["learning_action"] = "saved"
-                    data["learning_setup"] = saved_setup
-
-                    data["learning_trades"] = await asyncio.to_thread(
-                        get_trading_setups,
-                        SYMBOL,
-                        user_id
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-                except Exception as error:
-                    print(
-                        "Learning setup save error:",
-                        error
-                    )
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "learning_action": "save_error",
-                            "success": False,
-                            "error": str(error),
-                        })
-                    )
-
-                    continue
-
-            # =====================================================
-            # LEARNING / TRADING SET UP DELETE
-            # =====================================================
-
-            if action == "learning_delete":
-                try:
-                    setup_id = int(
-                        message.get("setup_id")
-                    )
-
-                    deleted = await asyncio.to_thread(
-                        delete_trading_setup,
-                        SYMBOL,
-                        setup_id,
-                        user_id
-                    )
-
-                    data = snapshot(user_id)
-
-                    data["learning_action"] = "deleted"
-                    data["learning_setup_id"] = setup_id
-                    data["learning_deleted"] = deleted
-
-                    data["learning_trades"] = await asyncio.to_thread(
-                        get_trading_setups,
-                        SYMBOL,
-                        user_id
-                    )
-
-                    await websocket.send_text(
-                        json.dumps(data)
-                    )
-
-                    continue
-
-                except (TypeError, ValueError):
-                    await websocket.send_text(
-                        json.dumps({
-                            "learning_action": "delete_error",
-                            "success": False,
-                            "error": "Invalid setup_id.",
-                        })
-                    )
-
-                    continue
-
-                except Exception as error:
-                    print(
-                        "Learning setup delete error:",
-                        error
-                    )
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "learning_action": "delete_error",
-                            "success": False,
-                            "error": str(error),
-                        })
-                    )
-
-                    continue
-
-            # =====================================================
-            # LEARNING / TRADING SET UP LOAD
-            # =====================================================
-
-            if action == "learning_load":
-                try:
-                    setups = await asyncio.to_thread(
-                        get_trading_setups,
-                        SYMBOL,
-                        user_id
-                    )
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "learning_action": "loaded",
-                            "success": True,
-                            "symbol": SYMBOL,
-                            "learning_trades": setups,
-                        })
-                    )
-
-                    continue
-
-                except Exception as error:
-                    print(
-                        "Learning setup load error:",
-                        error
-                    )
-
-                    await websocket.send_text(
-                        json.dumps({
-                            "learning_action": "load_error",
-                            "success": False,
-                            "error": str(error),
-                        })
-                    )
-
-                    continue
-
-            
-
-            # =====================================================
-            # TRADE DETAIL
-            # =====================================================
-
-            if action == TRADE_DETAIL_ACTION:
-                trade_id_raw = message.get("trade_id")
-
-                try:
-                    trade_id = int(trade_id_raw)
-                except (TypeError, ValueError):
-                    await websocket.send_text(
-                        json.dumps({
-                            "type": "trade_detail",
-                            "success": False,
-                            "error": "Invalid trade_id.",
-                        })
-                    )
-                    continue
-
-                trade_detail = get_trade_detail(
-                    trade_id
-                )
-
-                if trade_detail is None:
-                    await websocket.send_text(
-                        json.dumps({
-                            "type": "trade_detail",
-                            "success": False,
-                            "trade_id": trade_id,
-                            "error": (
-                                f"Trade #{trade_id} "
-                                "was not found."
-                            ),
-                        })
-                    )
-                    continue
-
-                await websocket.send_text(
-                    json.dumps({
-                        "type": "trade_detail",
-                        "success": True,
-                        "trade_id": trade_id,
-                        "symbol": SYMBOL,
-                        "timeframe": TIMEFRAME,
-                        "trade": trade_detail,
-                    })
-                )
-
+            try:
+                message = json.loads(raw_message)
+            except json.JSONDecodeError:
+                await websocket.send_text(_json_dumps({
+                    "success": False,
+                    "error": "Invalid JSON message.",
+                }))
                 continue
 
-            # =====================================================
-            # VIEWPORT CHANGE
-            # =====================================================
-
-            if action == "viewport":
-                from_time = int(
-                    message.get("from", 0)
-                )
-
-                to_time = int(
-                    message.get("to", 0)
-                )
-
-                view_levels = find_levels_for_view(
-                    from_time,
-                    to_time
-                )
-
-                data = snapshot(user_id)
-
-                data["levels"] = view_levels
-
-                data["startup_stage"] = startup_stage
-                data["startup_progress"] = startup_progress
-                data["startup_message"] = startup_message
-
-                await websocket.send_text(
-                    json.dumps(data)
-                )
-
+            if not isinstance(message, dict):
+                await websocket.send_text(_json_dumps({
+                    "success": False,
+                    "error": "WebSocket message must be a JSON object.",
+                }))
                 continue
 
-        except WebSocketDisconnect:
-            print("Browser disconnected.")
-            break
+            try:
+                runtime = await _handle_action(
+                    websocket,
+                    runtime,
+                    claims,
+                    message,
+                )
+            except Exception as error:
+                LOGGER.exception("WebSocket action failed: %s", message.get("action"))
+                await websocket.send_text(_json_dumps({
+                    "ready": False,
+                    "loading": False,
+                    "success": False,
+                    "symbol": runtime.market,
+                    "timeframe": runtime.active_timeframe,
+                    "session_id": runtime.session_id,
+                    "startup_stage": "Error",
+                    "startup_progress": 100,
+                    "startup_message": str(error),
+                    "analysis_status": "error",
+                }))
 
-        except Exception as error:
-            print("WebSocket error:", error)
-            break
+    except AuthenticationError as error:
+        await reject_websocket(websocket, code=1008, reason=str(error))
+    except WebSocketDisconnect:
+        LOGGER.info("WebSocket disconnected.")
+    except Exception as error:
+        LOGGER.exception("WebSocket connection failed: %s", error)
+        try:
+            await reject_websocket(websocket, code=1011, reason="Backend connection failed.")
+        except Exception:
+            pass
+    finally:
+        if runtime is not None:
+            disconnect_customer_connection(websocket, runtime)
 
-    clients = connected_clients.get(user_id)
 
-    if clients is not None:
-        clients.discard(websocket)
-
-        if not clients:
-            connected_clients.pop(user_id, None)
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-app.mount(
-    "/",
-    StaticFiles(
-        directory=BASE_DIR,
-        html=True
-    ),
-    name="static"
-)
+# ============================================================================
+# COMMAND LINE ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     uvicorn.run(
         "backend:app",
-        host="127.0.0.1",
-        port=8000,
+        host=os.getenv("SPECTLINE_HOST", "127.0.0.1"),
+        port=int(os.getenv("SPECTLINE_PORT", "8000")),
         reload=False,
     )

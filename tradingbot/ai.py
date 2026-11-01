@@ -49,6 +49,31 @@ import torch
 from torch import Tensor, nn
 from torch.utils.data import DataLoader, TensorDataset
 
+try:
+    from client import (
+        CHARTS_ROOT as CLIENT_CHARTS_ROOT,
+        DATA_ROOT as CLIENT_DATA_ROOT,
+        WEB_MODE as CLIENT_WEB_MODE,
+        ClientIdentity,
+        get_chart_history_path,
+        get_learning_setups_path,
+        get_model_dir,
+        get_model_path,
+        resolve_identity,
+    )
+except ImportError:
+    from .client import (
+        CHARTS_ROOT as CLIENT_CHARTS_ROOT,
+        DATA_ROOT as CLIENT_DATA_ROOT,
+        WEB_MODE as CLIENT_WEB_MODE,
+        ClientIdentity,
+        get_chart_history_path,
+        get_learning_setups_path,
+        get_model_dir,
+        get_model_path,
+        resolve_identity,
+    )
+
 
 # ============================================================================
 # PATHS AND GLOBAL CONFIGURATION
@@ -56,13 +81,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 BASE_DIR = Path(__file__).resolve().parent
 
-WEB_MODE = os.getenv("WEB_MODE", "false").lower() == "true"
+WEB_MODE = CLIENT_WEB_MODE
 
-TRADING_SETUP_ROOT = BASE_DIR / "TRADING SET UP"
-CHARTS_ROOT = BASE_DIR / "CHARTS"
-MODELS_ROOT = BASE_DIR / "MODELS"
-
-USER_DATA_ROOT = Path("/data/users")
+TRADING_SETUP_ROOT = BASE_DIR / "TRADING SET UP"  # Legacy path; retained for compatibility.
+CHARTS_ROOT = CLIENT_CHARTS_ROOT
+MODELS_ROOT = BASE_DIR / "MODELS"  # Legacy path; retained for compatibility.
+USER_DATA_ROOT = CLIENT_DATA_ROOT
 
 SETUP_FILENAME = "setups.json"
 CANDLE_FILENAME = "candles.csv"
@@ -137,92 +161,105 @@ def set_seed(seed: int = SEED) -> None:
 
 def safe_market_folder(market: str) -> str:
     """Return a filesystem-safe market folder."""
-    return (
-        str(market)
-        .strip()
-        .replace("/", "_")
-        .replace("\\", "_")
-    )
+    return str(market).strip().upper().replace("/", "_").replace("\\", "_")
 
 
 def safe_user_folder(user_id: Optional[str]) -> str:
     """Validate the authenticated user folder name."""
-
     if user_id is None:
         raise ValueError("user_id is required in WEB_MODE.")
-
     user_folder = str(user_id).strip()
-
-    if (
-        not user_folder
-        or user_folder in {".", ".."}
-        or "/" in user_folder
-        or "\\" in user_folder
-    ):
+    if not user_folder or user_folder in {".", ".."} or "/" in user_folder or "\\" in user_folder:
         raise ValueError("Invalid user_id.")
-
     return user_folder
+
+
+def _resolve_ai_identity(
+    market: str,
+    identity: Optional[ClientIdentity] = None,
+    user_id: Optional[str] = None,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+) -> ClientIdentity:
+    """Resolve and validate the complete TradingBot identity."""
+    normalized_market = str(market).strip().upper()
+    if identity is not None:
+        if not isinstance(identity, ClientIdentity):
+            raise TypeError("identity must be a ClientIdentity instance.")
+        if identity.market != normalized_market:
+            raise ValueError(
+                f"Identity market {identity.market} does not match {normalized_market}."
+            )
+        return identity
+
+    return resolve_identity(
+        market=normalized_market,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+    )
 
 
 def setup_path(
     market: str,
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Path:
-    """Return the Learning setup path for the correct user."""
-
-    market_folder = safe_market_folder(market)
-
-    if WEB_MODE:
-        return (
-            USER_DATA_ROOT
-            / safe_user_folder(user_id)
-            / market_folder
-            / SETUP_FILENAME
-        )
-
-    return (
-        TRADING_SETUP_ROOT
-        / market_folder
-        / SETUP_FILENAME
+    """Return the Learning setup path for one exact TradingBot identity."""
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
     )
+    return get_learning_setups_path(resolved)
 
 
 def model_dir(
     market: str,
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Path:
-    """Return the model directory for the correct user."""
-
-    market_folder = safe_market_folder(market)
-
-    if WEB_MODE:
-        return (
-            USER_DATA_ROOT
-            / safe_user_folder(user_id)
-            / "MODELS"
-            / market_folder
-        )
-
-    return MODELS_ROOT / market_folder
+    """Return the model directory for one exact TradingBot identity."""
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+    )
+    return get_model_dir(resolved)
 
 
 def model_path(
     market: str,
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Path:
-    """Return the trained model path for the correct user."""
-
-    return model_dir(market, user_id) / MODEL_FILENAME
+    """Return the model checkpoint path for one exact TradingBot identity."""
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+    )
+    return get_model_path(resolved)
 
 
 def chart_path(market: str, timeframe: str) -> Path:
-    """Return a local chart archive path."""
-    return (
-        CHARTS_ROOT
-        / safe_market_folder(market)
-        / timeframe
-        / CANDLE_FILENAME
-    )
+    """Return the shared, read-only chart archive path."""
+    return get_chart_history_path(market, timeframe)
 
 
 # ============================================================================
@@ -333,9 +370,19 @@ def parse_timestamp(value: Any) -> Optional[int]:
 def load_learning_setups(
     market: str,
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> List[UserSetup]:
-    """Load and normalize all saved Learning trades for a market."""
-    path = setup_path(market, user_id)
+    """Load and normalize Learning trades for one exact TradingBot identity."""
+    path = setup_path(
+        market,
+        user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+        identity=identity,
+    )
 
     if not path.is_file():
         raise FileNotFoundError(
@@ -1808,55 +1855,68 @@ def save_model(
     scaler: FeatureScaler,
     training_summary: Dict[str, Any],
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Path:
-    """Save one complete market-specific model."""
-    directory = model_dir(market, user_id)
-    directory.mkdir(
-        parents=True,
-        exist_ok=True,
+    """Save a complete model under the exact TradingBot identity."""
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
     )
 
-    path = model_path(market, user_id)
+    directory = model_dir(market, identity=resolved)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = model_path(market, identity=resolved)
 
     checkpoint = {
-        "market": str(market),
+        "identity": resolved.as_dict(),
+        "market": resolved.market,
         "model_state": model.state_dict(),
-        "input_size": int(
-            model.backbone[0].in_features
-        ),
+        "input_size": int(model.backbone[0].in_features),
         "hidden_sizes": [
             int(model.backbone[0].out_features),
             int(model.backbone[4].out_features),
             int(model.backbone[8].out_features),
         ],
         "timeframes": list(SUPPORTED_TIMEFRAMES),
-        "lookback_by_timeframe": dict(
-            LOOKBACK_BY_TIMEFRAME
-        ),
+        "lookback_by_timeframe": dict(LOOKBACK_BY_TIMEFRAME),
         "feature_mean": scaler.mean,
         "feature_std": scaler.std,
         "training_summary": training_summary,
-        "format_version": 1,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "format_version": 2,
     }
 
-    torch.save(
-        checkpoint,
-        path,
-    )
-
+    torch.save(checkpoint, path)
     return path
 
 
 def load_model(
     market: str,
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Tuple[TradingMicroModel, FeatureScaler, Dict[str, Any]]:
-    """Load a previously trained market-specific model."""
-    path = model_path(market, user_id)
+    """Load and identity-check the model for one exact TradingBot."""
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+    )
+    path = model_path(market, identity=resolved)
 
     if not path.is_file():
         raise FileNotFoundError(
-            f"Model does not exist for {market}: {path}"
+            f"Model does not exist for {resolved.as_dict()}: {path}"
         )
 
     checkpoint = torch.load(
@@ -1865,14 +1925,21 @@ def load_model(
         weights_only=False,
     )
 
-    input_size = int(
-        checkpoint["input_size"]
-    )
+    if not isinstance(checkpoint, dict):
+        raise ValueError("Model checkpoint is not a valid dictionary.")
 
-    hidden_sizes = checkpoint.get(
-        "hidden_sizes",
-        [256, 128, 64],
-    )
+    stored_identity = checkpoint.get("identity")
+    if stored_identity != resolved.as_dict():
+        raise ValueError(
+            "Model checkpoint identity does not match the requested TradingBot. "
+            "Legacy checkpoints without a full identity must be retrained or migrated."
+        )
+
+    if str(checkpoint.get("market", "")).strip().upper() != resolved.market:
+        raise ValueError("Model checkpoint market does not match its identity.")
+
+    input_size = int(checkpoint["input_size"])
+    hidden_sizes = checkpoint.get("hidden_sizes", [256, 128, 64])
 
     model = TradingMicroModel(
         input_size=input_size,
@@ -1880,29 +1947,15 @@ def load_model(
         hidden_2=int(hidden_sizes[1]),
         hidden_3=int(hidden_sizes[2]),
     )
-
-    model.load_state_dict(
-        checkpoint["model_state"]
-    )
-
+    model.load_state_dict(checkpoint["model_state"])
     model.eval()
 
     scaler = FeatureScaler(
-        mean=np.asarray(
-            checkpoint["feature_mean"],
-            dtype=np.float32,
-        ),
-        std=np.asarray(
-            checkpoint["feature_std"],
-            dtype=np.float32,
-        ),
+        mean=np.asarray(checkpoint["feature_mean"], dtype=np.float32),
+        std=np.asarray(checkpoint["feature_std"], dtype=np.float32),
     )
 
-    return (
-        model,
-        scaler,
-        checkpoint,
-    )
+    return model, scaler, checkpoint
 
 
 # ============================================================================
@@ -2022,13 +2075,25 @@ def predict_from_features(
 def predict_market(
     market: str,
     target_time: int,
+    user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Dict[str, Any]:
     """
     Load a market model and make one point-in-time prediction.
 
     This function uses only candles fully closed before target_time.
     """
-    model, scaler, _ = load_model(market)
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+    )
+    model, scaler, _ = load_model(market, identity=resolved)
 
     candles_by_timeframe = load_all_market_candles(
         market
@@ -2085,6 +2150,10 @@ def train_market(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     weight_decay: float = DEFAULT_WEIGHT_DECAY,
     user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> Dict[str, Any]:
     """
     Train a complete market-specific model from the user's Learning data.
@@ -2097,18 +2166,27 @@ def train_market(
     if not market:
         raise ValueError("Market must not be empty.")
 
+    resolved_identity = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+    )
+    market = resolved_identity.market
+
     print("")
     print("=" * 72)
     print(f"TRAINING MARKET MODEL: {market}")
     print("=" * 72)
 
     print(
-        f"Learning data: {setup_path(market, user_id)}"
+        f"Learning data: {setup_path(market, identity=resolved_identity)}"
     )
 
     setups = load_learning_setups(
         market,
-        user_id=user_id,
+        identity=resolved_identity,
     )
 
     print(
@@ -2178,7 +2256,7 @@ def train_market(
         model=model,
         scaler=scaler,
         training_summary=training_summary,
-        user_id=user_id,
+        identity=resolved_identity,
     )
 
     print("")
@@ -2197,7 +2275,7 @@ def train_market(
     return {
         "training": {
             **training_summary,
-
+            **resolved_identity.as_dict(),
             "input_trade_count": len(setups),
 
             "usable_positive_samples": int(
@@ -2210,6 +2288,7 @@ def train_market(
         },
 
         "model": {
+            **resolved_identity.as_dict(),
             "market": market,
             "model_path": str(saved_path),
         },
@@ -2222,11 +2301,21 @@ def train_market(
 
 def show_model_info(
     market: str,
+    user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
 ) -> None:
-    """Print information stored in a trained model."""
-    _, _, checkpoint = load_model(
-        market
+    """Print information stored in one TradingBot model."""
+    resolved = _resolve_ai_identity(
+        market,
+        identity=identity,
+        user_id=user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
     )
+    _, _, checkpoint = load_model(market, identity=resolved)
 
     summary = checkpoint.get(
         "training_summary",
@@ -2239,7 +2328,11 @@ def show_model_info(
     print("=" * 72)
 
     print(
-        f"Path: {model_path(market)}"
+        f"Identity: {resolved.as_dict()}"
+    )
+
+    print(
+        f"Path: {model_path(market, identity=resolved)}"
     )
 
     print(
