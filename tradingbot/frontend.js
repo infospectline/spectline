@@ -2954,7 +2954,7 @@ const chartContainer = document.getElementById("chart");
             labelElement
         );
 
-        createFocusResizeHandles(
+        createGeometryResizeHandles(
             normalized,
             objectType,
             left,
@@ -2966,7 +2966,7 @@ const chartContainer = document.getElementById("chart");
         );
     }
 
-    function createFocusResizeHandles(
+    function createGeometryResizeHandles(
         rect,
         objectType,
         left,
@@ -3392,35 +3392,13 @@ const chartContainer = document.getElementById("chart");
     function syncGeometryButtonStates() {
         const trade = getSelectedLearningTrade();
 
-        const focus1Button =
-            document.getElementById("drawFocus1Button");
-
-        const focus2Button =
-            document.getElementById("drawFocus2Button");
-
         const tradeSetupButton =
             document.getElementById("drawTradeSetupButton");
-
-        const hasFocus1 =
-            !!trade?.focus_1_geometry;
-
-        const hasFocus2 =
-            !!trade?.focus_2_geometry;
 
         const hasTradeSetup =
             !!trade?.trade_geometry &&
             trade.trade_geometry.start_time != null &&
             trade.trade_geometry.end_time != null;
-
-        focus1Button?.classList.toggle(
-            "active",
-            hasFocus1
-        );
-
-        focus2Button?.classList.toggle(
-            "active",
-            hasFocus2
-        );
 
         tradeSetupButton?.classList.toggle(
             "active",

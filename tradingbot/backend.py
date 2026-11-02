@@ -261,7 +261,10 @@ def load_ai_runtime(runtime: RuntimeContext) -> bool:
         )
         _verify_checkpoint_identity(checkpoint, runtime.identity)
 
-        market_candles = ai.load_all_market_candles(runtime.market)
+        market_candles = ai.load_all_market_candles(
+            runtime.market,
+            identity=runtime.identity,
+        )
         if not market_candles:
             raise RuntimeError(
                 f"No AI market candle history is available for {runtime.market}."
@@ -312,6 +315,52 @@ def _train_ai_for_runtime(runtime: RuntimeContext) -> Dict[str, Any]:
         runtime.market,
         **identity_kwargs,
     )
+
+def _prepare_ai_data_for_runtime(
+    runtime: RuntimeContext,
+) -> Dict[str, Any]:
+    """Prepare and store training data for one exact TradingBot identity."""
+
+    if ai is None:
+        raise AIIntegrationPending(
+            "The ai.py module could not be imported."
+        )
+
+    prepare_function = getattr(
+        ai,
+        "prepare_and_store_training_data",
+        None,
+    )
+
+    if not callable(prepare_function):
+        raise AIIntegrationPending(
+            "ai.py does not expose prepare_and_store_training_data()."
+        )
+
+    bundle, stored_path = prepare_function(
+        runtime.market,
+        identity=runtime.identity,
+    )
+
+    validation = bundle.get("validation")
+
+    if not isinstance(validation, dict):
+        validation = ai.validate_training_data(bundle)
+
+    report = bundle.get("report", {})
+
+    return {
+        "identity": runtime.identity.as_dict(),
+        "bundle_status": bundle.get("status", "UNKNOWN"),
+        "bundle_file": stored_path.name,
+        "report": report,
+        "validation": validation,
+        "stored": stored_path.is_file(),
+        "ready_for_next_stage": bool(
+            report.get("ready_for_next_stage", False)
+        ),
+        "model_training_started": False,
+    }
 
 
 # ============================================================================
@@ -1102,6 +1151,23 @@ async def _handle_action(
             manual_analysis_loop(runtime),
         )
         await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action == "prepare_ai_data":
+
+        result = await asyncio.to_thread(
+            _prepare_ai_data_for_runtime,
+            runtime,
+        )
+
+        response = snapshot(runtime)
+
+        response["ai_data_preparation"] = result
+
+        await websocket.send_text(
+            _json_dumps(response)
+        )
+
         return runtime
 
     if action in {"training", "play"}:
