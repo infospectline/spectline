@@ -74,6 +74,13 @@ Thumbs.db
 # Marketing
 /marketing
 
+# ============================================================
+# Spectline Blender
+# ============================================================
+
+# Spectline Blender
+/spectline_blender
+
 
 # ============================================================
 # Tradingbot rules (subdirectory: D:\spectline\tradingbot)

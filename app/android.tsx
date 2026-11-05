@@ -22,11 +22,6 @@ import {
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { OutlinePass } from "three/examples/jsm/postprocessing/OutlinePass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import sk from "@/lib/json/sk.json";
 import en from "@/lib/json/en.json";
 
@@ -314,6 +309,7 @@ export default function AndroidBasic({
   const [isProcessStacked, setIsProcessStacked] = useState(false);
   const scrollTRef = useRef(0);
   const scrollPRef = useRef(0);
+  const invertFactorRef = useRef(0);
 
   const [activePlan, setActivePlan] = useState(0);
   const [hoveredPlan, setHoveredPlan] = useState<number | null>(null);
@@ -677,298 +673,594 @@ export default function AndroidBasic({
 
     let disposed = false;
     let raf = 0;
+    let rafSize = 0;
 
     let model: THREE.Object3D | null = null;
+    let modelGroup: THREE.Group | null = null;
     let modelMixer: THREE.AnimationMixer | null = null;
-    let camMixer: THREE.AnimationMixer | null = null;
-    let camClip: THREE.AnimationClip | null = null;
-    let camAction: THREE.AnimationAction | null = null;
+    let currentAction: THREE.AnimationAction | null = null;
+    let currentActionName = "";
+
+    const actionsByName = new Map<string, THREE.AnimationAction>();
+    const ACTION_FADE_SECONDS = 0.75;
+
+    // --------------------------------------------------
+    // PARTICLE TRANSITION CONTROLLER
+    // --------------------------------------------------
+
+    type ParticleTransitionPhase =
+      | "scatter"
+      | "hold"
+      | "reform";
+
+    type ParticleTransition = {
+      phase: ParticleTransitionPhase;
+      elapsed: number;
+      targetAction: string;
+    };
+
+    let particleTransition: ParticleTransition | null = null;
+    let queuedAction: string | null = null;
+
+    const PARTICLE_SCATTER_SECONDS = 0.62;
+    const PARTICLE_HOLD_SECONDS = 0.12;
+    const PARTICLE_REFORM_SECONDS = 0.90;
+
+    const particleBatches: {
+      mesh: THREE.Mesh;
+      triangleIndices: Uint32Array;
+      barycentric: Float32Array;
+      scatterOffsets: Float32Array;
+      positionAttribute: THREE.BufferAttribute;
+      points: THREE.Points;
+    }[] = [];
+
+    const skeletons = new Set<THREE.Skeleton>();
     const clock = new THREE.Clock();
 
-    const autoCam = window.matchMedia("(hover: none), (pointer: coarse), (max-width: 900px)").matches;
+    const lightPageParticleColor = new THREE.Color("#19191A");
+    const darkPageParticleColor = new THREE.Color("#F4F4F4");
+    const targetParticleColor = lightPageParticleColor.clone();
 
-    let autoP = 0;
-    let autoDir: 1 | -1 = 1;
-    let autoHold = 0;
+    const tempA = new THREE.Vector3();
+    const tempB = new THREE.Vector3();
+    const tempC = new THREE.Vector3();
+    const tempPosition = new THREE.Vector3();
+    const edgeAB = new THREE.Vector3();
+    const edgeAC = new THREE.Vector3();
+    const areaNormal = new THREE.Vector3();
 
-    const AUTO_SPEED = 0.02;
-    const AUTO_HOLD_SEC = 0.7;
+    let modelSize = new THREE.Vector3(1, 1, 1);
+    let hasModelBounds = false;
 
-    const defaultCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-    defaultCamera.position.set(0, 1.2, 3.2);
-
-    let activeCamera: THREE.Camera = defaultCamera;
-
-    const LINEART_COLOR = "#DBDBDB";
-
-    const outlineTargets: THREE.Object3D[] = [];
-
-    const collectOutlineTargets = (root: THREE.Object3D) => {
-      outlineTargets.length = 0;
-
-      root.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh || !mesh.geometry) return;
-        outlineTargets.push(mesh);
-      });
+    type AmbientField = {
+      points: THREE.Points;
+      geometry: THREE.BufferGeometry;
+      material: THREE.ShaderMaterial;
+      positions: Float32Array;
+      opacities: Float32Array;
+      ages: Float32Array;
+      lifeSpeeds: Float32Array;
+      driftX: Float32Array;
+      driftY: Float32Array;
+      peakOpacities: Float32Array;
+      respawn: (index: number) => void;
     };
 
-    const normalMaterial = new THREE.MeshNormalMaterial();
-    normalMaterial.blending = THREE.NoBlending;
+    let ambientField: AmbientField | null = null;
 
-    const depthMaterial = new THREE.MeshDepthMaterial({
-      depthPacking: THREE.RGBADepthPacking,
-    });
-    depthMaterial.blending = THREE.NoBlending;
-
-    const normalDepthBackground = new THREE.Color(0x000000);
-
-    const internalLineartShader = {
-      uniforms: {
-        tDiffuse: { value: null },
-        tNormal: { value: null },
-        tDepth: { value: null },
-        resolution: { value: new THREE.Vector2(1, 1) },
-        lineColor: { value: new THREE.Color(LINEART_COLOR) },
-        normalStrength: { value: 0.9 },
-        depthStrength: { value: 0.95 },
-        colorStrength: { value: 0.28 },
-        normalThreshold: { value: 0.24 },
-        depthThreshold: { value: 0.006 },
-        colorThreshold: { value: 0.09 },
-        opacity: { value: 0.72 },
-      },
-      vertexShader: `
-        varying vec2 vUv;
-
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D tDiffuse;
-        uniform sampler2D tNormal;
-        uniform sampler2D tDepth;
-        uniform vec2 resolution;
-        uniform vec3 lineColor;
-        uniform float normalStrength;
-        uniform float depthStrength;
-        uniform float colorStrength;
-        uniform float normalThreshold;
-        uniform float depthThreshold;
-        uniform float colorThreshold;
-        uniform float opacity;
-
-        #include <packing>
-
-        varying vec2 vUv;
-
-        float luma(vec3 color) {
-          return dot(color, vec3(0.299, 0.587, 0.114));
-        }
-
-        vec3 decodeNormal(vec3 encodedNormal) {
-          return encodedNormal * 2.0 - 1.0;
-        }
-
-        void main() {
-          vec4 base = texture2D(tDiffuse, vUv);
-          vec2 texel = 1.0 / resolution;
-
-          vec3 normalCenter = decodeNormal(texture2D(tNormal, vUv).rgb);
-          vec3 normalRight = decodeNormal(texture2D(tNormal, vUv + vec2(texel.x, 0.0)).rgb);
-          vec3 normalLeft = decodeNormal(texture2D(tNormal, vUv - vec2(texel.x, 0.0)).rgb);
-          vec3 normalUp = decodeNormal(texture2D(tNormal, vUv + vec2(0.0, texel.y)).rgb);
-          vec3 normalDown = decodeNormal(texture2D(tNormal, vUv - vec2(0.0, texel.y)).rgb);
-
-          float normalDiff = 0.0;
-          normalDiff = max(normalDiff, length(normalCenter - normalRight));
-          normalDiff = max(normalDiff, length(normalCenter - normalLeft));
-          normalDiff = max(normalDiff, length(normalCenter - normalUp));
-          normalDiff = max(normalDiff, length(normalCenter - normalDown));
-
-          float normalEdge = smoothstep(normalThreshold, normalThreshold + 0.16, normalDiff) * normalStrength;
-
-          float depthCenter = unpackRGBAToDepth(texture2D(tDepth, vUv));
-          float depthRight = unpackRGBAToDepth(texture2D(tDepth, vUv + vec2(texel.x, 0.0)));
-          float depthLeft = unpackRGBAToDepth(texture2D(tDepth, vUv - vec2(texel.x, 0.0)));
-          float depthUp = unpackRGBAToDepth(texture2D(tDepth, vUv + vec2(0.0, texel.y)));
-          float depthDown = unpackRGBAToDepth(texture2D(tDepth, vUv - vec2(0.0, texel.y)));
-
-          float depthDiff = 0.0;
-          depthDiff = max(depthDiff, abs(depthCenter - depthRight));
-          depthDiff = max(depthDiff, abs(depthCenter - depthLeft));
-          depthDiff = max(depthDiff, abs(depthCenter - depthUp));
-          depthDiff = max(depthDiff, abs(depthCenter - depthDown));
-
-          float depthEdge = smoothstep(depthThreshold, depthThreshold + 0.012, depthDiff) * depthStrength;
-
-          float lRight = luma(texture2D(tDiffuse, vUv + vec2(texel.x, 0.0)).rgb);
-          float lLeft = luma(texture2D(tDiffuse, vUv - vec2(texel.x, 0.0)).rgb);
-          float lUp = luma(texture2D(tDiffuse, vUv + vec2(0.0, texel.y)).rgb);
-          float lDown = luma(texture2D(tDiffuse, vUv - vec2(0.0, texel.y)).rgb);
-
-          float colorDiff = max(abs(lRight - lLeft), abs(lUp - lDown));
-          float colorEdge = smoothstep(colorThreshold, colorThreshold + 0.08, colorDiff) * colorStrength;
-
-          float edge = clamp(max(max(normalEdge, depthEdge), colorEdge) * opacity, 0.0, 1.0);
-          vec3 finalColor = mix(base.rgb, lineColor, edge);
-
-          gl_FragColor = vec4(finalColor, base.a);
-        }
-      `,
-    };
+    // --------------------------------------------------
+    // RENDERER AND CAMERA
+    // --------------------------------------------------
 
     const scene = new THREE.Scene();
-    const ambient = new THREE.AmbientLight(0xffffff, 0.05);
-    scene.add(ambient);
-
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.05);
-    hemiLight.position.set(0, 20, 0);
-    scene.add(hemiLight);
-
-    const dirFrontRight = new THREE.DirectionalLight(0xffffff, 0.04);
-    dirFrontRight.position.set(10, 8, 10);
-    scene.add(dirFrontRight);
-
-    const dirFrontLeft = new THREE.DirectionalLight(0xffffff, 0.04);
-    dirFrontLeft.position.set(-10, 8, 10);
-    scene.add(dirFrontLeft);
-
-    const dirBackRight = new THREE.DirectionalLight(0xffffff, 0.03);
-    dirBackRight.position.set(10, 8, -10);
-    scene.add(dirBackRight);
-
-    const dirBackLeft = new THREE.DirectionalLight(0xffffff, 0.03);
-    dirBackLeft.position.set(-10, 8, -10);
-    scene.add(dirBackLeft);
-    scene.background =
-      typeof background === "string"
-        ? new THREE.Color(background)
-        : new THREE.Color(background);
+    scene.background = null;
 
     const renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      alpha: false,
+      alpha: true,
       powerPreference: "high-performance",
+      premultipliedAlpha: true,
     });
 
+    renderer.setClearColor(background, 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    const normalTarget = new THREE.WebGLRenderTarget(1, 1, {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType,
-      depthBuffer: true,
-      stencilBuffer: false,
+    const defaultCamera = new THREE.PerspectiveCamera(
+      40,
+      1,
+      0.01,
+      2000
+    );
+
+    const fitCamera = (width: number, height: number) => {
+      const aspect = width / Math.max(1, height);
+      defaultCamera.aspect = aspect;
+
+      if (hasModelBounds) {
+        const verticalFov = THREE.MathUtils.degToRad(
+          defaultCamera.fov
+        );
+        const horizontalFov = 2 * Math.atan(
+          Math.tan(verticalFov / 2) * aspect
+        );
+
+        const distanceY =
+          modelSize.y * 0.5 / Math.tan(verticalFov / 2);
+        const distanceX =
+          modelSize.x * 0.5 / Math.tan(horizontalFov / 2);
+
+        // --------------------------------------------------
+        // RESPONSIVE CAMERA ZOOM
+        // --------------------------------------------------
+
+        const isMobileViewport = window.matchMedia(
+          "(max-width: 900px), (pointer: coarse)"
+        ).matches;
+
+        const mobileZoom = isMobileViewport ? 0.50 : 1;
+
+        const distance =
+          (Math.max(distanceX, distanceY) + modelSize.z * 0.5) *
+          1.18 *
+          mobileZoom;
+
+        defaultCamera.position.set(
+          0,
+          modelSize.y * 0.015,
+          distance
+        );
+        defaultCamera.lookAt(0, 0, 0);
+        defaultCamera.near = Math.max(
+          0.01,
+          distance - modelSize.length() * 2
+        );
+        defaultCamera.far =
+          distance + modelSize.length() * 8 + 50;
+      }
+
+      defaultCamera.updateProjectionMatrix();
+    };
+
+    // --------------------------------------------------
+    // PARTICLE TEXTURE
+    // --------------------------------------------------
+
+    const textureSize = 64;
+    const textureData = new Uint8Array(
+      textureSize * textureSize * 4
+    );
+
+    for (let y = 0; y < textureSize; y++) {
+      for (let x = 0; x < textureSize; x++) {
+        const dx = (x - 31.5) / 31.5;
+        const dy = (y - 31.5) / 31.5;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const alpha = Math.pow(Math.max(0, 1 - distance), 2);
+        const offset = (y * textureSize + x) * 4;
+
+        textureData[offset] = 255;
+        textureData[offset + 1] = 255;
+        textureData[offset + 2] = 255;
+        textureData[offset + 3] = Math.round(alpha * 255);
+      }
+    }
+
+    const particleTexture = new THREE.DataTexture(
+      textureData,
+      textureSize,
+      textureSize,
+      THREE.RGBAFormat
+    );
+
+    particleTexture.magFilter = THREE.LinearFilter;
+    particleTexture.minFilter = THREE.LinearFilter;
+    particleTexture.generateMipmaps = false;
+    particleTexture.needsUpdate = true;
+
+    // --------------------------------------------------
+    // ANDROID PARTICLE MATERIAL
+    // --------------------------------------------------
+
+    const particleMaterial = new THREE.PointsMaterial({
+      color: lightPageParticleColor,
+      size: 0.016,
+      sizeAttenuation: true,
+      map: particleTexture,
+      transparent: true,
+      alphaTest: 0.025,
+      opacity: 0.98,
+      blending: THREE.NormalBlending,
+      depthTest: true,
+      depthWrite: true,
+      toneMapped: false,
     });
-    normalTarget.texture.name = "SpectlineInternalLineartNormalTexture";
 
-    const depthTarget = new THREE.WebGLRenderTarget(1, 1, {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType,
-      depthBuffer: true,
-      stencilBuffer: false,
-    });
-    depthTarget.texture.name = "SpectlineInternalLineartDepthTexture";
+    // --------------------------------------------------
+    // ANIMATION CONTROLLER
+    // --------------------------------------------------
 
-    const composer = new EffectComposer(renderer);
-    const renderPass = new RenderPass(scene, activeCamera);
-    composer.addPass(renderPass);
+    const getThemeAction = (sectionPosition: number): string => {
+      if (sectionPosition < 2.0) return "walk";
+      if (sectionPosition < 4.8) return "stand";
 
-    const internalLineartPass = new ShaderPass(internalLineartShader);
-    internalLineartPass.uniforms.tNormal.value = normalTarget.texture;
-    internalLineartPass.uniforms.tDepth.value = depthTarget.texture;
-    composer.addPass(internalLineartPass);
+      return "idle";
+    };
 
-    const outlinePass = new OutlinePass(new THREE.Vector2(1, 1), scene, activeCamera);
-    outlinePass.visibleEdgeColor.set(LINEART_COLOR);
-    outlinePass.hiddenEdgeColor.set(LINEART_COLOR);
-    outlinePass.edgeStrength = 1.35;
-    outlinePass.edgeGlow = 0.0;
-    outlinePass.edgeThickness = 0.85;
-    outlinePass.pulsePeriod = 0;
-    composer.addPass(outlinePass);
+    const startAction = (
+      name: string,
+      repeat: boolean
+    ): boolean => {
+      const nextAction = actionsByName.get(name.toLowerCase());
 
-    const outputPass = new OutputPass();
-    composer.addPass(outputPass);
+      if (!nextAction) {
+        console.warn(`[Android] Animation not found: ${name}`);
+        return false;
+      }
 
-    let rafSize = 0;
+      if (currentAction === nextAction) return true;
+
+      nextAction.reset();
+      nextAction.enabled = true;
+      nextAction.setEffectiveTimeScale(1);
+      nextAction.setEffectiveWeight(1);
+      nextAction.setLoop(
+        repeat ? THREE.LoopRepeat : THREE.LoopOnce,
+        repeat ? Infinity : 1
+      );
+      nextAction.clampWhenFinished = !repeat;
+      nextAction.play();
+
+      if (currentAction) {
+        currentAction.crossFadeTo(
+          nextAction,
+          ACTION_FADE_SECONDS,
+          false
+        );
+      } else {
+        nextAction.fadeIn(0.35);
+      }
+
+      currentAction = nextAction;
+      currentActionName = name.toLowerCase();
+
+      return true;
+    };
+    
+    // --------------------------------------------------
+    // PARTICLE DISPERSION
+    // --------------------------------------------------
+
+    const beginParticleTransition = (targetAction: string) => {
+      const nextName = targetAction.toLowerCase();
+
+      if (!modelMixer || !actionsByName.has(nextName)) return;
+      if (nextName === currentActionName) return;
+
+      const direction = new THREE.Vector3();
+
+      for (const batch of particleBatches) {
+        const positions =
+          batch.positionAttribute.array as Float32Array;
+
+        const offsets = batch.scatterOffsets;
+
+        const particleCount = batch.triangleIndices.length / 3;
+
+        for (let i = 0; i < particleCount; i++) {
+          const offset = i * 3;
+
+          const px = positions[offset];
+          const py = positions[offset + 1];
+          const pz = positions[offset + 2];
+
+          direction.set(px, py, pz);
+
+          if (direction.lengthSq() < 0.0001) {
+            direction.set(
+              Math.random() - 0.5,
+              Math.random() - 0.5,
+              Math.random() - 0.5
+            );
+          }
+
+          direction.normalize();
+
+          direction.x += (Math.random() - 0.5) * 0.8;
+          direction.y += (Math.random() - 0.5) * 0.65 + 0.22;
+          direction.z += (Math.random() - 0.5) * 0.8;
+
+          direction.normalize();
+
+          const distance =
+            modelSize.y * (0.24 + Math.random() * 0.38);
+
+          offsets[offset] = direction.x * distance;
+          offsets[offset + 1] = direction.y * distance;
+          offsets[offset + 2] = direction.z * distance;
+        }
+      }
+
+      particleTransition = {
+        phase: "scatter",
+        elapsed: 0,
+        targetAction: nextName,
+      };
+
+      queuedAction = null;
+
+    };
+
+    // --------------------------------------------------
+    // PARTICLE TRANSITION UPDATE
+    // --------------------------------------------------
+
+    const updateParticleTransition = (
+      dt: number,
+      desiredAction: string
+    ) => {
+      if (!modelMixer) return;
+
+      if (!particleTransition) {
+        if (desiredAction !== currentActionName) {
+          beginParticleTransition(desiredAction);
+        }
+
+        return;
+      }
+
+      const transition = particleTransition;
+
+      if (transition.phase === "scatter") {
+        transition.targetAction = desiredAction;
+      } else {
+        queuedAction =
+          desiredAction !== currentActionName
+            ? desiredAction
+            : null;
+      }
+
+      transition.elapsed += dt;
+
+      if (
+        transition.phase === "scatter" &&
+        transition.elapsed >= PARTICLE_SCATTER_SECONDS
+      ) {
+        const nextAction = transition.targetAction;
+
+        if (nextAction !== currentActionName) {
+          startAction(nextAction, true);
+        }
+
+        transition.phase = "hold";
+        transition.elapsed = 0;
+
+        return;
+      }
+
+      if (transition.phase === "hold") {
+        if (queuedAction && queuedAction !== currentActionName) {
+          const nextAction = queuedAction;
+
+          queuedAction = null;
+
+          startAction(nextAction, true);
+          transition.targetAction = nextAction;
+        }
+
+        if (transition.elapsed >= PARTICLE_HOLD_SECONDS) {
+          transition.phase = "reform";
+          transition.elapsed = 0;
+        }
+
+        return;
+      }
+
+      if (
+        transition.phase === "reform" &&
+        transition.elapsed >= PARTICLE_REFORM_SECONDS
+      ) {
+        particleTransition = null;
+
+        const nextAction = queuedAction;
+        queuedAction = null;
+
+        if (nextAction && nextAction !== currentActionName) {
+          beginParticleTransition(nextAction);
+        }
+      }
+    };
+
+    // --------------------------------------------------
+    // PARTICLE TRANSITION PROGRESS
+    // --------------------------------------------------
+
+    const getParticleScatterAmount = (): number => {
+      if (!particleTransition) return 0;
+
+      const transition = particleTransition;
+
+      if (transition.phase === "hold") {
+        return 1;
+      }
+
+      const duration =
+        transition.phase === "scatter"
+          ? PARTICLE_SCATTER_SECONDS
+          : PARTICLE_REFORM_SECONDS;
+
+      const progress = THREE.MathUtils.clamp(
+        transition.elapsed / duration,
+        0,
+        1
+      );
+
+      if (transition.phase === "scatter") {
+        return 1 - Math.pow(1 - progress, 3);
+      }
+
+      const smoothProgress =
+        progress * progress * (3 - 2 * progress);
+
+      return 1 - smoothProgress;
+    };
+
+
+    // --------------------------------------------------
+    // AMBIENT PARTICLE FIELD
+    // --------------------------------------------------
+
+    const createAmbientField = () => {
+      if (ambientField || !hasModelBounds) return;
+
+      const isMobile = window.matchMedia(
+        "(max-width: 900px), (pointer: coarse)"
+      ).matches;
+      const count = isMobile ? 240 : 650;
+
+      const geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array(count * 3);
+      const opacities = new Float32Array(count);
+      const sizes = new Float32Array(count);
+      const ages = new Float32Array(count);
+      const lifeSpeeds = new Float32Array(count);
+      const driftX = new Float32Array(count);
+      const driftY = new Float32Array(count);
+      const peakOpacities = new Float32Array(count);
+
+      const respawn = (index: number) => {
+        const offset = index * 3;
+
+        positions[offset] =
+          (Math.random() - 0.5) * modelSize.y * 3.2;
+        positions[offset + 1] =
+          (Math.random() - 0.5) * modelSize.y * 1.8;
+        positions[offset + 2] =
+          -modelSize.z * 0.5 - 0.7 - Math.random() * modelSize.y * 1.1;
+
+        ages[index] = Math.random();
+        lifeSpeeds[index] = 0.035 + Math.random() * 0.065;
+        driftX[index] = (Math.random() - 0.5) * 0.018;
+        driftY[index] = (Math.random() - 0.5) * 0.018;
+        peakOpacities[index] = 0.30 + Math.random() * 0.25;
+        sizes[index] = 0.020 + Math.random() * 0.030;
+
+        const fade = Math.sin(Math.PI * ages[index]);
+        opacities[index] = fade * fade * peakOpacities[index];
+      };
+
+      for (let i = 0; i < count; i++) respawn(i);
+
+      const positionAttribute = new THREE.BufferAttribute(positions, 3);
+      const opacityAttribute = new THREE.BufferAttribute(opacities, 1);
+      const sizeAttribute = new THREE.BufferAttribute(sizes, 1);
+
+      positionAttribute.setUsage(THREE.DynamicDrawUsage);
+      opacityAttribute.setUsage(THREE.DynamicDrawUsage);
+
+      geometry.setAttribute("position", positionAttribute);
+      geometry.setAttribute("aOpacity", opacityAttribute);
+      geometry.setAttribute("aSize", sizeAttribute);
+
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          uColor: { value: particleMaterial.color.clone() },
+          uPixelRatio: { value: renderer.getPixelRatio() },
+          uViewportHeight: { value: Math.max(1, canvas.clientHeight) },
+        },
+        vertexShader: `
+          uniform float uPixelRatio;
+          uniform float uViewportHeight;
+          attribute float aOpacity;
+          attribute float aSize;
+          varying float vOpacity;
+
+          void main() {
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * mvPosition;
+            float perspective = (uViewportHeight * 0.5) / max(0.1, -mvPosition.z);
+            gl_PointSize = max(1.0, aSize * uPixelRatio * perspective);
+            vOpacity = aOpacity;
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 uColor;
+          varying float vOpacity;
+
+          void main() {
+            vec2 centered = gl_PointCoord - vec2(0.5);
+            float distanceFromCenter = length(centered);
+            float circle = 1.0 - smoothstep(0.12, 0.5, distanceFromCenter);
+            float alpha = circle * vOpacity;
+            if (alpha < 0.005) discard;
+            gl_FragColor = vec4(uColor, alpha);
+            #include <colorspace_fragment>
+          }
+        `,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        toneMapped: false,
+      });
+
+      const points = new THREE.Points(geometry, material);
+      points.frustumCulled = false;
+      points.renderOrder = 2;
+      scene.add(points);
+
+      ambientField = {
+        points,
+        geometry,
+        material,
+        positions,
+        opacities,
+        ages,
+        lifeSpeeds,
+        driftX,
+        driftY,
+        peakOpacities,
+        respawn,
+      };
+    };
+
+    // --------------------------------------------------
+    // RESIZE HANDLING
+    // --------------------------------------------------
 
     const setSize = () => {
       rafSize = 0;
 
-      const r = canvas.getBoundingClientRect();
-      const w = Math.max(1, Math.round(r.width));
-      const h = Math.max(1, Math.round(r.height));
-
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
       const dpr = Math.min(2, window.devicePixelRatio || 1);
 
-      const renderW = Math.max(1, Math.round(w * dpr));
-      const renderH = Math.max(1, Math.round(h * dpr));
-
       renderer.setPixelRatio(dpr);
-      renderer.setSize(w, h, false);
-      composer.setPixelRatio(dpr);
-      composer.setSize(w, h);
-      normalTarget.setSize(renderW, renderH);
-      depthTarget.setSize(renderW, renderH);
-      internalLineartPass.uniforms.resolution.value.set(renderW, renderH);
-      outlinePass.resolution.set(w, h);
+      renderer.setSize(width, height, false);
+      fitCamera(width, height);
 
-      if (activeCamera instanceof THREE.PerspectiveCamera) {
-        activeCamera.aspect = w / h;
-        activeCamera.updateProjectionMatrix();
-      } else if (activeCamera instanceof THREE.OrthographicCamera) {
-        activeCamera.updateProjectionMatrix();
+      if (ambientField) {
+        ambientField.material.uniforms.uPixelRatio.value = dpr;
+        ambientField.material.uniforms.uViewportHeight.value = height;
       }
     };
 
-    let lastViewportWidth = window.innerWidth;
-
-    const onResize = () => {
-      const nextWidth = window.innerWidth;
-
-      const mobileViewport = window.matchMedia(
-        "(max-width: 900px)"
-      ).matches;
-
-      const widthChanged =
-        Math.abs(nextWidth - lastViewportWidth) > 2;
-
-      if (mobileViewport && !widthChanged) {
-        return;
-      }
-
-      lastViewportWidth = nextWidth;
-
-      if (!rafSize) {
-        rafSize = requestAnimationFrame(setSize);
-      }
+    const requestResize = () => {
+      if (!rafSize) rafSize = requestAnimationFrame(setSize);
     };
 
-    const onOrientationChange = () => {
-      window.setTimeout(() => {
-        lastViewportWidth = window.innerWidth;
-        setSize();
-      }, 250);
-    };
+    const resizeObserver = new ResizeObserver(requestResize);
+    resizeObserver.observe(canvas);
 
-    const ro = new ResizeObserver(onResize);
-    ro.observe(canvas);
-
-    window.addEventListener("resize", onResize);
-    window.addEventListener(
-      "orientationchange",
-      onOrientationChange
-    );
-
+    window.addEventListener("resize", requestResize);
+    window.addEventListener("orientationchange", requestResize);
     setSize();
+
+    // --------------------------------------------------
+    // GLB LOADING AND SURFACE SAMPLING
+    // --------------------------------------------------
 
     const loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
@@ -976,7 +1268,6 @@ export default function AndroidBasic({
     dracoLoader.setDecoderPath(
       "https://www.gstatic.com/draco/versioned/decoders/1.5.6/"
     );
-
     loader.setDRACOLoader(dracoLoader);
 
     loader.load(
@@ -986,164 +1277,394 @@ export default function AndroidBasic({
 
         const root = gltf.scene;
         model = root;
+        modelGroup = new THREE.Group();
+        scene.add(modelGroup);
+        modelGroup.add(root);
+        modelGroup.updateMatrixWorld(true);
 
-        const glbCam =
-          gltf.cameras?.[0] ??
-          (root.getObjectByProperty("isCamera", true) as THREE.Camera | null);
+        const bounds = new THREE.Box3().setFromObject(root);
+        const center = bounds.getCenter(new THREE.Vector3());
+        modelSize = bounds.getSize(new THREE.Vector3());
+        hasModelBounds = true;
 
-        if (glbCam) {
-          activeCamera = glbCam;
+        modelGroup.position.set(-center.x, -center.y, -center.z);
+        modelGroup.updateMatrixWorld(true);
 
-          if (!activeCamera.parent) scene.add(activeCamera);
+        const meshes: THREE.Mesh[] = [];
+        root.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh || !mesh.geometry.getAttribute("position")) return;
 
-          renderPass.camera = activeCamera;
-          outlinePass.renderCamera = activeCamera;
+          meshes.push(mesh);
+          const skinnedMesh = mesh as THREE.SkinnedMesh;
+          if (skinnedMesh.isSkinnedMesh) {
+            skeletons.add(skinnedMesh.skeleton);
+          }
+        });
 
-          setSize();
+        for (const skeleton of skeletons) skeleton.update();
+
+        const surfaceData = meshes
+          .map((mesh) => {
+            const geometry = mesh.geometry;
+            const position = geometry.getAttribute("position");
+            const index = geometry.getIndex();
+            const elementCount = index ? index.count : position.count;
+            const triangleCount = Math.floor(elementCount / 3);
+            const cumulativeAreas = new Float64Array(triangleCount);
+            let totalArea = 0;
+
+            for (let triangle = 0; triangle < triangleCount; triangle++) {
+              const offset = triangle * 3;
+              const i0 = index ? index.getX(offset) : offset;
+              const i1 = index ? index.getX(offset + 1) : offset + 1;
+              const i2 = index ? index.getX(offset + 2) : offset + 2;
+
+              mesh.getVertexPosition(i0, tempA);
+              mesh.getVertexPosition(i1, tempB);
+              mesh.getVertexPosition(i2, tempC);
+
+              tempA.applyMatrix4(mesh.matrixWorld);
+              tempB.applyMatrix4(mesh.matrixWorld);
+              tempC.applyMatrix4(mesh.matrixWorld);
+
+              edgeAB.subVectors(tempB, tempA);
+              edgeAC.subVectors(tempC, tempA);
+              const area = areaNormal.crossVectors(edgeAB, edgeAC).length() * 0.5;
+
+              totalArea += area;
+              cumulativeAreas[triangle] = totalArea;
+            }
+
+            return {
+              mesh,
+              index,
+              triangleCount,
+              cumulativeAreas,
+              totalArea,
+            };
+          })
+          .filter((item) => item.totalArea > 0 && item.triangleCount > 0);
+
+        const totalSurfaceArea = surfaceData.reduce(
+          (sum, item) => sum + item.totalArea,
+          0
+        );
+
+        const isMobile = window.matchMedia(
+          "(max-width: 900px), (pointer: coarse)"
+        ).matches;
+        const particleBudget = isMobile ? 9000 : 24000;
+
+        if (totalSurfaceArea > 0) {
+          for (const surface of surfaceData) {
+            const {
+              mesh,
+              index,
+              triangleCount,
+              cumulativeAreas,
+              totalArea,
+            } = surface;
+
+            const particleCount = Math.max(
+              1,
+              Math.round(particleBudget * (totalArea / totalSurfaceArea))
+            );
+
+            const triangleIndices = new Uint32Array(particleCount * 3);
+            const barycentric = new Float32Array(particleCount * 3);
+            const positions = new Float32Array(particleCount * 3);
+            const scatterOffsets = new Float32Array(particleCount * 3);
+            const positionAttribute = new THREE.BufferAttribute(positions, 3);
+            positionAttribute.setUsage(THREE.DynamicDrawUsage);
+
+            const particleGeometry = new THREE.BufferGeometry();
+            particleGeometry.setAttribute("position", positionAttribute);
+
+            for (let i = 0; i < particleCount; i++) {
+              const targetArea = Math.random() * totalArea;
+              let low = 0;
+              let high = triangleCount - 1;
+
+              while (low < high) {
+                const middle = Math.floor((low + high) / 2);
+                if (cumulativeAreas[middle] < targetArea) {
+                  low = middle + 1;
+                } else {
+                  high = middle;
+                }
+              }
+
+              const triangleOffset = low * 3;
+              const i0 = index ? index.getX(triangleOffset) : triangleOffset;
+              const i1 = index ? index.getX(triangleOffset + 1) : triangleOffset + 1;
+              const i2 = index ? index.getX(triangleOffset + 2) : triangleOffset + 2;
+              const offset = i * 3;
+
+              triangleIndices[offset] = i0;
+              triangleIndices[offset + 1] = i1;
+              triangleIndices[offset + 2] = i2;
+
+              const rootRandom = Math.sqrt(Math.random());
+              const secondRandom = Math.random();
+              barycentric[offset] = 1 - rootRandom;
+              barycentric[offset + 1] = rootRandom * (1 - secondRandom);
+              barycentric[offset + 2] = rootRandom * secondRandom;
+            }
+
+            const points = new THREE.Points(
+              particleGeometry,
+              particleMaterial
+            );
+            points.frustumCulled = false;
+            points.renderOrder = 1;
+            scene.add(points);
+
+            particleBatches.push({
+              mesh,
+              triangleIndices,
+              barycentric,
+              scatterOffsets,
+              positionAttribute,
+              points,
+            });
+
+            mesh.visible = false;
+          }
+        } else {
+          console.error("[Android] The GLB contains no usable triangle surfaces.");
         }
 
-        collectOutlineTargets(root);
-          outlinePass.selectedObjects = outlineTargets;
+        // --------------------------------------------------
+        // BLENDER ACTIONS
+        // --------------------------------------------------
 
-          scene.add(root);
-
-          if (gltf.animations?.length) {
-          const camName = activeCamera.name || undefined;
-
+        if (gltf.animations.length > 0) {
           modelMixer = new THREE.AnimationMixer(root);
 
-          const playModel = (clip: THREE.AnimationClip) => {
-            const a = modelMixer!.clipAction(clip);
-            a.loop = THREE.LoopRepeat;
-            a.play();
-          };
-
           for (const clip of gltf.animations) {
-            if (!camName) {
-              playModel(clip);
-              continue;
-            }
-
-            const camTracks = clip.tracks.filter((tr: THREE.KeyframeTrack) =>
-              tr.name.startsWith(camName + ".")
+            actionsByName.set(
+              clip.name.toLowerCase(),
+              modelMixer.clipAction(clip)
             );
-            const otherTracks = clip.tracks.filter((tr: THREE.KeyframeTrack) =>
-              !tr.name.startsWith(camName + ".")
-            );
+          }
 
-            if (camTracks.length && !camClip) {
-              camClip = new THREE.AnimationClip(clip.name + "__cam", clip.duration, camTracks);
+          const initialAction = getThemeAction(
+            scrollTRef.current
+          );
 
-              camMixer = new THREE.AnimationMixer(activeCamera);
-
-              camAction = camMixer.clipAction(camClip);
-              camAction.play();
-              camAction.paused = true;
-            }
-
-            if (otherTracks.length) {
-              const rest = new THREE.AnimationClip(clip.name + "__rest", clip.duration, otherTracks);
-              playModel(rest);
-            } else if (!camTracks.length) {
-              playModel(clip);
+          if (!startAction(initialAction, true)) {
+            if (actionsByName.has("idle")) {
+              startAction("idle", true);
             }
           }
+        } else {
+          console.warn("[Android] No Blender animations were found in the GLB.");
         }
 
+        createAmbientField();
+        setSize();
         setReady(true);
-      },
-      undefined,
-      (err) => console.error("[AndroidBasic] load error", err)
-    );
+
+        },
+        undefined,
+        (error) => {
+          if (!disposed) {
+            console.error("[Android] GLB loading failed:", error);
+            setReady(false);
+          }
+        }
+      );
+
+    // --------------------------------------------------
+    // RENDER LOOP
+    // --------------------------------------------------
 
     const animate = () => {
       raf = requestAnimationFrame(animate);
 
-      const dt = clock.getDelta();
-      if (modelMixer) modelMixer.update(dt);
+      const dt = Math.min(clock.getDelta(), 0.05);
 
-      if (camMixer && camClip && camAction) {
-        const dur = camClip.duration;
-        let p: number;
+      // --------------------------------------------------
+      // ANIMATION TRANSITION CONTROL
+      // --------------------------------------------------
 
-        if (autoCam) {
-          if (autoHold > 0) {
-            autoHold = Math.max(0, autoHold - dt);
-          } else {
-            autoP += autoDir * AUTO_SPEED * dt;
+      const currentSectionPosition = THREE.MathUtils.clamp(
+        scrollTRef.current,
+        0,
+        SECTION_COUNT
+      );
 
-            if (autoP >= 1) {
-              autoP = 1;
-              autoDir = -1;
-              autoHold = AUTO_HOLD_SEC;
-            } else if (autoP <= 0) {
-              autoP = 0;
-              autoDir = 1;
-              autoHold = AUTO_HOLD_SEC;
-            }
-          }
-          p = autoP;
-        } else {
-          p = Math.min(1, Math.max(0, scrollPRef.current));
-        }
+      const desiredAction = getThemeAction(
+        currentSectionPosition
+      );
 
-        camAction.time = p * (dur - 1e-4);
-        camMixer.update(0);
+      updateParticleTransition(dt, desiredAction);
+
+      if (modelMixer) {
+        modelMixer.update(dt);
       }
 
-      const previousOverrideMaterial = scene.overrideMaterial;
-      const previousBackground = scene.background;
+      // --------------------------------------------------
+      // MODEL AND SKELETON UPDATE
+      // --------------------------------------------------
 
-      scene.background = normalDepthBackground;
+      if (modelGroup) {
+        modelGroup.updateMatrixWorld(true);
+      }
 
-      scene.overrideMaterial = depthMaterial;
-      renderer.setRenderTarget(depthTarget);
-      renderer.clear();
-      renderer.render(scene, activeCamera);
+      for (const skeleton of skeletons) {
+        skeleton.update();
+      }
 
-      scene.overrideMaterial = normalMaterial;
-      renderer.setRenderTarget(normalTarget);
-      renderer.clear();
-      renderer.render(scene, activeCamera);
+      const scatterAmount = getParticleScatterAmount();
 
-      renderer.setRenderTarget(null);
-      scene.overrideMaterial = previousOverrideMaterial;
-      scene.background = previousBackground;
+      if (modelGroup) modelGroup.updateMatrixWorld(true);
+      for (const skeleton of skeletons) skeleton.update();
 
-      composer.render();
+      for (const batch of particleBatches) {
+        const positions = batch.positionAttribute.array as Float32Array;
+        const triangleIndices = batch.triangleIndices;
+        const barycentric = batch.barycentric;
+        const particleCount = triangleIndices.length / 3;
+
+        for (let i = 0; i < particleCount; i++) {
+          const offset = i * 3;
+          const i0 = triangleIndices[offset];
+          const i1 = triangleIndices[offset + 1];
+          const i2 = triangleIndices[offset + 2];
+
+          const w0 = barycentric[offset];
+          const w1 = barycentric[offset + 1];
+          const w2 = barycentric[offset + 2];
+
+          batch.mesh.getVertexPosition(i0, tempA);
+          batch.mesh.getVertexPosition(i1, tempB);
+          batch.mesh.getVertexPosition(i2, tempC);
+
+          tempPosition
+            .copy(tempA)
+            .multiplyScalar(w0)
+            .addScaledVector(tempB, w1)
+            .addScaledVector(tempC, w2)
+            .applyMatrix4(batch.mesh.matrixWorld);
+
+          positions[offset] =
+            tempPosition.x +
+            batch.scatterOffsets[offset] * scatterAmount;
+
+          positions[offset + 1] =
+            tempPosition.y +
+            batch.scatterOffsets[offset + 1] * scatterAmount;
+
+          positions[offset + 2] =
+            tempPosition.z +
+            batch.scatterOffsets[offset + 2] * scatterAmount;
+        }
+
+        batch.positionAttribute.needsUpdate = true;
+      }
+
+      // --------------------------------------------------
+      // THEME SYNCHRONIZATION
+      // --------------------------------------------------
+
+      const themeProgress = THREE.MathUtils.clamp(
+        invertFactorRef.current,
+        0,
+        1
+      );
+
+      targetParticleColor
+        .copy(lightPageParticleColor)
+        .lerp(darkPageParticleColor, themeProgress);
+
+      particleMaterial.color.lerp(
+        targetParticleColor,
+        1 - Math.exp(-dt * 6)
+      );
+
+      particleMaterial.opacity =
+        0.98 - scatterAmount * 0.18;
+
+      // --------------------------------------------------
+      // AMBIENT PARTICLE ANIMATION
+      // --------------------------------------------------
+
+      if (ambientField) {
+        const field = ambientField;
+
+        for (let i = 0; i < field.ages.length; i++) {
+          field.ages[i] += field.lifeSpeeds[i] * dt;
+
+          if (field.ages[i] >= 1) {
+            field.respawn(i);
+            continue;
+          }
+
+          const offset = i * 3;
+          field.positions[offset] += field.driftX[i] * dt;
+          field.positions[offset + 1] += field.driftY[i] * dt;
+
+          const fade = Math.sin(Math.PI * field.ages[i]);
+          field.opacities[i] =
+            fade * fade * field.peakOpacities[i];
+        }
+
+        const positions = field.geometry.getAttribute(
+          "position"
+        ) as THREE.BufferAttribute;
+        const opacities = field.geometry.getAttribute(
+          "aOpacity"
+        ) as THREE.BufferAttribute;
+
+        positions.needsUpdate = true;
+        opacities.needsUpdate = true;
+        field.material.uniforms.uColor.value.copy(
+          particleMaterial.color
+        );
+      }
+
+      renderer.render(scene, defaultCamera);
     };
 
     animate();
+
+    // --------------------------------------------------
+    // CLEANUP
+    // --------------------------------------------------
 
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
 
       if (rafSize) cancelAnimationFrame(rafSize);
-      ro.disconnect();
+      resizeObserver.disconnect();
 
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener(
-        "orientationchange",
-        onOrientationChange
-      );
+      window.removeEventListener("resize", requestResize);
+      window.removeEventListener("orientationchange", requestResize);
 
       if (modelMixer) {
         modelMixer.stopAllAction();
-        try {
-          modelMixer.uncacheRoot(modelMixer.getRoot());
-        } catch {}
+        modelMixer.uncacheRoot(modelMixer.getRoot());
         modelMixer = null;
       }
 
-      if (camMixer) {
-        camMixer.stopAllAction();
-        try {
-          camMixer.uncacheRoot(camMixer.getRoot());
-        } catch {}
-        camMixer = null;
-        camClip = null;
+      particleTransition = null;
+      queuedAction = null;
+
+      if (ambientField) {
+        scene.remove(ambientField.points);
+        ambientField.geometry.dispose();
+        ambientField.material.dispose();
+        ambientField = null;
       }
+
+      for (const batch of particleBatches) {
+        scene.remove(batch.points);
+        batch.points.geometry.dispose();
+      }
+      particleBatches.length = 0;
 
       if (model) {
         model.traverse((object) => {
@@ -1157,15 +1678,18 @@ export default function AndroidBasic({
 
           materials.forEach((material) => material.dispose());
         });
-        scene.remove(model);
+
         model = null;
       }
 
-      normalTarget.dispose();
-      depthTarget.dispose();
-      normalMaterial.dispose();
-      depthMaterial.dispose();
-      composer.dispose();
+      if (modelGroup) {
+        scene.remove(modelGroup);
+        modelGroup = null;
+      }
+
+      particleMaterial.dispose();
+      particleTexture.dispose();
+      dracoLoader.dispose();
       renderer.dispose();
       setReady(false);
     };
@@ -1295,6 +1819,10 @@ export default function AndroidBasic({
     backgroundFadeIn * backgroundFadeOut
   );
 
+  useLayoutEffect(() => {
+    invertFactorRef.current = invertFactor;
+  }, [invertFactor]);
+
   const introControlOpacity = ready ? clamp01(1 - scrollT / 0.22) : 0;
 
   const showMobileHamburger =
@@ -1321,7 +1849,6 @@ export default function AndroidBasic({
 
   return (
     <div style={{ '--invert-factor': invertFactor } as React.CSSProperties}>
-      {/* REAL scroll targets for #hash */}
       {Array.from({ length: SECTION_COUNT + 1 }).map((_, i) =>
         i < SECTION_COUNT ? (
           <div
@@ -1401,7 +1928,7 @@ export default function AndroidBasic({
           aria-hidden
           style={{ opacity: ready ? 1 : 0, transition: "opacity 600ms ease" }}
         >
-          <canvas ref={canvasRef} className="first_section__canvas" />
+          <canvas ref={canvasRef} className="first_section__canvas" style={{ filter: "none" }} />
         </div>
 
         <div
@@ -1511,7 +2038,6 @@ export default function AndroidBasic({
           }}
           aria-hidden={heroOpacity < 0.05}
         >
-          {/* removed canvas from here */}
           <div className="first_section__grid">
             <div className="first_section__left">
               <h1 className="first_section__brand">{copy.hero.brand}</h1>
@@ -2067,7 +2593,6 @@ export default function AndroidBasic({
                       onClick={() => setIsPortfolioFullscreen(false)}
                     >
 
-                      {/* ZATVORENIE */}
                       <button
                         type="button"
                         className="portfolio-lightbox__close"
@@ -2081,7 +2606,6 @@ export default function AndroidBasic({
                       </button>
 
 
-                      {/* PREDCHÁDZAJÚCI OBRÁZOK */}
                       <button
                         type="button"
                         className="portfolio-lightbox__nav portfolio-lightbox__nav--prev"
@@ -2095,7 +2619,6 @@ export default function AndroidBasic({
                       </button>
 
 
-                      {/* ZVÄČŠENÝ OBRÁZOK */}
                       <div
                         className="portfolio-lightbox__content"
                         onClick={(event) => event.stopPropagation()}
@@ -2126,7 +2649,6 @@ export default function AndroidBasic({
                       </div>
 
 
-                      {/* NASLEDUJÚCI OBRÁZOK */}
                       <button
                         type="button"
                         className="portfolio-lightbox__nav portfolio-lightbox__nav--next"

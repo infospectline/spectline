@@ -1,7 +1,13 @@
+/* --------------------------------------------------
+   GLOBAL FOUNDATION
+-------------------------------------------------- */
+
 @import "tailwindcss";
 
 :root {
   --spectline-viewport-height: 100svh;
+  --invert-factor: 0;
+  --scrollbar-invert-factor: 0;
 }
 
 @media (max-width: 900px) {
@@ -12,11 +18,19 @@
   }
 }
 
+/* --------------------------------------------------
+   THEME AND SCROLLBARS
+-------------------------------------------------- */
+
 html {
   scrollbar-color:
     color-mix(in srgb, #A7A7A7, #2A2A2A calc(var(--scrollbar-invert-factor, 0) * 100%))
     color-mix(in srgb, #F4F4F4, #050505 calc(var(--scrollbar-invert-factor, 0) * 100%));
 }
+
+/* --------------------------------------------------
+   FORM AUTOFILL
+-------------------------------------------------- */
 
 div:has(> [id="home"]) [data-layer="contact"] input:-webkit-autofill,
 div:has(> [id="home"]) [data-layer="contact"] input:-webkit-autofill:hover,
@@ -28,10 +42,10 @@ div:has(> [id="home"]) [data-layer="footer"] input:-webkit-autofill,
 div:has(> [id="home"]) [data-layer="footer"] input:-webkit-autofill:hover,
 div:has(> [id="home"]) [data-layer="footer"] input:-webkit-autofill:focus {
   -webkit-text-fill-color: #19191A !important;
-  caret-color: #19191A !important;
-  box-shadow: 0 0 0 1000px rgba(231, 231, 231, 0.95) inset !important;
+  caret-color: #19191A;
+  box-shadow: 0 0 0 1000px rgba(231, 231, 231, 0.95) inset;
   -webkit-box-shadow: 0 0 0 1000px rgba(231, 231, 231, 0.95) inset !important;
-  border-color: rgba(25, 25, 26, 0.15) !important;
+  border-color: rgba(25, 25, 26, 0.15);
 }
 
 ::-webkit-scrollbar {
@@ -51,6 +65,10 @@ div:has(> [id="home"]) [data-layer="footer"] input:-webkit-autofill:focus {
   background: color-mix(in srgb, #8F8F8F, #3A3A3A calc(var(--scrollbar-invert-factor, 0) * 100%));
 }
 
+/* --------------------------------------------------
+   PAGE THEME
+-------------------------------------------------- */
+
 div:has(> [id="home"]) {
   background-color: color-mix(in srgb, #F4F4F4, #0A0A0A calc(var(--invert-factor, 0) * 100%));
 }
@@ -65,24 +83,28 @@ div:has(> [id="home"]) h3,
 div:has(> [id="home"]) p,
 div:has(> [id="home"]) .first_section__brand,
 div:has(> [id="home"]) .first_section__desc {
-  color: color-mix(in srgb, #19191A, #ffffff calc(var(--invert-factor, 0) * 100%)) !important;
+  color: color-mix(in srgb, #19191A, #ffffff calc(var(--invert-factor, 0) * 100%));
 }
 
 div:has(> [id="home"]) .first_section__panel,
 div:has(> [id="home"]) .first_section__card,
 div:has(> [id="home"]) .first_section__btn {
-  background-color: color-mix(in srgb, rgba(0, 0, 0, 0.04), rgba(255, 255, 255, 0.06) calc(var(--invert-factor, 0) * 100%)) !important;
-  border-color: color-mix(in srgb, rgba(0, 0, 0, 0.15), rgba(255, 255, 255, 0.12) calc(var(--invert-factor, 0) * 100%)) !important;
+  background-color: color-mix(in srgb, rgba(0, 0, 0, 0.04), rgba(255, 255, 255, 0.06) calc(var(--invert-factor, 0) * 100%));
+  border-color: color-mix(in srgb, rgba(0, 0, 0, 0.15), rgba(255, 255, 255, 0.12) calc(var(--invert-factor, 0) * 100%));
 }
 
 div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
-  background-color: rgba(239, 68, 68, 0.32) !important;
-  border-color: rgba(252, 165, 165, 0.38) !important;
-  color: rgba(244, 244, 244, 0.96) !important;
+  background-color: rgba(239, 68, 68, 0.32);
+  border-color: rgba(252, 165, 165, 0.38);
+  color: rgba(244, 244, 244, 0.96);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
     0 8px 26px rgba(239, 68, 68, 0.12);
 }
+
+/* --------------------------------------------------
+   RADIAL NAVIGATION
+-------------------------------------------------- */
 
 .radial-menu__center {
   background-color: color-mix(
@@ -128,21 +150,25 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
   );
 }
 
+/* --------------------------------------------------
+   MOBILE NAVIGATION
+-------------------------------------------------- */
+
 .mobile-nav-trigger__hamburger {
   display: none;
 }
 
 @media (max-width: 900px) {
-  .mobile-nav-trigger {
+  div:has(> [id="home"]) .mobile-nav-trigger {
     position: relative;
-    display: grid !important;
+    display: grid;
     place-items: center;
 
     width: 116px;
     height: 42px;
     min-width: 0;
 
-    padding: 0 16px !important;
+    padding: 0 16px;
     overflow: hidden;
 
     background-color: color-mix(
@@ -150,21 +176,21 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
       rgba(244, 244, 244, 0.84),
       rgba(25, 25, 26, 0.9)
         calc(var(--invert-factor, 0) * 100%)
-    ) !important;
+    );
 
     color: color-mix(
       in srgb,
       #19191A,
       #C7C7C7
         calc(var(--invert-factor, 0) * 100%)
-    ) !important;
+    );
 
     border-color: color-mix(
       in srgb,
       rgba(25, 25, 26, 0.16),
       rgba(199, 199, 199, 0.18)
         calc(var(--invert-factor, 0) * 100%)
-    ) !important;
+    );
 
     transition:
       width 320ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -172,17 +198,17 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
       background-color 400ms ease,
       border-color 400ms ease,
       color 400ms ease,
-      transform 160ms ease !important;
+      transform 160ms ease;
   }
 
   .mobile-nav-trigger:active {
     transform: scale(0.94);
   }
 
-  .mobile-nav-trigger--menu {
+  div:has(> [id="home"]) .mobile-nav-trigger--menu {
     width: 52px;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .mobile-nav-trigger__language,
@@ -230,6 +256,10 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
   }
 }
 
+/* --------------------------------------------------
+   MOBILE MENU BACKDROP
+-------------------------------------------------- */
+
 @media (max-width: 900px) {
   .radial-menu__overlay {
     background: rgba(10, 10, 10, 0.1);
@@ -255,9 +285,9 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
   }
 }
 
-.first_section__canvas {
-  filter: invert(calc((1 - var(--invert-factor, 0)) * 85%));
-}
+/* --------------------------------------------------
+   CANVAS AND VIEWPORT
+-------------------------------------------------- */
 
 @media (min-width: 900px) {
   .launcher__inner {
@@ -266,8 +296,14 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
   }
 }
 
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
 @media (max-width: 900px) {
   html {
@@ -294,10 +330,9 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
   }
 }
 
-html,
-body {
-  height: 100%;
-}
+/* --------------------------------------------------
+   DOCUMENT BASE
+-------------------------------------------------- */
 
 html,
 body {
@@ -316,30 +351,31 @@ body {
   background: #0A0A0A;
 }
 
-.scroll_hint_wrap{
-  position:absolute;
-  left:50%;
-  bottom:28px;
-  transform:translateX(-50%);
-  pointer-events:none;
+/* --------------------------------------------------
+   SCROLL INDICATOR
+-------------------------------------------------- */
+
+.scroll_hint_wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  z-index: 5;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
-.scroll_hint{
+.scroll_hint {
   font-size:21px;
   letter-spacing:0.26em;
   text-transform:uppercase;
-  color:rgba(25,25,26,0.62);
+  color: color-mix(in srgb, rgba(25, 25, 26, 0.62), rgba(244, 244, 244, 0.72) calc(var(--invert-factor, 0) * 100%));
   animation:scrollHintPulse 3.2s ease-in-out infinite;
   white-space: nowrap;
 }
 
-.scroll_hint_wrap{
-  z-index: 5;
-}
-
-@keyframes scrollHintPulse{
-  0%,100%{ opacity:0.55; transform:translateY(0); }
-  50%{ opacity:1; transform:translateY(6px); }
+@keyframes scrollHintPulse {
+  0%, 100% { opacity: 0.55; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(6px); }
 }
 
 @keyframes planInRight {
@@ -351,7 +387,11 @@ body {
   from { opacity: 0; transform: translateX(-18px); }
   to   { opacity: 1; transform: translateX(0); }
 }
- 
+
+/* --------------------------------------------------
+   HERO SECTION
+-------------------------------------------------- */
+
 .first_section__grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -359,7 +399,6 @@ body {
   max-width: 900px;
   margin: 0 auto;
   padding: 0;
-  max-width: 900px;
   justify-items: center;
   text-align: center;
 }
@@ -388,9 +427,11 @@ body {
 }
 
 .first_section__canvas {
+  display: block;
   width: 100%;
   height: 100%;
-  display: block;
+  background: transparent;
+  filter: none;
 }
 
 .first_section--ready {
@@ -466,18 +507,18 @@ body {
 }
 
 div:has(> [id="home"]) .first_section__btn.first_section__btn--primary:hover {
-  background-color: rgba(59, 130, 246, 0.34) !important;
-  border-color: rgba(147, 197, 253, 0.38) !important;
-  color: rgba(244, 244, 244, 0.96) !important;
+  background-color: rgba(59, 130, 246, 0.34);
+  border-color: rgba(147, 197, 253, 0.38);
+  color: rgba(244, 244, 244, 0.96);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 8px 26px rgba(59, 130, 246, 0.12);
 }
 
 div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
-  background-color: rgba(34, 197, 94, 0.34) !important;
-  border-color: rgba(134, 239, 172, 0.38) !important;
-  color: rgba(244, 244, 244, 0.96) !important;
+  background-color: rgba(34, 197, 94, 0.34);
+  border-color: rgba(134, 239, 172, 0.38);
+  color: rgba(244, 244, 244, 0.96);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 8px 26px rgba(34, 197, 94, 0.12);
@@ -542,7 +583,9 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   transform: scale(1.03);
 }
 
-/* Launcher Screen */
+/* --------------------------------------------------
+   LAUNCHER SCREEN
+-------------------------------------------------- */
 
 .launcher {
   position: fixed;
@@ -607,8 +650,8 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
 }
 
 .launcher-logo__path {
-  fill: none !important;
-  stroke: currentColor !important;
+  fill: none;
+  stroke: currentColor;
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -689,13 +732,17 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   transition: width 120ms linear;
 }
 
+/* --------------------------------------------------
+   PERSPECTIVE UTILITIES
+-------------------------------------------------- */
+
 .perspective-1000 {
   perspective: 1000px;
 }
 
-/* =========================================
-   SPECTLINE PORTFOLIO FULLSCREEN GALLERY
-========================================= */
+/* --------------------------------------------------
+   PORTFOLIO LIGHTBOX
+-------------------------------------------------- */
 
 .portfolio-lightbox {
   position: fixed;
@@ -716,8 +763,9 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   animation: portfolioLightboxIn 280ms ease both;
 }
 
-
-/* IMAGE CONTAINER */
+/* --------------------------------------------------
+   LIGHTBOX CONTENT
+-------------------------------------------------- */
 
 .portfolio-lightbox__content {
   position: relative;
@@ -732,7 +780,6 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   animation: portfolioLightboxImageIn 380ms
     cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-
 
 .portfolio-lightbox__image-wrap {
   position: relative;
@@ -761,16 +808,16 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
     0 0 35px rgba(255, 255, 255, 0.035);
 }
 
-
 .portfolio-lightbox__image {
-  object-fit: contain !important;
+  object-fit: contain;
 
   user-select: none;
   -webkit-user-drag: none;
 }
 
-
-/* IMAGE TITLE */
+/* --------------------------------------------------
+   LIGHTBOX CAPTION
+-------------------------------------------------- */
 
 .portfolio-lightbox__caption {
   text-align: center;
@@ -793,8 +840,9 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   margin-top: 5px;
 }
 
-
-/* CLOSE BUTTON */
+/* --------------------------------------------------
+   LIGHTBOX CLOSE CONTROL
+-------------------------------------------------- */
 
 .portfolio-lightbox__close {
   position: absolute;
@@ -831,8 +879,9 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   opacity: 0.7;
 }
 
-
-/* NAVIGATION ARROWS */
+/* --------------------------------------------------
+   LIGHTBOX NAVIGATION
+-------------------------------------------------- */
 
 .portfolio-lightbox__nav {
   position: absolute;
@@ -877,8 +926,9 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   right: clamp(12px, 2.5vw, 42px);
 }
 
-
-/* ANIMATIONS */
+/* --------------------------------------------------
+   LIGHTBOX ANIMATIONS
+-------------------------------------------------- */
 
 @keyframes portfolioLightboxIn {
   from {
@@ -902,8 +952,9 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   }
 }
 
-
-/* MOBILE */
+/* --------------------------------------------------
+   LIGHTBOX MOBILE LAYOUT
+-------------------------------------------------- */
 
 @media (max-width: 900px) {
 
@@ -967,18 +1018,23 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
   }
 }
 
-
-/* REDUCED MOTION */
+/* --------------------------------------------------
+   REDUCED MOTION
+-------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
   .portfolio-lightbox,
   .portfolio-lightbox__content,
   .portfolio-lightbox__nav,
   .portfolio-lightbox__close {
-    animation: none !important;
-    transition: none !important;
+    animation: none;
+    transition: none;
   }
 }
+
+/* --------------------------------------------------
+   LAUNCHER ANIMATIONS
+-------------------------------------------------- */
 
 @keyframes launcherEnter {
   from {
@@ -1082,5 +1138,3 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
     stroke-dashoffset: 0;
   }
 }
-
-
