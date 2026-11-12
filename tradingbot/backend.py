@@ -2206,15 +2206,26 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 }))
 
     except AuthenticationError as error:
-        await reject_websocket(websocket, code=1008, reason=str(error))
+        LOGGER.warning(
+            "WebSocket authentication rejected: %s",
+            str(error),
+        )
+        await reject_websocket(
+            websocket,
+            code=1008,
+            reason=str(error),
+        )
+
     except WebSocketDisconnect:
         LOGGER.info("WebSocket disconnected.")
+
     except Exception as error:
         LOGGER.exception("WebSocket connection failed: %s", error)
         try:
             await reject_websocket(websocket, code=1011, reason="Backend connection failed.")
         except Exception:
             pass
+            
     finally:
         if runtime is not None:
             disconnect_customer_connection(websocket, runtime)

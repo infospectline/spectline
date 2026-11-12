@@ -702,9 +702,22 @@ export default function AndroidBasic({
     let particleTransition: ParticleTransition | null = null;
     let queuedAction: string | null = null;
 
-    const PARTICLE_SCATTER_SECONDS = 0.62;
+    const PARTICLE_SCATTER_SECONDS = 0.85;
     const PARTICLE_HOLD_SECONDS = 0.12;
-    const PARTICLE_REFORM_SECONDS = 0.90;
+    const PARTICLE_REFORM_SECONDS = 1.05;
+
+    // PARTICLE FOG CHARACTER
+
+    // 72 % particles form the dense silhouette.
+    const PARTICLE_FOG_CORE_SHARE = 0.72;
+
+    // Dense particle cloud near the original body.
+    const PARTICLE_FOG_CORE_MIN = 0.08;
+    const PARTICLE_FOG_CORE_MAX = 0.28;
+
+    // Sparse particles forming the outer fog.
+    const PARTICLE_FOG_OUTER_MIN = 0.30;
+    const PARTICLE_FOG_OUTER_MAX = 0.82;
 
     const particleBatches: {
       mesh: THREE.Mesh;
@@ -955,6 +968,7 @@ export default function AndroidBasic({
           const py = positions[offset + 1];
           const pz = positions[offset + 2];
 
+                    
           direction.set(px, py, pz);
 
           if (direction.lengthSq() < 0.0001) {
@@ -967,18 +981,36 @@ export default function AndroidBasic({
 
           direction.normalize();
 
-          direction.x += (Math.random() - 0.5) * 0.8;
-          direction.y += (Math.random() - 0.5) * 0.65 + 0.22;
-          direction.z += (Math.random() - 0.5) * 0.8;
+          // Controlled directional turbulence.
+          // Keeps the overall human silhouette readable.
+          direction.x += (Math.random() - 0.5) * 0.45;
+          direction.y += (Math.random() - 0.5) * 0.32 + 0.12;
+          direction.z += (Math.random() - 0.5) * 0.45;
 
           direction.normalize();
 
-          const distance =
-            modelSize.y * (0.24 + Math.random() * 0.38);
+          // Choose between dense core and outer fog.
+          const isOuterFogParticle =
+            Math.random() > PARTICLE_FOG_CORE_SHARE;
 
+          const minSpread = isOuterFogParticle
+            ? PARTICLE_FOG_OUTER_MIN
+            : PARTICLE_FOG_CORE_MIN;
+
+          const maxSpread = isOuterFogParticle
+            ? PARTICLE_FOG_OUTER_MAX
+            : PARTICLE_FOG_CORE_MAX;
+
+          // Calculate distance relative to model height.
+          const distance =
+            modelSize.y *
+            (minSpread + Math.random() * (maxSpread - minSpread));
+
+          // Store final particle displacement.
           offsets[offset] = direction.x * distance;
           offsets[offset + 1] = direction.y * distance;
           offsets[offset + 2] = direction.z * distance;
+
         }
       }
 
@@ -1584,8 +1616,19 @@ export default function AndroidBasic({
         1 - Math.exp(-dt * 6)
       );
 
-      particleMaterial.opacity =
-        0.98 - scatterAmount * 0.18;
+      // Particles become larger and softer during dispersion.
+      particleMaterial.size = THREE.MathUtils.lerp(
+        0.016,
+        0.024,
+        scatterAmount
+      );
+
+      // Reduce opacity to create a fog-like appearance.
+      particleMaterial.opacity = THREE.MathUtils.lerp(
+        0.98,
+        0.76,
+        scatterAmount
+      );
 
       // --------------------------------------------------
       // AMBIENT PARTICLE ANIMATION

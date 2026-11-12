@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -107,6 +108,7 @@ export default function DashboardPage() {
   const [hydrated, setHydrated] = useState(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -242,6 +244,15 @@ export default function DashboardPage() {
     ? "translate-x-14 bg-[#19191A] text-[#F4F4F4]"
     : "translate-x-0 bg-[#E7E7E7] text-[#19191A]";
 
+  function closeSidebar() {
+    // Return keyboard focus before hiding the sidebar.
+    menuButtonRef.current?.focus();
+
+    setSidebarOpen(false);
+    setAccountOpen(false);
+    setSettingsOpen(false);
+  }
+
   useEffect(() => {
     const savedLanguage =
       window.localStorage.getItem("spectline-lang");
@@ -306,6 +317,12 @@ export default function DashboardPage() {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+
+      const sidebar = document.getElementById("dashboard-sidebar");
+
+      if (sidebar?.contains(document.activeElement)) {
+        menuButtonRef.current?.focus();
+      }
 
       setSidebarOpen(false);
       setNotificationsOpen(false);
@@ -729,6 +746,7 @@ export default function DashboardPage() {
 
             <button
               type="button"
+              ref={menuButtonRef}
               aria-label={copy.header.menuAriaLabel}
               aria-expanded={sidebarOpen}
               aria-controls="dashboard-sidebar"
@@ -1352,11 +1370,7 @@ export default function DashboardPage() {
         tabIndex={sidebarOpen ? 0 : -1}
         aria-hidden={!sidebarOpen}
         aria-label={copy.sidebar.closeAriaLabel}
-        onClick={() => {
-          setSidebarOpen(false);
-          setAccountOpen(false);
-          setSettingsOpen(false);
-        }}
+        onClick={closeSidebar}
         className={`
           fixed inset-0 z-40
           ${backdropThemeClass}
@@ -1378,7 +1392,6 @@ export default function DashboardPage() {
           flex w-full max-w-sm
           flex-col
           border-l
-          shadow-[-22px_0_70px_rgba(25,25,26,0.18)]
           backdrop-blur-xl
           transition-colors duration-300
           transition-transform duration-300 ease-out
@@ -1412,11 +1425,7 @@ export default function DashboardPage() {
           <button
             type="button"
             aria-label={copy.sidebar.closeAriaLabel}
-            onClick={() => {
-              setSidebarOpen(false);
-              setAccountOpen(false);
-              setSettingsOpen(false);
-            }}
+            onClick={closeSidebar}
             className={`${iconButtonClass} ${blueHoverClass}`}
           >
             <X className="h-5 w-5" aria-hidden="true" />

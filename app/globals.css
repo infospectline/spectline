@@ -803,9 +803,6 @@ div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
 
   border: 1px solid rgba(244, 244, 244, 0.3);
 
-  box-shadow:
-    0 25px 100px rgba(0, 0, 0, 0.65),
-    0 0 35px rgba(255, 255, 255, 0.035);
 }
 
 .portfolio-lightbox__image {
