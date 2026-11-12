@@ -29,6 +29,8 @@ WEB_MODE = os.getenv("WEB_MODE", "false").strip().lower() == "true"
 TICKET_SECRET_ENV = "TRADINGBOT_SHARED_SECRET"
 TICKET_AUDIENCE = "spectline-tradingbot"
 TICKET_ISSUER_ENV = "TRADINGBOT_TICKET_ISSUER"
+DEFAULT_STRATEGY_ID = "DEFAULT_STRATEGY"
+DEFAULT_TRADINGBOT_ID = "DEFAULT_TRADINGBOT"
 
 MAX_TICKET_LENGTH = 8_192
 CLOCK_SKEW_SECONDS = 5
@@ -182,10 +184,12 @@ def verify_tradingbot_ticket(
         BASE64URL(JSON payload).BASE64URL(HMAC-SHA256 signature)
 
     Required payload claims:
-        aud, sub, strategy_id, tradingbot_id, exp
+        aud, sub, exp
 
     Optional payload claims:
-        iat, nbf, jti, iss
+        strategy_id, tradingbot_id, iat, nbf, jti, iss
+
+    Missing strategy_id and tradingbot_id claims use stable defaults.
     """
     if not isinstance(ticket, str) or not ticket:
         raise AuthenticationError("WebSocket ticket is missing.")
@@ -241,8 +245,18 @@ def verify_tradingbot_ticket(
         raise AuthenticationError("Invalid iss claim.")
 
     user_id = _required_string_claim(payload, "sub")
-    strategy_id = _required_string_claim(payload, "strategy_id")
-    tradingbot_id = _required_string_claim(payload, "tradingbot_id")
+
+    strategy_id = (
+        _required_string_claim(payload, "strategy_id")
+        if "strategy_id" in payload
+        else DEFAULT_STRATEGY_ID
+    )
+
+    tradingbot_id = (
+        _required_string_claim(payload, "tradingbot_id")
+        if "tradingbot_id" in payload
+        else DEFAULT_TRADINGBOT_ID
+    )
 
     expires_at = _read_integer_claim(
         payload,

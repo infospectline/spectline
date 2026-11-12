@@ -31,6 +31,9 @@ DEFAULT_LOCAL_TRADINGBOT_ID = os.getenv(
     "DEFAULT_TRADINGBOT",
 )
 
+DEFAULT_WEB_STRATEGY_ID = "DEFAULT_STRATEGY"
+DEFAULT_WEB_TRADINGBOT_ID = "DEFAULT_TRADINGBOT"
+
 DEFAULT_MODEL_FILENAME = "model.pth"
 DEFAULT_SETUP_FILENAME = "setups.json"
 DEFAULT_CANDLE_FILENAME = "candles.csv"
@@ -179,18 +182,24 @@ def resolve_identity(
 ) -> ClientIdentity:
     """Build an identity from trusted backend/authentication values.
 
-    In WEB_MODE, all identity fields must be supplied by the authenticated
-    backend context. In local mode, stable defaults are used when the optional
-    identity fields are not supplied.
+    In WEB_MODE, user_id must be supplied by the authenticated context.
+    Missing strategy_id and tradingbot_id use stable web defaults.
+    In local mode, stable local defaults are used when optional identity
+    fields are not supplied.
     """
     if WEB_MODE:
-        resolved_user_id = _validate_path_component(user_id, "user_id")
+        resolved_user_id = _validate_path_component(
+            user_id,
+            "user_id",
+        )
+
         resolved_strategy_id = _validate_path_component(
-            strategy_id,
+            strategy_id if strategy_id is not None else DEFAULT_WEB_STRATEGY_ID,
             "strategy_id",
         )
+
         resolved_tradingbot_id = _validate_path_component(
-            tradingbot_id,
+            tradingbot_id if tradingbot_id is not None else DEFAULT_WEB_TRADINGBOT_ID,
             "tradingbot_id",
         )
     else:
