@@ -1,4 +1,18 @@
 # lib/documents/generator/terms.py
+"""Generate Slovak and English Spectline software terms as PDFs.
+
+IMPORTANT BEFORE PUBLICATION:
+- Complete the Provider's legal identity in DATA['provider'] (full legal name,
+  full postal address, company/entrepreneur ID and any applicable tax details).
+- Confirm that the actual Spectline product workflow is accurately described.
+- Obtain Slovak/EU financial-regulatory review of the automated-trading features.
+- Align the checkout flow, subscription/payment flow and privacy notice with these Terms.
+
+This source is a drafting aid, not a legal opinion or confirmation that the product
+may be offered without an authorization. The legal classification depends on the
+actual functions and the way they are provided, not only on the wording here.
+"""
+
 import os
 from datetime import date
 from functools import partial
@@ -20,9 +34,9 @@ OUTPUT_PDF_SK = os.path.normpath(os.path.join(BASE_DIR, "..", "terms_sk.pdf"))
 OUTPUT_PDF_EN = os.path.normpath(os.path.join(BASE_DIR, "..", "terms_en.pdf"))
 
 # Expected project structure:
-# D:\\Spectline\\lib\\documents\\generator\\terms.py
-# D:\\Spectline\\public\\images\\logo_black.png
-# D:\\Spectline\\public\\fonts\\Roboto-Regular.ttf
+# <project>/lib/documents/generator/terms.py
+# <project>/public/images/logo_black.png
+# <project>/public/fonts/Roboto-Regular.ttf
 LOGO_PATH = os.path.normpath(
     os.path.join(BASE_DIR, "..", "..", "..", "public", "images", "logo_black.png")
 )
@@ -41,15 +55,19 @@ CONTENT_WIDTH = A4[0] - 4 * cm
 
 # -----------------------------------------------------------------------------
 # PROVIDER DATA
-# Complete the legal identity before publishing the generated documents.
-# The brand name alone may not be sufficient to identify the contracting party.
+# Do not publish until all legally required trader/provider identification data
+# is completed and verified. "Spectline" may be a brand, not the legal person.
 # -----------------------------------------------------------------------------
 DATA = {
-    "version": "2.0",
+    "version": "3.0",
     "website": "spectline.com",
     "provider": {
         "brand_name": "Spectline",
+        # Replace with the exact registered business name / full name of the
+        # entrepreneur. Do not leave the brand name here unless it is the legal name.
         "legal_name": "Spectline",
+        # Replace with the complete address, including street, number, postcode
+        # and municipality, as applicable to the legal form of the Provider.
         "address": "Spišská Nová Ves",
         "country_sk": "Slovenská republika",
         "country_en": "Slovak Republic",
@@ -60,34 +78,32 @@ DATA = {
         "phone": "",
         "registration": "",
     },
-    # The percentages below are defaults only. A quotation or individual
-    # agreement may set different payment and revision terms for a project.
     "commercial_defaults": {
-        "deposit_percent": 50,
         "payment_due_days": 14,
-        "included_revision_rounds": 2,
     },
 }
 
 
 LANGUAGES = {
     "sk": {
-        "title": "OBCHODNÉ PODMIENKY SPECTLINE",
+        "title": "PODMIENKY POUŽÍVANIA A OBCHODNÉ PODMIENKY SPECTLINE",
         "intro": (
-            "Tieto obchodné podmienky upravujú objednávanie a poskytovanie kreatívnych "
-            "služieb Spectline, najmä VFX, 2D a 3D animácie, 3D tvorby, motion dizajnu, "
-            "strihu, postprodukcie a súvisiacich vizuálnych výstupov. Konkrétna cenová "
-            "ponuka, objednávka alebo zmluva môže tieto podmienky doplniť alebo upraviť."
+            "Tieto podmienky upravujú prístup k softvéru Spectline a jeho používanie, "
+            "vrátane funkcií umelej inteligencie na analýzu historických obchodných dát, "
+            "prípravu a testovanie obchodných stratégií a integráciu s platformami "
+            "MetaTrader 4 a MetaTrader 5. Ak používateľ aktivuje automatizované "
+            "obchodovanie, softvér môže podľa nastavení používateľa vytvárať a odosielať "
+            "obchodné pokyny prostredníctvom jeho účtu u brokera. Obchodovanie je rizikové "
+            "a môže viesť k strate peňazí; zisk ani konkrétny výsledok nie je zaručený."
         ),
         "last_updated": "Posledná aktualizácia",
         "version": "Verzia",
         "website": "Web",
         "page": "Strana",
-        "provider_heading": "Identifikácia poskytovateľa",
         "provider_labels": {
-            "legal_name": "Obchodné meno / meno",
+            "legal_name": "Obchodné meno / meno a priezvisko",
             "brand_name": "Obchodné označenie",
-            "address": "Sídlo / adresa",
+            "address": "Sídlo / miesto podnikania",
             "country": "Krajina",
             "ico": "IČO",
             "dic": "DIČ",
@@ -99,24 +115,26 @@ LANGUAGES = {
         },
     },
     "en": {
-        "title": "SPECTLINE TERMS AND CONDITIONS",
+        "title": "SPECTLINE SOFTWARE TERMS AND CONDITIONS",
         "intro": (
-            "These Terms and Conditions govern the ordering and provision of Spectline's "
-            "creative services, including VFX, 2D and 3D animation, 3D production, motion "
-            "design, editing, post-production and related visual deliverables. A specific "
-            "quotation, order or contract may supplement or amend these Terms."
+            "These Terms govern access to and use of Spectline software, including its "
+            "artificial-intelligence features for analysing historical trading data, "
+            "preparing and testing trading strategies, and integrating with MetaTrader 4 "
+            "and MetaTrader 5. If the user enables automated trading, the software may "
+            "generate and submit trading instructions through the user's broker account "
+            "according to the user's settings. Trading is risky and may result in loss; "
+            "no profit or particular outcome is guaranteed."
         ),
         "last_updated": "Last updated",
         "version": "Version",
         "website": "Website",
         "page": "Page",
-        "provider_heading": "Provider identification",
         "provider_labels": {
-            "legal_name": "Legal name / name",
+            "legal_name": "Legal name / full name",
             "brand_name": "Trading name",
-            "address": "Registered office / address",
+            "address": "Registered office / business address",
             "country": "Country",
-            "ico": "Company ID",
+            "ico": "Company / business ID",
             "dic": "Tax ID",
             "ic_dph": "VAT ID",
             "registration": "Registration",
@@ -125,6 +143,428 @@ LANGUAGES = {
             "website": "Website",
         },
     },
+}
+
+
+SECTIONS = {
+    "sk": [
+        {
+            "title": "1. Rozsah pôsobnosti a zmluvné dokumenty",
+            "paragraphs": [
+                "Tieto podmienky sa vzťahujú na používanie softvéru Spectline, súvisiacich aplikácií, používateľského účtu, dokumentácie, aktualizácií a podporovaných integračných funkcií (ďalej spolu len „Služba“).",
+                "Zmluva medzi Poskytovateľom a Používateľom sa skladá z týchto podmienok, informácií zobrazených pri objednávke alebo aktivácii, potvrdenia objednávky, zvoleného balíka, prípadnej samostatnej zmluvy a dokumentácie produktu. Individuálne dojednanie má prednosť pred týmito podmienkami v rozsahu, v akom je s nimi v rozpore.",
+                "Pred dokončením objednávky má Používateľ možnosť oboznámiť sa s cenou, rozsahom funkcií, dobou prístupu, prípadným opakovaným účtovaním a ďalšími podstatnými parametrami konkrétnej ponuky. Rozhodujúce sú údaje potvrdené pri danej objednávke.",
+            ],
+        },
+        {
+            "title": "2. Poskytovateľ a kontaktné údaje",
+            "paragraphs": [
+                "Poskytovateľom Služby a zmluvnou stranou je osoba identifikovaná v nasledujúcich údajoch. Obchodné označenie Spectline je značkou Služby; samo osebe nenahrádza zákonné identifikačné údaje podnikateľa alebo právnickej osoby.",
+            ],
+            "bullets": ["{{provider_lines_sk}}"],
+        },
+        {
+            "title": "3. Definície",
+            "paragraphs": ["Na účely týchto podmienok:"],
+            "bullets": [
+                "„Poskytovateľ“ je osoba uvedená v článku 2.",
+                "„Používateľ“ je fyzická alebo právnická osoba, ktorá si vytvorí účet, objedná Službu alebo ju používa.",
+                "„Softvér“ alebo „Spectline“ je softvérové riešenie vrátane jeho AI funkcií, analytických, tréningových, testovacích a integračných komponentov sprístupnených v rámci zvoleného balíka.",
+                "„Obchodné dáta“ sú historické alebo aktuálne údaje o obchodoch, účtoch, cenách, nastaveniach a ďalšie údaje, ktoré Používateľ poskytne alebo sprístupní Softvéru.",
+                "„Broker“ je tretia strana, ktorá vedie obchodný účet Používateľa alebo poskytuje prístup na trh.",
+                "„Obchodná platforma“ je najmä MetaTrader 4 alebo MetaTrader 5 a jej príslušné technické rozhrania.",
+                "„Automatizované obchodovanie“ je funkcia, pri ktorej Softvér po aktivácii Používateľom môže podľa dostupných nastavení a pravidiel vytvárať alebo odosielať obchodné pokyny prostredníctvom pripojeného účtu.",
+                "„Spotrebiteľ“ je fyzická osoba, ktorá pri uzatváraní a plnení zmluvy nekoná v rámci svojej podnikateľskej činnosti alebo povolania.",
+            ],
+        },
+        {
+            "title": "4. Predmet Služby a jej funkcie",
+            "paragraphs": [
+                "Služba poskytuje prístup k softvérovým funkciám Spectline v rozsahu konkrétneho zakúpeného alebo aktivovaného balíka. Podľa dostupnej verzie môže zahŕňať import alebo spracovanie Obchodných dát, analýzu obchodných vzorcov pomocou AI, tréning alebo testovanie stratégie, zobrazovanie analytických výstupov a integráciu s MetaTrader 4 alebo MetaTrader 5.",
+                "Ak Používateľ aktivuje funkciu automatizovaného obchodovania a dokončí potrebné prepojenie, Softvér môže generovať a odosielať obchodné pokyny na účet Používateľa podľa zvolených alebo potvrdených nastavení. Používateľ berie na vedomie, že takéto pokyny môžu byť odoslané bez samostatného manuálneho potvrdenia každého jednotlivého obchodu.",
+                "Presný rozsah funkcií, podporované platformy, technické požiadavky, dostupné trhy a prípadné limity určuje aktuálna dokumentácia a ponuka konkrétneho balíka. Funkcia, ktorá nie je v balíku alebo dokumentácii výslovne uvedená, sa nepovažuje za súčasť Služby.",
+            ],
+        },
+        {
+            "title": "5. Regulačný charakter činnosti a hranice Služby",
+            "paragraphs": [
+                "Tieto podmienky upravujú sprístupnenie a používanie Softvéru. Samotné označenie produktu ako softvéru alebo technického nástroja však nerozhoduje o právnej klasifikácii jeho skutočných funkcií. Rozhodujúci je reálny spôsob fungovania, miera rozhodovacej voľnosti, oprávnenia k účtu Používateľa a spôsob, akým sa pokyny vytvárajú a vykonávajú.",
+                "Poskytovateľ neposkytuje na základe týchto podmienok osobné investičné odporúčania zohľadňujúce individuálnu finančnú situáciu Používateľa, ani sa týmito podmienkami neuzatvára zmluva o riadení portfólia alebo o vykonávaní pokynov klienta. Žiadne ustanovenie však nemení právnu povahu činnosti, ak by konkrétna funkcia alebo spôsob jej prevádzky podľa záväzných právnych predpisov predstavovali regulovanú investičnú službu alebo činnosť.",
+                "Funkcia, ktorá by predstavovala regulovanú investičnú službu alebo činnosť, môže byť poskytovaná len vtedy a takým subjektom, ktorý na to má potrebné oprávnenie alebo sa môže oprieť o uplatniteľnú zákonnú výnimku. Ak je to potrebné, jej poskytovanie sa upraví samostatnou zmluvou a príslušnými regulačnými dokumentmi. Tieto podmienky samy osebe nie sú povolením na poskytovanie investičných služieb.",
+                "Používateľ nesmie považovať analytické výstupy, signály, skóre, spätné testy ani správanie AI modelu za osobné investičné poradenstvo alebo garanciu vhodnosti konkrétneho obchodu pre jeho situáciu.",
+            ],
+        },
+        {
+            "title": "6. Upozornenie na riziká obchodovania",
+            "paragraphs": [
+                "Obchodovanie s finančnými nástrojmi, menami, CFD, derivátmi alebo inými produktmi dostupnými cez Brokera je rizikové. Riziko je osobitne vysoké pri produktoch s finančnou pákou. Hodnota účtu môže rýchlo klesnúť a Používateľ môže stratiť časť alebo celý kapitál určený na obchodovanie. V závislosti od produktu, zmluvy s Brokerom a uplatniteľnej ochrany môže strata za určitých okolností presiahnuť pôvodne vyčlenenú sumu.",
+                "Používateľ obchoduje na vlastné riziko a mal by obchodovať iba s prostriedkami, ktorých stratu si môže dovoliť. Pred použitím reálneho účtu by mal Softvér a nastavenia dôkladne otestovať na demo účte, porozumieť obchodovaným produktom a nezávisle posúdiť riziko stratégie.",
+                "Žiadna stratégia, algoritmus, AI model, historický výsledok ani spätný test neodstraňuje trhové riziko. Stop Loss, Take Profit ani iné ochranné nastavenie nemusia byť vykonané za očakávanú cenu alebo v očakávanom čase, napríklad pri cenových medzerách, nízkej likvidite, volatilite alebo výpadku spojenia.",
+                "Používateľ by nemal aktivovať automatizované obchodovanie, ak nerozumie jeho fungovaniu, rizikovým parametrom a spôsobu zastavenia obchodovania.",
+            ],
+        },
+        {
+            "title": "7. AI analýza, historické dáta a výkonnosť",
+            "paragraphs": [
+                "AI funkcie analyzujú Obchodné dáta a môžu identifikovať štatistické vzorce alebo vytvárať výstupy podľa dostupných dát, modelov a nastavení. Výsledok závisí od kvality, úplnosti, reprezentatívnosti a správnosti vstupných dát, ako aj od použitej metodiky a podmienok trhu.",
+                "Historická výkonnosť, spätné testovanie, simulácie, tréningové výsledky ani výsledky iných používateľov nie sú spoľahlivým ukazovateľom budúcej výkonnosti. Výsledky simulácie sa môžu významne líšiť od reálneho obchodovania v dôsledku spreadu, komisií, swapov, sklzu, latencie, likvidity, dostupnosti cien, výpadkov alebo zmien trhových podmienok.",
+                "Poskytovateľ nezaručuje zisk, konkrétnu mieru úspešnosti, presnosť predikcií, počet obchodov, minimálny výnos, pasívny príjem ani to, že Softvér zabráni strate. Akýkoľvek príklad, graf alebo historický výsledok má iba informačný alebo ilustračný charakter, pokiaľ nie je výslovne a zákonne dohodnuté inak.",
+                "AI modely a softvérové výstupy môžu obsahovať chyby, skreslenie, neúplnosť alebo nepresnosti. Poskytovateľ môže meniť modely a algoritmy pri zachovaní dohodnutých vlastností Služby a príslušných práv Používateľa.",
+            ],
+        },
+        {
+            "title": "8. Používateľský účet a oprávnenosť používania",
+            "paragraphs": [
+                "Používateľ je povinný pri registrácii a používaní Služby uvádzať pravdivé, úplné a aktuálne údaje a udržiavať ich aktuálne. Používať Službu môže iba osoba, ktorá má právnu spôsobilosť uzatvoriť zmluvu a je oprávnená používať príslušné obchodné a brokerské služby vo svojej jurisdikcii.",
+                "Používateľ zodpovedá za ochranu prihlasovacích údajov, hesiel, prístupových tokenov a ďalších autentifikačných prostriedkov. Bezodkladne oznámi Poskytovateľovi podozrenie na neoprávnený prístup alebo bezpečnostný incident.",
+                "Používateľ nesmie sprístupniť účet inej osobe, obchádzať bezpečnostné alebo licenčné obmedzenia ani umožniť používanie Služby spôsobom, ktorý porušuje tieto podmienky alebo práva tretích osôb.",
+            ],
+        },
+        {
+            "title": "9. Brokeri a integrácia s MetaTrader 4 / MetaTrader 5",
+            "paragraphs": [
+                "Na využitie niektorých funkcií môže byť potrebný samostatný obchodný účet u Brokera, obchodná platforma MetaTrader 4 alebo MetaTrader 5 a vhodné internetové pripojenie. Účet u Brokera, jeho financovanie, obchodné podmienky, poplatky, maržové požiadavky, realizácia pokynov a ochrana klienta sa riadia samostatnou zmluvou medzi Používateľom a Brokerom.",
+                "Poskytovateľ nie je zmluvnou stranou vzťahu medzi Používateľom a Brokerom a nezodpovedá za rozhodnutia Brokera, jeho obchodné podmienky, dostupnosť, odmietnutie alebo oneskorenie pokynu, cenu realizácie, výpadky ani zmeny jeho platformy, s výnimkou zodpovednosti, ktorú nemožno podľa právnych predpisov vylúčiť.",
+                "MetaTrader, MetaQuotes a názvy Brokerov sú označeniami ich príslušných vlastníkov. Ich uvedenie slúži na identifikáciu kompatibilnej platformy a samo osebe neznamená vlastnícke prepojenie, schválenie ani partnerstvo s Poskytovateľom.",
+                "Kompatibilita sa môže líšiť podľa verzie platformy, Brokera, typu účtu, operačného systému, servera a technických rozhraní. Poskytovateľ nezaručuje podporu každej konfigurácie alebo budúcej verzie tretej strany.",
+            ],
+        },
+        {
+            "title": "10. Povinnosti a zodpovednosť Používateľa pri obchodovaní",
+            "paragraphs": [
+                "Používateľ je zodpovedný za výber Brokera a obchodovaného produktu, kontrolu oprávnenosti obchodovania, nastavenie účtu, kapitálu, finančnej páky, objemu pozícií, rizikových limitov a za rozhodnutie, či aktivuje automatizované obchodovanie.",
+                "Pred aktiváciou automatizovaného obchodovania Používateľ skontroluje parametre stratégie, podporované symboly a časové rámce, veľkosť pozície, Stop Loss, Take Profit, maximálnu prípustnú stratu a ďalšie nastavenia, ktoré sú v produkte dostupné. Používateľ je povinný priebežne primerane kontrolovať činnosť Softvéru a vedieť automatizované obchodovanie pozastaviť alebo vypnúť.",
+                "Používateľ nesmie používať Službu na manipuláciu trhu, podvod, pranie špinavých peňazí, obchádzanie sankcií, porušovanie pravidiel Brokera, obchodných pravidiel alebo právnych predpisov. Používateľ nesie zodpovednosť za svoje daňové a regulačné povinnosti súvisiace s obchodovaním.",
+                "Poskytovateľ nie je povinný sledovať obchodný účet Používateľa, upozorňovať na každý obchod alebo zasiahnuť do stratégie, pokiaľ taká povinnosť nie je výslovne dohodnutá v samostatnej zmluve a právne prípustná.",
+            ],
+        },
+        {
+            "title": "11. Obchodné dáta, vstupy a oprávnenie na ich spracovanie",
+            "paragraphs": [
+                "Používateľ zodpovedá za to, že je oprávnený Obchodné dáta a ďalšie materiály do Služby nahrať, sprístupniť a používať na účely dohodnuté v týchto podmienkach. Používateľ nesmie poskytnúť dáta, ktorých spracovanie by porušovalo práva inej osoby, zmluvu s Brokerom alebo právne predpisy.",
+                "Používateľ udeľuje Poskytovateľovi nevýhradné, územne neobmedzené oprávnenie v rozsahu potrebnom na prevádzku Služby ukladať, kopírovať, prenášať, analyzovať a technicky upravovať poskytnuté dáta na účely sprístupnenia funkcií, podpory, zabezpečenia a plnenia zmluvy. Toto oprávnenie neprevádza vlastníctvo dát na Poskytovateľa.",
+                "Použitie dát na samostatné účely, ktoré presahujú poskytovanie Služby, najmä na tréning všeobecných alebo zdieľaných modelov, marketing alebo sprístupnenie tretím osobám, musí byť Používateľovi transparentne oznámené a musí mať samostatný platný právny základ alebo súhlas, ak ho právne predpisy vyžadujú.",
+                "Používateľ nesmie do Služby nahrávať nepotrebné osobné údaje tretích osôb, prihlasovacie údaje umožňujúce neoprávnené nakladanie s finančnými prostriedkami ani škodlivý kód.",
+            ],
+        },
+        {
+            "title": "12. Dostupnosť, údržba, aktualizácie a technické obmedzenia",
+            "paragraphs": [
+                "Poskytovateľ vynaloží primerané úsilie na prevádzku a údržbu Služby. Nezaručuje však nepretržitú dostupnosť, bezchybnosť, okamžitú odozvu ani kompatibilitu so všetkými zariadeniami, sieťami, systémami, dátovými zdrojmi alebo službami tretích strán.",
+                "Služba môže byť dočasne obmedzená alebo nedostupná z dôvodu údržby, aktualizácie, bezpečnostného zásahu, výpadku internetu, cloudu, dátového zdroja, Brokera, Obchodnej platformy alebo inej okolnosti mimo primeranej kontroly Poskytovateľa. Ak je to možné, Poskytovateľ oznámi plánovanú údržbu vopred.",
+                "Poskytovateľ môže vydávať opravy, aktualizácie a zmeny funkcií. Pri digitálnom plnení poskytovanom Spotrebiteľovi sa aktualizácie a zmeny vykonávajú v súlade s kogentnými požiadavkami právnych predpisov na súlad digitálneho plnenia a informovanie Spotrebiteľa.",
+            ],
+        },
+        {
+            "title": "13. Cena, platby a prípadné predplatné",
+            "paragraphs": [
+                "Používateľ zaplatí cenu uvedenú v objednávke, cenovej ponuke alebo potvrdení objednávky. Cena, mena, zahrnuté funkcie, fakturačné obdobie, dane a prípadné ďalšie poplatky musia byť Používateľovi zobrazené pred odoslaním záväznej objednávky.",
+                "Ak faktúra alebo individuálna dohoda neurčuje inak, lehota splatnosti faktúry je {{due_days}} dní odo dňa jej vystavenia. Poskytovateľ vystaví účtovný doklad v súlade s uplatniteľnými právnymi predpismi.",
+                "Ak konkrétny balík funguje na báze predplatného alebo opakovaných platieb, cena, dĺžka fakturačného obdobia, dátum a spôsob obnovy, podmienky zmeny ceny a postup zrušenia predplatného budú uvedené pred uzatvorením objednávky. Opakované účtovanie sa uplatní iba vtedy, ak bolo v objednávke jasne uvedené a Používateľ ho odsúhlasil.",
+                "Pri omeškaní s úhradou môže Poskytovateľ po predchádzajúcom upozornení primerane obmedziť alebo pozastaviť prístup k platenej Službe, ak to povoľujú právne predpisy a nie sú tým dotknuté kogentné práva Spotrebiteľa. Zákonné úroky z omeškania možno požadovať len v rozsahu dovolenom právnymi predpismi.",
+            ],
+        },
+        {
+            "title": "14. Licencia a duševné vlastníctvo",
+            "paragraphs": [
+                "Ak objednávka neurčuje inak, Poskytovateľ udeľuje Používateľovi počas zaplatenej a dohodnutej doby nevýhradnú, neprenosnú a nesublicencovateľnú licenciu používať Softvér na vlastné interné účely a v rozsahu funkcií príslušného balíka.",
+                "Všetky práva k Softvéru, zdrojovému kódu, modelom, algoritmom, rozhraniam, dokumentácii, dizajnu, značke, databázam a súvisiacim materiálom zostávajú Poskytovateľovi alebo príslušným tretím stranám. Používateľ nadobúda iba práva výslovne udelené týmito podmienkami alebo samostatnou licenčnou zmluvou.",
+                "Používateľ nesmie Softvér kopírovať, predávať, prenajímať, sublicencovať, sprístupňovať ako službu tretej osobe, obchádzať technické ochrany, spätne analyzovať alebo dekompilovať, okrem rozsahu, v ktorom taký zákaz nepripúšťa obmedziť kogentný právny predpis.",
+                "Práva k MetaTraderu, dátovým zdrojom, knižniciam, pluginom a iným komponentom tretích strán sa riadia ich vlastnými licenčnými podmienkami.",
+            ],
+        },
+        {
+            "title": "15. Zakázané používanie a bezpečnosť",
+            "paragraphs": [
+                "Používateľ nesmie používať Službu na nezákonné účely, narúšať jej prevádzku, skúšať neoprávnený prístup, distribuovať škodlivý kód, obchádzať limity alebo bezpečnostné opatrenia, zasahovať do účtov iných používateľov ani preťažovať infraštruktúru.",
+                "Poskytovateľ môže prijať primerané bezpečnostné opatrenia, obmedziť prístup alebo pozastaviť účet, ak má dôvodné podozrenie na bezpečnostný incident, podvod, porušenie právnych predpisov alebo týchto podmienok. Ak to okolnosti umožňujú, Používateľa o dôvode informuje.",
+            ],
+        },
+        {
+            "title": "16. Tretie strany a externé služby",
+            "paragraphs": [
+                "Služba môže závisieť od infraštruktúry, cloudových poskytovateľov, dátových zdrojov, platobných služieb, brokerov, obchodných platforiem alebo iných externých služieb. Ich dostupnosť a používanie sa riadia podmienkami príslušnej tretej strany.",
+                "Poskytovateľ nezodpovedá za obsah, podmienky, bezpečnosť ani dostupnosť samostatnej služby tretej strany v rozsahu, v akom ich nemá pod kontrolou. Tým nie je dotknutá zodpovednosť Poskytovateľa za vlastné porušenie zmluvných alebo zákonných povinností.",
+            ],
+        },
+        {
+            "title": "17. Spotrebiteľské práva, odstúpenie od zmluvy a digitálne plnenie",
+            "paragraphs": [
+                "Ak je Používateľ Spotrebiteľom a zmluva bola uzavretá na diaľku alebo mimo prevádzkových priestorov Poskytovateľa, Spotrebiteľ má právo odstúpiť od zmluvy v lehote a za podmienok stanovených zákonom, spravidla do 14 dní od uzavretia zmluvy o službe alebo zmluvy o dodávaní digitálneho obsahu. Uplatniteľné výnimky a začiatok plynutia lehoty závisia od právnej povahy konkrétneho plnenia.",
+                "Ak má byť dodávanie digitálneho obsahu alebo poskytovanie digitálnej služby začaté pred uplynutím lehoty na odstúpenie, Poskytovateľ si vyžiada výslovnú žiadosť alebo súhlas Spotrebiteľa a poskytne mu zákonom požadované poučenia a potvrdenia. Samotné ustanovenie týchto podmienok nenahrádza samostatný súhlas alebo potvrdenie, ktoré musí byť získané v objednávkovom procese.",
+                "Právo na odstúpenie môže zaniknúť alebo byť obmedzené iba v prípadoch a za podmienok výslovne stanovených zákonom, napríklad pri dodaní digitálneho obsahu po splnení zákonných podmienok výslovného súhlasu, poučenia a potvrdenia. Pri službe sa uplatnia odlišné zákonné pravidlá. Používateľovi zostávajú zachované všetky kogentné spotrebiteľské práva.",
+                "Oznámenie o odstúpení možno zaslať na {{email}} alebo iným jednoznačným vyhlásením doručeným Poskytovateľovi. Spotrebiteľ môže použiť aj vzorový formulár na odstúpenie, ak mu bol poskytnutý.",
+                "Pri digitálnom plnení poskytovanom Spotrebiteľovi má Spotrebiteľ zákonné práva týkajúce sa súladu digitálneho plnenia so zmluvou, jeho funkčnosti, kompatibility, aktualizácií a nápravy. Tieto práva nemožno týmito podmienkami vylúčiť ani obmedziť.",
+            ],
+        },
+        {
+            "title": "18. Reklamácie a uplatnenie práv z vadného plnenia",
+            "paragraphs": [
+                "Používateľ môže oznámiť technický problém, výpadok alebo nesúlad Služby s dohodnutým opisom na adrese {{email}}. Oznámenie by malo obsahovať identifikáciu účtu, opis problému, čas jeho vzniku a dostupné technické informácie. Používateľ by nemal posielať heslá ani celé prístupové údaje k brokerskému účtu.",
+                "Poskytovateľ preverí oznámenie a podľa povahy problému navrhne primeraný postup, napríklad opravu, obnovenie prístupu, opätovné poskytnutie digitálneho plnenia alebo iný spôsob nápravy podľa zmluvy a právnych predpisov.",
+                "Pri Spotrebiteľovi sa uplatnia zákonné pravidlá zodpovednosti za vady a súladu digitálneho plnenia vrátane lehôt a nápravných prostriedkov. Tieto podmienky neobmedzujú zákonné práva Spotrebiteľa. Pri Používateľovi, ktorý nie je Spotrebiteľom, sa práva z vád posudzujú podľa zmluvy a príslušných právnych predpisov.",
+                "Samotná obchodná strata, nevýhodný výsledok stratégie alebo odlišnosť reálneho obchodovania od historického testu nie sú automaticky technickou vadou Softvéru. Tým nie sú dotknuté práva Používateľa, ak problém vznikol porušením povinnosti Poskytovateľa alebo vadou Služby.",
+            ],
+        },
+        {
+            "title": "19. Osobné údaje a dôvernosť",
+            "paragraphs": [
+                "Spracúvanie osobných údajov sa riadi samostatným dokumentom Ochrana osobných údajov dostupným na webe {{website}}. Tento dokument má vysvetľovať najmä účely, právne základy, kategórie údajov, príjemcov, dobu uchovávania a práva dotknutých osôb.",
+                "Ak Poskytovateľ spracúva osobné údaje v mene Používateľa ako sprostredkovateľ, strany uzatvoria dohodu o spracúvaní osobných údajov podľa článku 28 GDPR, ak je taká dohoda vzhľadom na skutočný spôsob spracúvania potrebná.",
+                "Strany budú chrániť neverejné dôverné informácie, ktoré získajú pri používaní Služby, a použijú ich iba na účely plnenia zmluvy, plnenia zákonných povinností alebo ochrany svojich práv. Táto povinnosť sa nevzťahuje na informácie verejne známe bez porušenia povinnosti alebo na informácie, ktoré musia byť sprístupnené podľa zákona.",
+            ],
+        },
+        {
+            "title": "20. Pozastavenie a ukončenie prístupu",
+            "paragraphs": [
+                "Používateľ môže ukončiť používanie Služby a zrušiť predplatné spôsobom uvedeným v objednávke alebo používateľskom účte. Ak ide o predplatné, zrušenie zabráni ďalšiemu obnoveniu podľa podmienok zobrazených pri nákupe; už začaté fakturačné obdobie a prípadné vrátenie platieb sa posudzujú podľa objednávky a kogentných právnych predpisov.",
+                "Poskytovateľ môže prístup primerane obmedziť alebo pozastaviť pri omeškaní s platbou, porušení týchto podmienok, bezpečnostnom riziku, podozrení na podvod alebo ak je to potrebné na splnenie právnej povinnosti. Ak to okolnosti umožňujú, Poskytovateľ Používateľa vopred upozorní a poskytne mu možnosť nápravy.",
+                "Ukončením prístupu zaniká licencia na používanie Softvéru, okrem práv, ktoré musia podľa zákona alebo osobitnej dohody trvať aj po ukončení. Ukončenie nemá vplyv na nároky vzniknuté pred jeho účinnosťou ani na povinnosť vyrovnať splatné záväzky.",
+            ],
+        },
+        {
+            "title": "21. Zodpovednosť a obmedzenia",
+            "paragraphs": [
+                "Každá strana zodpovedá za porušenie svojich zmluvných a zákonných povinností v rozsahu stanovenom príslušnými právnymi predpismi. Poskytovateľ nezodpovedá za obchodné rozhodnutia Používateľa, trhový vývoj, pohyby cien, stratu spôsobenú nastavením Používateľa, konaním Brokera alebo výpadkom služby tretej strany, ak tieto okolnosti nie sú následkom porušenia povinnosti Poskytovateľa.",
+                "Poskytovateľ nezaručuje, že Softvér bude bez chýb alebo dostupný bez prerušenia, že AI identifikuje všetky relevantné vzorce alebo že automatizované pokyny budú vykonané Brokerom. Poskytovateľ však zostáva zodpovedný za vlastné povinnosti týkajúce sa poskytovania Služby podľa zmluvy a právnych predpisov.",
+                "Žiadne ustanovenie týchto podmienok nevylučuje ani neobmedzuje zodpovednosť alebo právo, ktoré nemožno podľa kogentného právneho predpisu vylúčiť alebo obmedziť, najmä zákonné práva Spotrebiteľa, zodpovednosť za úmyselné konanie alebo iné povinné prípady zodpovednosti.",
+            ],
+        },
+        {
+            "title": "22. Sťažnosti a alternatívne riešenie spotrebiteľských sporov",
+            "paragraphs": [
+                "Otázky, sťažnosti alebo žiadosti o nápravu môže Používateľ zaslať na {{email}}. Poskytovateľ sa pokúsi sťažnosť preskúmať a vyriešiť bez zbytočného odkladu.",
+                "Spotrebiteľ má právo obrátiť sa na príslušný subjekt alternatívneho riešenia spotrebiteľských sporov podľa právnych predpisov Slovenskej republiky, ak sú splnené zákonné podmienky. Príslušným subjektom môže byť Slovenská obchodná inšpekcia alebo iný subjekt zo zoznamu Ministerstva hospodárstva Slovenskej republiky podľa povahy sporu. Aktuálne pravidlá a zoznam subjektov je potrebné overiť v čase podania návrhu.",
+            ],
+        },
+        {
+            "title": "23. Rozhodné právo a riešenie sporov",
+            "paragraphs": [
+                "Tieto podmienky a zmluvný vzťah sa riadia právnym poriadkom Slovenskej republiky, pokiaľ kogentné pravidlá medzinárodného práva súkromného neurčujú inak.",
+                "Ak je Používateľ Spotrebiteľom s obvyklým pobytom v inom štáte, voľba slovenského práva ho nezbavuje ochrany, ktorú mu poskytujú kogentné ustanovenia práva štátu jeho obvyklého pobytu, ak sa podľa príslušných právnych predpisov uplatnia.",
+                "Spor, ktorý sa nepodarí vyriešiť dohodou alebo príslušným mimosúdnym postupom, rozhodne súd s právomocou a príslušnosťou podľa platných právnych predpisov. Tieto podmienky neurčujú súd spôsobom, ktorý by odnímal Spotrebiteľovi zákonné práva.",
+            ],
+        },
+        {
+            "title": "24. Zmeny podmienok a záverečné ustanovenia",
+            "paragraphs": [
+                "Poskytovateľ môže tieto podmienky aktualizovať z dôvodu zmeny Služby, bezpečnosti, technológií alebo právnych predpisov. Nové znenie sa použije od dátumu jeho zverejnenia alebo od neskoršieho oznámeného dátumu. Zmena sa spätne nedotýka už vzniknutých práv a povinností, okrem prípadov, keď to vyžaduje zákon alebo sa strany dohodnú inak.",
+                "Ak je niektoré ustanovenie neplatné alebo nevykonateľné, ostatné ustanovenia zostávajú zachované. Neplatné ustanovenie sa nahradí ustanovením, ktoré je platné a čo najviac zodpovedá jeho pôvodnému zákonnému a hospodárskemu účelu.",
+                "Slovenské znenie je rozhodujúce, ak sa slovenská a anglická verzia líšia, pokiaľ kogentné právne predpisy nevyžadujú inak.",
+                "Posledná aktualizácia: {{date_sk}}",
+                "Verzia: {{version}}",
+            ],
+        },
+    ],
+    "en": [
+        {
+            "title": "1. Scope and contractual documents",
+            "paragraphs": [
+                "These Terms apply to the use of Spectline software, related applications, user accounts, documentation, updates and supported integration features (together, the “Service”).",
+                "The contract between the Provider and the User consists of these Terms, the information shown during an order or activation, the order confirmation, the selected plan, any separate agreement and the product documentation. An individually agreed term prevails over these general Terms to the extent of any conflict.",
+                "Before completing an order, the User can review the price, feature scope, access period, any recurring billing and other material parameters of the relevant offer. The details confirmed for that order control.",
+            ],
+        },
+        {
+            "title": "2. Provider and contact details",
+            "paragraphs": [
+                "The Service is provided and the contract is entered into by the person identified below. Spectline is the brand used for the Service; the brand name alone does not replace the Provider's legally required business or company identification details.",
+            ],
+            "bullets": ["{{provider_lines_en}}"],
+        },
+        {
+            "title": "3. Definitions",
+            "paragraphs": ["For the purposes of these Terms:"],
+            "bullets": [
+                "“Provider” means the person identified in Section 2.",
+                "“User” means an individual or legal entity that creates an account, orders the Service or uses it.",
+                "“Software” or “Spectline” means the software solution, including the AI, analytics, training, testing and integration components made available under the selected plan.",
+                "“Trading Data” means historical or current trade, account, price, settings and other data that the User provides or makes accessible to the Software.",
+                "“Broker” means a third party that maintains the User's trading account or provides access to a market.",
+                "“Trading Platform” means, in particular, MetaTrader 4 or MetaTrader 5 and their relevant technical interfaces.",
+                "“Automated Trading” means a feature under which, once enabled, the Software may generate or submit trading instructions through a connected account according to available settings and rules.",
+                "“Consumer” means an individual acting outside their trade, business, craft or profession when entering into and performing the contract.",
+            ],
+        },
+        {
+            "title": "4. Service and its features",
+            "paragraphs": [
+                "The Service provides access to Spectline software features within the scope of the purchased or activated plan. Depending on the available version, these may include importing or processing Trading Data, AI-based analysis of trading patterns, strategy training or testing, analytical outputs and integration with MetaTrader 4 or MetaTrader 5.",
+                "If the User enables Automated Trading and completes the required connection, the Software may generate and submit trading instructions to the User's account according to selected or confirmed settings. The User acknowledges that such instructions may be submitted without separate manual confirmation of each individual trade.",
+                "The exact feature scope, supported platforms, technical requirements, available markets and any limits are determined by the current product documentation and the offer for the relevant plan. A feature not expressly listed in the plan or documentation is not part of the Service.",
+            ],
+        },
+        {
+            "title": "5. Regulatory nature and limits of the Service",
+            "paragraphs": [
+                "These Terms govern the provision of and access to Software. Describing a product as software or a technical tool does not, by itself, determine the legal classification of its actual features. The actual operation, degree of discretion, permissions over the User's account and the way trading instructions are generated and executed are relevant.",
+                "Under these Terms, the Provider does not undertake to provide personal investment recommendations based on the User's individual financial circumstances, and these Terms do not constitute a portfolio-management agreement or an agreement to execute client orders. However, no wording in these Terms changes the legal nature of an activity if a particular feature or operating model constitutes a regulated investment service or activity under mandatory law.",
+                "A feature that constitutes a regulated investment service or activity may only be provided where and by an entity that has the required authorisation or can rely on an applicable statutory exemption. Where necessary, it must be covered by a separate agreement and the relevant regulatory documentation. These Terms are not an authorisation to provide investment services.",
+                "The User must not treat analytical outputs, signals, scores, back-tests or AI behaviour as personal investment advice or as a guarantee that a particular trade is suitable for the User.",
+            ],
+        },
+        {
+            "title": "6. Trading risk warning",
+            "paragraphs": [
+                "Trading financial instruments, currencies, CFDs, derivatives or other products available through a Broker involves risk. The risk is particularly high for leveraged products. The account value may fall rapidly and the User may lose part or all of the capital allocated to trading. Depending on the product, the Broker agreement and applicable protections, losses may in certain circumstances exceed the amount originally allocated.",
+                "The User trades at their own risk and should trade only with funds they can afford to lose. Before using a live account, the User should thoroughly test the Software and its settings on a demo account, understand the products being traded and independently assess the strategy's risk.",
+                "No strategy, algorithm, AI model, historical result or back-test eliminates market risk. Stop Loss, Take Profit or other protective settings may not execute at the expected price or time, for example due to price gaps, low liquidity, volatility or a connection failure.",
+                "The User should not enable Automated Trading unless they understand how it works, its risk parameters and how to stop trading.",
+            ],
+        },
+        {
+            "title": "7. AI analysis, historical data and performance",
+            "paragraphs": [
+                "AI features analyse Trading Data and may identify statistical patterns or generate outputs based on available data, models and settings. Results depend on the quality, completeness, representativeness and accuracy of input data, as well as the methodology and market conditions.",
+                "Historical performance, back-testing, simulations, training results and results achieved by other users are not reliable indicators of future performance. Simulation results may differ materially from live trading due to spreads, commissions, swaps, slippage, latency, liquidity, price availability, outages or changes in market conditions.",
+                "The Provider does not guarantee profit, a particular success rate, prediction accuracy, number of trades, minimum return, passive income or that the Software will prevent losses. Any example, chart or historical result is informational or illustrative only unless expressly and lawfully agreed otherwise.",
+                "AI models and software outputs may contain errors, bias, omissions or inaccuracies. The Provider may change models and algorithms while maintaining the agreed features of the Service and the User's applicable legal rights.",
+            ],
+        },
+        {
+            "title": "8. User account and eligibility",
+            "paragraphs": [
+                "The User must provide true, complete and up-to-date information during registration and use of the Service and keep that information current. The Service may only be used by a person with legal capacity to enter into a contract and who is eligible to use the relevant trading and brokerage services in their jurisdiction.",
+                "The User is responsible for protecting login details, passwords, access tokens and other authentication credentials. The User must promptly notify the Provider of suspected unauthorised access or a security incident.",
+                "The User must not make the account available to another person, circumvent security or licence restrictions, or use the Service in a manner that breaches these Terms or third-party rights.",
+            ],
+        },
+        {
+            "title": "9. Brokers and MetaTrader 4 / MetaTrader 5 integration",
+            "paragraphs": [
+                "Some features may require a separate trading account with a Broker, MetaTrader 4 or MetaTrader 5 and a suitable internet connection. The User's Broker account, funding, trading terms, fees, margin requirements, order execution and client protections are governed by a separate agreement between the User and the Broker.",
+                "The Provider is not a party to the relationship between the User and the Broker and is not responsible for the Broker's decisions, terms, availability, rejection or delay of an order, execution price, outages or changes to its platform, except for liability that cannot be excluded under applicable law.",
+                "MetaTrader, MetaQuotes and Broker names are identifiers of their respective owners. Their mention is for the purpose of identifying compatible platforms and does not by itself imply ownership, approval or partnership with the Provider.",
+                "Compatibility may vary depending on the platform version, Broker, account type, operating system, server and technical interfaces. The Provider does not guarantee support for every configuration or future third-party version.",
+            ],
+        },
+        {
+            "title": "10. User's duties and responsibility for trading",
+            "paragraphs": [
+                "The User is responsible for selecting the Broker and traded product, checking eligibility to trade, configuring the account, capital, leverage, position sizes, risk limits and deciding whether to enable Automated Trading.",
+                "Before enabling Automated Trading, the User must review the strategy parameters, supported symbols and timeframes, position size, Stop Loss, Take Profit, maximum acceptable loss and any other settings available in the product. The User must reasonably monitor the Software's operation and know how to pause or disable Automated Trading.",
+                "The User must not use the Service for market manipulation, fraud, money laundering, sanctions evasion, breach of Broker rules, trading rules or applicable law. The User is responsible for their tax and regulatory obligations relating to trading.",
+                "The Provider is not required to monitor the User's trading account, notify the User about every trade or intervene in the strategy unless such a duty is expressly agreed in a separate agreement and is legally permissible.",
+            ],
+        },
+        {
+            "title": "11. Trading Data, User inputs and processing permission",
+            "paragraphs": [
+                "The User is responsible for having the right to upload, make available and use Trading Data and other materials in the Service for the purposes agreed in these Terms. The User must not provide data whose processing would breach another person's rights, the Broker agreement or applicable law.",
+                "The User grants the Provider a non-exclusive, worldwide permission, to the extent necessary to operate the Service, to store, copy, transmit, analyse and technically modify the supplied data for the purposes of providing features, support, security and performing the contract. This permission does not transfer ownership of the data to the Provider.",
+                "Any use of data for separate purposes beyond providing the Service, in particular training general or shared models, marketing or disclosure to third parties, must be transparently disclosed to the User and must have a separate valid legal basis or consent where required by law.",
+                "The User must not upload unnecessary personal data of third parties, credentials that enable unauthorised handling of funds, or malicious code.",
+            ],
+        },
+        {
+            "title": "12. Availability, maintenance, updates and technical limits",
+            "paragraphs": [
+                "The Provider will use reasonable efforts to operate and maintain the Service. However, it does not guarantee uninterrupted availability, error-free operation, immediate response or compatibility with all devices, networks, systems, data sources or third-party services.",
+                "The Service may be temporarily restricted or unavailable due to maintenance, updates, security measures, internet, cloud, data-source, Broker or Trading Platform outages or another event outside the Provider's reasonable control. Where practicable, the Provider will give advance notice of planned maintenance.",
+                "The Provider may release fixes, updates and feature changes. For digital content or digital services supplied to a Consumer, updates and changes will be made in accordance with mandatory legal requirements concerning conformity of digital content or services and consumer information.",
+            ],
+        },
+        {
+            "title": "13. Price, payments and any subscription",
+            "paragraphs": [
+                "The User must pay the price stated in the order, quotation or order confirmation. The price, currency, included features, billing period, taxes and any additional fees must be shown to the User before the binding order is submitted.",
+                "Unless the invoice or an individual agreement states otherwise, the invoice payment period is {{due_days}} days from its issue date. The Provider will issue an accounting document in accordance with applicable law.",
+                "If a plan operates as a subscription or involves recurring payments, its price, billing-period length, renewal date and method, price-change conditions and cancellation procedure will be stated before the order is placed. Recurring billing will apply only where it was clearly disclosed in the order and accepted by the User.",
+                "If payment is overdue, the Provider may, after prior notice, reasonably restrict or suspend access to the paid Service where permitted by law and without affecting mandatory Consumer rights. Statutory default interest may be claimed only to the extent permitted by law.",
+            ],
+        },
+        {
+            "title": "14. Licence and intellectual property",
+            "paragraphs": [
+                "Unless the order states otherwise, the Provider grants the User a non-exclusive, non-transferable and non-sublicensable licence, for the paid and agreed access period, to use the Software for the User's own internal purposes and within the features of the relevant plan.",
+                "All rights in the Software, source code, models, algorithms, interfaces, documentation, design, brand, databases and related materials remain with the Provider or the relevant third parties. The User receives only the rights expressly granted by these Terms or a separate licence agreement.",
+                "The User must not copy, sell, rent, sublicense or make the Software available as a service to a third party, circumvent technical protections, reverse engineer or decompile it, except to the extent that such restriction cannot be imposed under mandatory law.",
+                "Rights in MetaTrader, data sources, libraries, plugins and other third-party components are governed by their own licence terms.",
+            ],
+        },
+        {
+            "title": "15. Prohibited use and security",
+            "paragraphs": [
+                "The User must not use the Service for unlawful purposes, disrupt its operation, attempt unauthorised access, distribute malicious code, circumvent limits or security measures, interfere with other users' accounts or overload the infrastructure.",
+                "The Provider may take reasonable security measures, restrict access or suspend an account if it has reasonable grounds to suspect a security incident, fraud, breach of law or breach of these Terms. Where circumstances permit, the Provider will inform the User of the reason.",
+            ],
+        },
+        {
+            "title": "16. Third parties and external services",
+            "paragraphs": [
+                "The Service may depend on infrastructure, cloud providers, data sources, payment services, Brokers, Trading Platforms or other external services. Their availability and use are governed by the relevant third party's terms.",
+                "The Provider is not responsible for the content, terms, security or availability of a separate third-party service to the extent that it is outside the Provider's control. This does not affect the Provider's liability for its own breach of contractual or legal duties.",
+            ],
+        },
+        {
+            "title": "17. Consumer rights, withdrawal and digital content or services",
+            "paragraphs": [
+                "Where the User is a Consumer and the contract was concluded at a distance or away from the Provider's business premises, the Consumer has a right to withdraw within the period and under the conditions set by law, generally within 14 days after entering into a service contract or a contract for the supply of digital content. Applicable exceptions and the start of the period depend on the legal nature of the particular performance.",
+                "If the supply of digital content or provision of a digital service is to begin before the withdrawal period expires, the Provider will obtain the Consumer's express request or consent and provide the notices and confirmations required by law. This clause does not replace a separate consent or acknowledgement that must be obtained in the checkout process.",
+                "The right of withdrawal may be lost or restricted only in cases and under the conditions expressly provided by law, for example for digital content after the statutory requirements for express consent, acknowledgement and confirmation have been satisfied. Different statutory rules apply to services. All mandatory Consumer rights remain unaffected.",
+                "A withdrawal notice may be sent to {{email}} or made by another unequivocal statement delivered to the Provider. The Consumer may also use a model withdrawal form if one has been provided.",
+                "For digital content or services supplied to a Consumer, the Consumer has statutory rights relating to conformity with the contract, functionality, compatibility, updates and remedies. These rights may not be excluded or restricted by these Terms.",
+            ],
+        },
+        {
+            "title": "18. Complaints and remedies for non-conforming performance",
+            "paragraphs": [
+                "The User may report a technical problem, outage or failure of the Service to match its agreed description to {{email}}. The report should include the account identifier, description of the issue, when it occurred and available technical information. The User should not send passwords or full Broker account credentials.",
+                "The Provider will review the report and, depending on the issue, propose an appropriate remedy, such as correction, restoration of access, re-supply of digital content or another remedy under the contract and applicable law.",
+                "For Consumers, statutory rules on defects and conformity of digital content or services apply, including statutory periods and remedies. These Terms do not restrict Consumer rights. For Users who are not Consumers, defect rights are assessed under the contract and applicable law.",
+                "A trading loss, an unfavourable strategy result or a difference between live trading and a historical test is not automatically a technical defect in the Software. This does not affect the User's rights where the issue resulted from the Provider's breach or a defect in the Service.",
+            ],
+        },
+        {
+            "title": "19. Personal data and confidentiality",
+            "paragraphs": [
+                "Personal data processing is governed by the separate Privacy Policy available at {{website}}. That notice should explain, in particular, the purposes, legal bases, categories of data, recipients, retention periods and data-subject rights.",
+                "Where the Provider processes personal data on behalf of the User as a processor, the parties will enter into a data processing agreement under Article 28 GDPR where such an agreement is required by the actual processing arrangement.",
+                "The parties will protect non-public confidential information obtained through use of the Service and use it only to perform the contract, comply with legal obligations or protect their rights. This duty does not apply to information that is public without breach of an obligation or must be disclosed by law.",
+            ],
+        },
+        {
+            "title": "20. Suspension and termination of access",
+            "paragraphs": [
+                "The User may stop using the Service and cancel a subscription using the procedure stated in the order or user account. For a subscription, cancellation will prevent further renewal in accordance with the conditions shown at purchase; an already started billing period and any refund are governed by the order and mandatory law.",
+                "The Provider may reasonably restrict or suspend access for overdue payment, breach of these Terms, a security risk, suspected fraud or where necessary to comply with a legal obligation. Where circumstances permit, the Provider will notify the User in advance and allow an opportunity to remedy the issue.",
+                "When access ends, the licence to use the Software ends, except for rights that must continue under law or a separate agreement. Termination does not affect claims accrued before its effective date or the obligation to settle amounts due.",
+            ],
+        },
+        {
+            "title": "21. Liability and limitations",
+            "paragraphs": [
+                "Each party is liable for breach of its contractual and legal duties to the extent provided by applicable law. The Provider is not responsible for the User's trading decisions, market movements, price changes, losses caused by the User's settings, Broker conduct or third-party service outages, unless those circumstances result from the Provider's breach of duty.",
+                "The Provider does not warrant that the Software will be error-free or uninterrupted, that AI will identify every relevant pattern or that the Broker will execute automated instructions. The Provider remains liable for its own obligations to provide the Service under the contract and applicable law.",
+                "Nothing in these Terms excludes or limits liability or a right that cannot be excluded or limited under mandatory law, in particular statutory Consumer rights, liability for intentional conduct or any other mandatory liability.",
+            ],
+        },
+        {
+            "title": "22. Complaints and alternative consumer dispute resolution",
+            "paragraphs": [
+                "Questions, complaints or requests for redress may be sent to {{email}}. The Provider will seek to review and resolve the complaint without undue delay.",
+                "A Consumer may apply to a competent alternative dispute resolution entity under Slovak law where the statutory conditions are met. Depending on the nature of the dispute, the competent entity may be the Slovak Trade Inspection or another entity on the list maintained by the Slovak Ministry of Economy. The applicable rules and list should be checked at the time the application is submitted.",
+            ],
+        },
+        {
+            "title": "23. Governing law and disputes",
+            "paragraphs": [
+                "These Terms and the contractual relationship are governed by the laws of the Slovak Republic unless mandatory conflict-of-law rules provide otherwise.",
+                "Where the User is a Consumer habitually resident in another country, the choice of Slovak law does not deprive the Consumer of the protection afforded by mandatory provisions of the law of their habitual residence where those provisions apply.",
+                "A dispute that cannot be resolved amicably or through an applicable out-of-court procedure will be decided by a court having jurisdiction under applicable law. These Terms do not determine jurisdiction in a way that removes statutory Consumer rights.",
+            ],
+        },
+        {
+            "title": "24. Amendments and final provisions",
+            "paragraphs": [
+                "The Provider may update these Terms due to changes to the Service, security, technology or applicable law. The revised wording will apply from the date of publication or a later notified date. A change does not retrospectively affect rights and obligations already accrued, except where required by law or otherwise agreed by the parties.",
+                "If any provision is invalid or unenforceable, the remaining provisions remain in effect. The invalid provision will be replaced with a valid provision that most closely reflects its original lawful and commercial purpose.",
+                "The Slovak version prevails if the Slovak and English versions differ, unless mandatory law requires otherwise.",
+                "Last updated: {{date_en}}",
+                "Version: {{version}}",
+            ],
+        },
+    ],
 }
 
 
@@ -182,503 +622,51 @@ def provider_lines(language: str) -> list[str]:
         value = provider_value(key, language)
         if not value:
             continue
-
-        # Do not repeat the brand if it is identical to the legal name.
         if (
             key == "brand_name"
             and value.casefold() == str(provider.get("legal_name", "")).strip().casefold()
         ):
             continue
-
         lines.append(f"{labels[key]}: {value}")
-
     return lines
 
 
 def build_sections(language: str) -> list[dict]:
-    email = DATA["provider"]["email"]
-    website = DATA["website"]
-    defaults = DATA["commercial_defaults"]
-    deposit = defaults["deposit_percent"]
-    due_days = defaults["payment_due_days"]
-    revisions = defaults["included_revision_rounds"]
+    if language not in SECTIONS:
+        raise ValueError(f"Unsupported language: {language}")
 
-    if language == "sk":
-        return [
-            {
-                "title": "1. Rozsah a použitie podmienok",
-                "paragraphs": [
-                    "Tieto obchodné podmienky sa vzťahujú na služby poskytované Spectline klientom, ktorí vystupujú ako podnikatelia, právnické osoby alebo spotrebitelia.",
-                    "Súčasťou zmluvného vzťahu je najmä prijatá cenová ponuka, potvrdená objednávka, projektový brief, harmonogram, prípadná samostatná zmluva a tieto podmienky.",
-                    "Ak je medzi dokumentmi rozpor, prednosť má individuálne dohodnutá zmluva alebo cenová ponuka pred týmito všeobecnými podmienkami.",
-                ],
-            },
-            {
-                "title": "2. Poskytovateľ a kontakt",
-                "paragraphs": [
-                    "Poskytovateľom služieb a zmluvnou stranou je subjekt identifikovaný nižšie.",
-                ],
-                "bullets": provider_lines("sk"),
-            },
-            {
-                "title": "3. Definície",
-                "paragraphs": ["Na účely týchto podmienok sa rozumie:"],
-                "bullets": [
-                    "„Poskytovateľ“ – Spectline alebo právny subjekt uvedený v časti 2.",
-                    "„Klient“ – osoba alebo subjekt, ktorý si objednáva služby Poskytovateľa.",
-                    "„Projekt“ – dohodnutý rozsah kreatívnych, produkčných alebo postprodukčných prác.",
-                    "„Brief“ – zadanie, podklady, technické požiadavky, referencie a ciele oznámené Klientom.",
-                    "„Výstup“ – finálny súbor, animácia, video, obraz, 3D model, kompozícia, grafika alebo iný výsledok Projektu určený na odovzdanie.",
-                    "„Pracovné súbory“ – zdrojové, projektové, editovateľné alebo medzivýstupové súbory použité pri tvorbe.",
-                    "„Revízia“ – primeraná úprava už vytvoreného návrhu v rámci pôvodne dohodnutého zadania.",
-                ],
-            },
-            {
-                "title": "4. Ponuka, objednávka a vznik zmluvy",
-                "paragraphs": [
-                    "Dopyt odoslaný cez web, e-mail alebo iný komunikačný kanál nie je automaticky záväznou objednávkou.",
-                    "Poskytovateľ môže na základe dopytu pripraviť cenovú ponuku, odhad, harmonogram alebo návrh rozsahu prác. Ponuka platí počas lehoty uvedenej v ponuke; ak lehota uvedená nie je, platí primeraný čas vzhľadom na povahu Projektu.",
-                    "Zmluva vzniká potvrdením objednávky Poskytovateľom, písomným prijatím cenovej ponuky Klientom, podpisom zmluvy alebo zaplatením dohodnutej zálohy, podľa toho, ktorá udalosť nastane ako prvá a z okolností je zrejmá vôľa strán uzavrieť zmluvu.",
-                ],
-                "bullets": [
-                    "Poskytovateľ môže objednávku odmietnuť najmä z kapacitných, technických, právnych alebo etických dôvodov.",
-                    "Ústne dohody a zmeny sú záväzné až po ich písomnom potvrdení, napríklad e-mailom.",
-                ],
-            },
-            {
-                "title": "5. Rozsah Projektu a súčinnosť Klienta",
-                "paragraphs": [
-                    "Rozsah Projektu vychádza z prijatej ponuky, briefu a následne potvrdených zmien. Poskytovateľ vykoná práce odborne a podľa dohodnutého kreatívneho a technického smerovania.",
-                    "Klient poskytne včas úplné, pravdivé a použiteľné podklady, spätnú väzbu, schválenia, prístupy a rozhodnutia potrebné na realizáciu Projektu.",
-                ],
-                "bullets": [
-                    "Klient zodpovedá za správnosť textov, mien, údajov, log, titulkov, prekladov a iných informácií, ktoré dodal alebo schválil.",
-                    "Oneskorenie Klienta so súčinnosťou primerane posúva termíny a môže ovplyvniť cenu alebo rezervovanú produkčnú kapacitu.",
-                    "Ak Klient nereaguje dlhší čas, Poskytovateľ môže Projekt pozastaviť a navrhnúť nový harmonogram.",
-                ],
-            },
-            {
-                "title": "6. Podklady Klienta a práva tretích osôb",
-                "paragraphs": [
-                    "Klient vyhlasuje, že má všetky potrebné práva, licencie, súhlasy a oprávnenia na použitie materiálov, ktoré poskytne Poskytovateľovi.",
-                    "To zahŕňa najmä hudbu, video, fotografie, fonty, logá, ochranné známky, 3D modely, hlasové nahrávky, podobizne osôb, osobné údaje a iný chránený obsah.",
-                ],
-                "bullets": [
-                    "Klient zodpovedá za nároky tretích osôb spôsobené použitím materiálov dodaných Klientom, pokiaľ Poskytovateľ neporušil svoje vlastné povinnosti.",
-                    "Poskytovateľ môže odmietnuť použiť materiál, ktorý je zjavne nezákonný, škodlivý alebo porušuje práva tretích osôb.",
-                ],
-            },
-            {
-                "title": "7. Cena, záloha a platobné podmienky",
-                "paragraphs": [
-                    "Cena sa určuje individuálne podľa rozsahu, náročnosti, termínu, licencie, počtu revízií a požadovaných výstupov. Rozhodujúca je cena uvedená v prijatej ponuke alebo zmluve.",
-                    f"Ak nie je dohodnuté inak, Poskytovateľ môže požadovať zálohu vo výške {deposit} % z predpokladanej ceny pred začatím prác. Štandardná lehota splatnosti faktúry je {due_days} dní, ak faktúra alebo dohoda neurčuje inú lehotu.",
-                ],
-                "bullets": [
-                    "Ceny sú uvedené s DPH alebo bez DPH podľa údajov v ponuke a daňového postavenia Poskytovateľa.",
-                    "Bankové poplatky, náklady na licencie, stock materiál, externých dodávateľov, cestovanie, expresné dodanie alebo iné mimoriadne náklady môžu byť účtované samostatne, ak boli vopred odsúhlasené alebo sú nevyhnutné na splnenie zmeneného zadania.",
-                    "Poskytovateľ môže pozastaviť práce alebo odovzdanie finálnych výstupov pri omeškaní Klienta s platbou.",
-                    "Zákonné úroky z omeškania a náklady spojené s uplatnením pohľadávky sa uplatnia iba v rozsahu dovolenom právnymi predpismi.",
-                ],
-            },
-            {
-                "title": "8. Termíny a harmonogram",
-                "paragraphs": [
-                    "Termíny sú záväzné, ak boli výslovne potvrdené ako pevné. Inak predstavujú kvalifikovaný odhad založený na informáciách dostupných pri prijatí Projektu.",
-                    "Harmonogram začína plynúť po prijatí všetkých potrebných podkladov, schválení a prípadnej zálohy.",
-                ],
-                "bullets": [
-                    "Termín sa primerane predlžuje pri oneskorenej spätnej väzbe, zmene zadania, dodatočných prácach, technických prekážkach, výpadkoch dodávateľov alebo udalostiach mimo primeranej kontroly Poskytovateľa.",
-                    "Expresné alebo prioritné dodanie môže podliehať osobitnej cene a dostupnosti kapacity.",
-                ],
-            },
-            {
-                "title": "9. Návrhy, revízie a zmeny zadania",
-                "paragraphs": [
-                    f"Ak ponuka neurčuje inak, cena zahŕňa najviac {revisions} kolá primeraných revízií v rámci pôvodného briefu.",
-                    "Klient poskytne spätnú väzbu zrozumiteľne, súhrnne a prostredníctvom dohodnutého kontaktu. Rozporuplné pokyny od viacerých osôb môžu práce pozastaviť do určenia oprávnenej schvaľujúcej osoby.",
-                ],
-                "bullets": [
-                    "Zmena konceptu, štýlu, scenára, dĺžky, formátu, technických parametrov, už schválenej fázy alebo rozsahu sa považuje za dodatočnú prácu.",
-                    "Dodatočné práce sa vykonajú po odsúhlasení vplyvu na cenu a termín; pri menších zmenách môže postačovať e-mailové potvrdenie.",
-                    "Nevyužité revízie sa nepreplácajú ani neprenášajú na iný Projekt, ak nebolo dohodnuté inak.",
-                ],
-            },
-            {
-                "title": "10. Schvaľovanie a odovzdanie výstupov",
-                "paragraphs": [
-                    "Poskytovateľ môže odovzdávať náhľady s vodoznakom, v zníženej kvalite alebo v pracovnom formáte na účely kontroly a schválenia.",
-                    "Finálne výstupy sa odovzdajú dohodnutým spôsobom a v dohodnutých formátoch po splnení platobných podmienok, ak ponuka alebo zmluva neurčuje inak.",
-                ],
-                "bullets": [
-                    "Klient skontroluje výstupy bez zbytočného odkladu a oznámi konkrétne vady alebo nesúlad s dohodnutým zadaním.",
-                    "Subjektívna zmena vkusu po schválení kreatívneho smeru nie je sama osebe vadou, môže však byť predmetom dodatočnej objednávky.",
-                    "Pracovné alebo zdrojové súbory nie sú automaticky súčasťou odovzdania, pokiaľ boli výslovne zahrnuté v ponuke alebo zmluve.",
-                ],
-            },
-            {
-                "title": "11. Vady, reklamácie a oprava",
-                "paragraphs": [
-                    "Klient môže reklamovať preukázateľný nesúlad výstupu s dohodnutým briefom, technickými parametrami alebo záväzne schválenými požiadavkami.",
-                    f"Reklamáciu je možné zaslať na {email}. Mala by obsahovať identifikáciu Projektu, popis vady, miesto jej výskytu, požadovaný spôsob nápravy a relevantné dôkazy alebo súbory.",
-                ],
-                "bullets": [
-                    "Poskytovateľ reklamáciu posúdi a navrhne primeranú nápravu, najmä opravu, doplnenie, nové odovzdanie, primeranú zľavu alebo iný zákonný spôsob vybavenia.",
-                    "Na práva spotrebiteľa sa uplatnia zákonné lehoty a pravidlá, ktoré nemožno týmito podmienkami obmedziť.",
-                    "Reklamácia sa nevzťahuje na chyby spôsobené zásahom Klienta alebo tretej osoby, použitím v nepodporovanom prostredí, zmenou formátu mimo dohodnutého postupu alebo nesprávnymi podkladmi Klienta.",
-                ],
-            },
-            {
-                "title": "12. Autorské práva a licencia",
-                "paragraphs": [
-                    "Autorské práva a iné práva duševného vlastníctva k tvorbe Poskytovateľa zostávajú zachované v rozsahu podľa právnych predpisov. Klient nadobúda licenciu alebo iné oprávnenie na použitie výstupov iba v rozsahu dohodnutom v ponuke alebo zmluve.",
-                    "Ak rozsah licencie nie je výslovne určený, vykladá sa primerane účelu Projektu, cene, povahe výstupu a spôsobu použitia, ktorý bol Poskytovateľovi pri uzatvorení zmluvy známy.",
-                ],
-                "bullets": [
-                    "Licencia môže byť obmedzená územím, časom, médiom, účelom, kampaňou, počtom použití alebo právom na úpravu a sublicencovanie.",
-                    "Licencia k finálnym výstupom vzniká po úplnom zaplatení dohodnutej ceny, ak zmluva výslovne neurčuje inak.",
-                    "Pracovné postupy, know-how, šablóny, nástroje, knižnice, skripty, reusable assety a všeobecné produkčné prvky Poskytovateľa sa neprevádzajú, ak nebolo písomne dohodnuté inak.",
-                    "Práva k materiálom tretích osôb sa riadia príslušnými licenčnými podmienkami a môžu byť užšie než licencia k pôvodnej tvorbe Poskytovateľa.",
-                ],
-            },
-            {
-                "title": "13. Portfólio, showreel a označenie autora",
-                "paragraphs": [
-                    "Poskytovateľ môže použiť verejne zverejnené finálne výstupy alebo primerané ukážky Projektu vo svojom portfóliu, showreeli, na sociálnych sieťach, súťažiach a pri prezentácii svojich služieb, ak to bolo dohodnuté, vyplýva to z okolností spolupráce alebo na to existuje iný právny základ.",
-                    "Ak je Projekt dôverný, podlieha embargu alebo Klient použitie v portfóliu odmietne pred uzatvorením zmluvy, strany si dohodnú obmedzenie alebo vylúčenie takého použitia.",
-                ],
-                "bullets": [
-                    "Poskytovateľ nebude bez oprávnenia zverejňovať neverejné obchodné informácie, osobné údaje ani materiály, na ktoré nemá potrebné práva.",
-                    "Prípadné uvedenie mena alebo značky Klienta slúži iba na identifikáciu realizovaného Projektu a neznamená partnerstvo ani podporu iných služieb.",
-                ],
-            },
-            {
-                "title": "14. Externí dodávatelia, stock materiály a technológie",
-                "paragraphs": [
-                    "Poskytovateľ môže pri realizácii Projektu zapojiť dôveryhodných externých spolupracovníkov alebo dodávateľov, pričom zostáva zodpovedný za riadenie svojho plnenia v dohodnutom rozsahu.",
-                    "Projekt môže využívať licencované fonty, hudbu, stock obsah, pluginy, cloudové služby, render farmy alebo iné technológie tretích strán.",
-                ],
-                "bullets": [
-                    "Použitie materiálov tretích strán môže podliehať osobitným licenčným, územným alebo časovým obmedzeniam.",
-                    "Ak je na Projekt vhodné použiť generatívne alebo iné AI nástroje, Poskytovateľ zohľadní dohodnuté požiadavky na dôvernosť, licencie a technické obmedzenia. Klient môže požadovať, aby sa AI nástroje nepoužili; taká požiadavka môže ovplyvniť cenu alebo harmonogram.",
-                ],
-            },
-            {
-                "title": "15. Dôvernosť a projektové súbory",
-                "paragraphs": [
-                    "Strany budú chrániť dôverné informácie získané počas spolupráce a použijú ich iba na účely Projektu, plnenia právnych povinností alebo ochrany svojich práv.",
-                    "Za dôverné sa nepovažujú informácie, ktoré boli verejne známe bez porušenia povinnosti, boli získané zákonným spôsobom od tretej osoby alebo musia byť sprístupnené podľa zákona.",
-                ],
-                "bullets": [
-                    "Poskytovateľ nie je povinný uchovávať pracovné a projektové súbory neobmedzene. Klient si po odovzdaní zabezpečí vlastnú zálohu finálnych výstupov.",
-                    "Dlhodobá archivácia, opätovné otvorenie starého Projektu alebo migrácia pracovných súborov môže byť spoplatnená a závisí od technickej dostupnosti.",
-                ],
-            },
-            {
-                "title": "16. Pozastavenie, zrušenie a ukončenie Projektu",
-                "paragraphs": [
-                    "Klient môže požiadať o pozastavenie alebo zrušenie Projektu. Poskytovateľ má nárok na úhradu riadne vykonaných prác, schválených nákladov, objednaných licencií a primeraných nevratných záväzkov vzniknutých do dátumu ukončenia.",
-                    "Výška storno poplatku alebo spôsob vyúčtovania môže byť uvedený v cenovej ponuke alebo zmluve. Ak uvedený nie je, vyúčtuje sa preukázateľne vykonaná práca a nevratné náklady.",
-                ],
-                "bullets": [
-                    "Poskytovateľ môže Projekt pozastaviť alebo ukončiť pri podstatnom porušení povinností Klienta, omeškaní s platbou, dlhodobej neposkytnutej súčinnosti, nezákonnom zadaní alebo ohrození bezpečnosti.",
-                    "Pred ukončením pre napraviteľné porušenie poskytne Poskytovateľ primeranú lehotu na nápravu, ak to okolnosti umožňujú.",
-                    "Po ukončení zmluvy sa práva na použitie rozpracovaných alebo nezaplatených výstupov neposkytujú, ak nebolo písomne dohodnuté inak.",
-                ],
-            },
-            {
-                "title": "17. Zodpovednosť a vyššia moc",
-                "paragraphs": [
-                    "Každá strana zodpovedá za škodu spôsobenú porušením svojich povinností v rozsahu stanovenom právnymi predpismi a zmluvou.",
-                    "Poskytovateľ nezodpovedá za omeškanie alebo nemožnosť plnenia spôsobenú udalosťami mimo jeho primeranej kontroly, napríklad rozsiahlym výpadkom infraštruktúry, živelnou udalosťou, zásahom verejnej moci, vojnou, nepokojmi, epidémiou alebo závažným zlyhaním dodávateľa, ak prijal primerané opatrenia na zmiernenie následkov.",
-                ],
-                "bullets": [
-                    "Poskytovateľ nezodpovedá za výsledky kampane, obchodný úspech, sledovanosť alebo výkonnosť, pokiaľ nebola konkrétna merateľná záruka výslovne dohodnutá.",
-                    "Žiadne ustanovenie nevylučuje zodpovednosť, ktorú podľa kogentného práva nemožno vylúčiť alebo obmedziť, ani zákonné práva spotrebiteľa.",
-                ],
-            },
-            {
-                "title": "18. Spotrebiteľ a odstúpenie od zmluvy na diaľku",
-                "paragraphs": [
-                    "Ak je Klient spotrebiteľom a zmluva bola uzavretá na diaľku alebo mimo prevádzkových priestorov Poskytovateľa, môže mať právo odstúpiť od zmluvy bez uvedenia dôvodu v zákonnej lehote, spravidla do 14 dní od uzavretia zmluvy o službe.",
-                    "Ak spotrebiteľ výslovne požiada o začatie poskytovania služby pred uplynutím lehoty na odstúpenie, pri odstúpení môže byť povinný zaplatiť pomernú časť ceny za plnenie poskytnuté do doručenia odstúpenia. Po úplnom poskytnutí služby môže právo na odstúpenie zaniknúť, ak boli splnené zákonné podmienky vrátane predchádzajúceho výslovného súhlasu a poučenia spotrebiteľa.",
-                ],
-                "bullets": [
-                    f"Oznámenie o odstúpení možno zaslať na {email} alebo iným jednoznačným vyhlásením doručeným Poskytovateľovi.",
-                    "Toto ustanovenie sa neuplatní na podnikateľov a neobmedzuje žiadne právo spotrebiteľa, ktoré mu priznáva kogentný právny predpis.",
-                ],
-            },
-            {
-                "title": "19. Ochrana osobných údajov",
-                "paragraphs": [
-                    f"Spracúvanie osobných údajov sa riadi samostatným dokumentom Ochrana osobných údajov (GDPR), ktorý je dostupný na webe {website}.",
-                    "Klient zabezpečí, že osobné údaje obsiahnuté v projektových podkladoch poskytuje a používa zákonným spôsobom. Ak Poskytovateľ spracúva osobné údaje v mene Klienta ako sprostredkovateľ, strany podľa potreby uzatvoria príslušnú dohodu o spracúvaní údajov.",
-                ],
-            },
-            {
-                "title": "20. Sťažnosti a alternatívne riešenie spotrebiteľských sporov",
-                "paragraphs": [
-                    f"Klient môže otázku, sťažnosť alebo žiadosť o nápravu zaslať na {email}. Strany sa pokúsia spor vyriešiť prednostne dohodou.",
-                    "Spotrebiteľ, ktorý nie je spokojný so spôsobom vybavenia žiadosti o nápravu alebo na ňu nedostal odpoveď v zákonnej lehote, sa môže obrátiť na príslušný subjekt alternatívneho riešenia spotrebiteľských sporov podľa platných právnych predpisov, najmä na Slovenskú obchodnú inšpekciu, ak je vec v jej pôsobnosti.",
-                ],
-            },
-            {
-                "title": "21. Rozhodné právo a súdy",
-                "paragraphs": [
-                    "Zmluvný vzťah sa riadi právnym poriadkom Slovenskej republiky, pokiaľ kogentné pravidlá medzinárodného práva súkromného neurčujú inak.",
-                    "Voľba slovenského práva nezbavuje spotrebiteľa ochrany, ktorú mu poskytujú kogentné ustanovenia práva štátu jeho obvyklého pobytu, ak sa také ustanovenia uplatnia.",
-                    "Ak sa spor nepodarí vyriešiť dohodou, rozhodne ho vecne a miestne príslušný súd podľa platných právnych predpisov.",
-                ],
-            },
-            {
-                "title": "22. Zmeny a záverečné ustanovenia",
-                "paragraphs": [
-                    "Poskytovateľ môže tieto podmienky primerane aktualizovať, najmä pri zmene služieb, procesov alebo právnych predpisov. Na konkrétny Projekt sa spravidla použije verzia účinná pri vzniku zmluvy, ak sa strany nedohodnú inak alebo zmena nevyplýva zo zákona.",
-                    "Ak je niektoré ustanovenie neplatné alebo nevykonateľné, ostatné ustanovenia zostávajú v platnosti. Neplatné ustanovenie sa nahradí zákonným riešením, ktoré sa čo najviac približuje jeho hospodárskemu účelu.",
-                    "Anglické znenie je prekladom slovenského znenia. Pri rozdieloch vo výklade má prednosť slovenské znenie, pokiaľ kogentné právo nevyžaduje inak.",
-                    f"Posledná aktualizácia: {formatted_date('sk')}",
-                    f"Verzia: {DATA['version']}",
-                ],
-            },
-        ]
+    replacements = {
+        "{{email}}": DATA["provider"]["email"],
+        "{{website}}": DATA["website"],
+        "{{due_days}}": str(DATA["commercial_defaults"]["payment_due_days"]),
+        "{{date_sk}}": formatted_date("sk"),
+        "{{date_en}}": formatted_date("en"),
+        "{{version}}": DATA["version"],
+        "{{provider_lines_sk}}": "\n".join(provider_lines("sk")),
+        "{{provider_lines_en}}": "\n".join(provider_lines("en")),
+    }
 
-    return [
-        {
-            "title": "1. Scope and application",
+    result: list[dict] = []
+    for source_section in SECTIONS[language]:
+        section = {
+            "title": source_section["title"],
             "paragraphs": [
-                "These Terms apply to services provided by Spectline to clients acting as businesses, legal entities or consumers.",
-                "The contractual relationship consists primarily of the accepted quotation, confirmed order, project brief, schedule, any separate agreement and these Terms.",
-                "If the documents conflict, an individually agreed contract or quotation takes precedence over these general Terms.",
-            ],
-        },
-        {
-            "title": "2. Provider and contact details",
-            "paragraphs": [
-                "The services are provided and the contract is entered into by the entity identified below.",
-            ],
-            "bullets": provider_lines("en"),
-        },
-        {
-            "title": "3. Definitions",
-            "paragraphs": ["For the purposes of these Terms:"],
-            "bullets": [
-                '"Provider" means Spectline or the legal entity identified in Section 2.',
-                '"Client" means the person or entity ordering the Provider\'s services.',
-                '"Project" means the agreed scope of creative, production or post-production work.',
-                '"Brief" means the instructions, materials, technical requirements, references and objectives supplied by the Client.',
-                '"Deliverable" means a final file, animation, video, image, 3D model, composition, graphic or other Project result intended for delivery.',
-                '"Working Files" means source, project, editable or intermediate files used during production.',
-                '"Revision" means a reasonable adjustment to an existing proposal within the originally agreed Brief.',
-            ],
-        },
-        {
-            "title": "4. Quotation, order and formation of contract",
-            "paragraphs": [
-                "An enquiry submitted through the website, by email or through another channel is not automatically a binding order.",
-                "Based on an enquiry, the Provider may prepare a quotation, estimate, schedule or proposed scope. A quotation remains valid for the period stated in it; where no period is stated, it remains valid for a reasonable period considering the nature of the Project.",
-                "A contract is formed when the Provider confirms the order, the Client accepts the quotation in writing, the parties sign a contract or the Client pays the agreed deposit, whichever occurs first and clearly demonstrates the parties' intention to contract.",
+                _replace_tokens(value, replacements)
+                for value in source_section.get("paragraphs", [])
             ],
             "bullets": [
-                "The Provider may decline an order for capacity, technical, legal or ethical reasons.",
-                "Oral agreements and changes become binding only after written confirmation, including confirmation by email.",
+                _replace_tokens(value, replacements)
+                for value in source_section.get("bullets", [])
             ],
-        },
-        {
-            "title": "5. Project scope and Client cooperation",
-            "paragraphs": [
-                "The Project scope is based on the accepted quotation, Brief and subsequently confirmed changes. The Provider will perform the work professionally and in accordance with the agreed creative and technical direction.",
-                "The Client will provide complete, accurate and usable materials, feedback, approvals, access and decisions required to perform the Project on time.",
-            ],
-            "bullets": [
-                "The Client is responsible for the accuracy of text, names, data, logos, captions, translations and other information supplied or approved by the Client.",
-                "A delay in Client cooperation will reasonably extend deadlines and may affect the price or reserved production capacity.",
-                "If the Client remains unresponsive for an extended period, the Provider may suspend the Project and propose a revised schedule.",
-            ],
-        },
-        {
-            "title": "6. Client materials and third-party rights",
-            "paragraphs": [
-                "The Client represents that it holds all rights, licences, consents and permissions required for materials supplied to the Provider.",
-                "This includes music, video, photographs, fonts, logos, trademarks, 3D models, voice recordings, likenesses, personal data and other protected content.",
-            ],
-            "bullets": [
-                "The Client is responsible for third-party claims arising from Client-supplied materials, except to the extent caused by the Provider's own breach.",
-                "The Provider may refuse to use material that is manifestly unlawful, harmful or infringes third-party rights.",
-            ],
-        },
-        {
-            "title": "7. Price, deposit and payment",
-            "paragraphs": [
-                "Pricing is determined individually according to scope, complexity, timing, licence, number of revisions and required deliverables. The price stated in the accepted quotation or contract controls.",
-                f"Unless agreed otherwise, the Provider may require a deposit of {deposit}% of the estimated price before work begins. The standard invoice due date is {due_days} days unless the invoice or agreement specifies a different period.",
-            ],
-            "bullets": [
-                "Prices are stated inclusive or exclusive of VAT as indicated in the quotation and according to the Provider's tax status.",
-                "Bank fees, licence fees, stock assets, external suppliers, travel, rush delivery or other exceptional costs may be charged separately if approved in advance or required by a changed Brief.",
-                "The Provider may suspend work or final delivery while the Client is overdue with payment.",
-                "Statutory default interest and recovery costs apply only to the extent permitted by law.",
-            ],
-        },
-        {
-            "title": "8. Deadlines and schedule",
-            "paragraphs": [
-                "Deadlines are binding when expressly confirmed as fixed. Otherwise, they are good-faith estimates based on information available when the Project is accepted.",
-                "The schedule begins once all required materials, approvals and any deposit have been received.",
-            ],
-            "bullets": [
-                "Deadlines are reasonably extended by delayed feedback, changes in scope, additional work, technical obstacles, supplier outages or events outside the Provider's reasonable control.",
-                "Rush or priority delivery may be subject to additional pricing and production availability.",
-            ],
-        },
-        {
-            "title": "9. Concepts, revisions and scope changes",
-            "paragraphs": [
-                f"Unless the quotation states otherwise, the price includes up to {revisions} rounds of reasonable revisions within the original Brief.",
-                "The Client will provide clear, consolidated feedback through the agreed contact. Conflicting instructions from multiple persons may suspend work until an authorised approver is identified.",
-            ],
-            "bullets": [
-                "A change to the concept, style, script, duration, format, technical parameters, an already approved stage or the overall scope constitutes additional work.",
-                "Additional work will proceed after the impact on price and timing is approved; email confirmation may be sufficient for minor changes.",
-                "Unused revisions are not refundable and do not transfer to another Project unless agreed otherwise.",
-            ],
-        },
-        {
-            "title": "10. Approval and delivery",
-            "paragraphs": [
-                "The Provider may supply watermarked, reduced-quality or working-format previews for review and approval.",
-                "Final Deliverables will be supplied using the agreed method and formats after payment conditions have been satisfied, unless the quotation or contract provides otherwise.",
-            ],
-            "bullets": [
-                "The Client will review Deliverables without undue delay and identify any specific defect or departure from the agreed Brief.",
-                "A subjective change in taste after approval of the creative direction is not by itself a defect, but may be commissioned as additional work.",
-                "Working Files or source files are not automatically included unless expressly listed in the quotation or contract.",
-            ],
-        },
-        {
-            "title": "11. Defects, complaints and remedies",
-            "paragraphs": [
-                "The Client may report a demonstrable failure of a Deliverable to match the agreed Brief, technical specifications or binding approved requirements.",
-                f"A complaint may be sent to {email}. It should identify the Project, describe the defect and where it occurs, state the requested remedy and include relevant evidence or files.",
-            ],
-            "bullets": [
-                "The Provider will assess the complaint and propose an appropriate remedy, such as correction, completion, redelivery, a proportionate price reduction or another remedy required by law.",
-                "Statutory consumer deadlines and rights apply and are not restricted by these Terms.",
-                "A complaint does not cover errors caused by Client or third-party intervention, use in an unsupported environment, format conversion outside the agreed workflow or incorrect Client materials.",
-            ],
-        },
-        {
-            "title": "12. Copyright and licence",
-            "paragraphs": [
-                "Copyright and other intellectual property rights in the Provider's work remain protected to the extent provided by law. The Client receives a licence or other right to use the Deliverables only within the scope agreed in the quotation or contract.",
-                "Where the licence scope is not expressly stated, it will be interpreted reasonably according to the Project's purpose, price, nature of the Deliverable and the intended use known to the Provider when the contract was formed.",
-            ],
-            "bullets": [
-                "A licence may be limited by territory, duration, medium, purpose, campaign, number of uses or the right to modify or sublicense.",
-                "The licence to final Deliverables takes effect after full payment unless the contract expressly provides otherwise.",
-                "The Provider's workflows, know-how, templates, tools, libraries, scripts, reusable assets and general production components are not transferred unless agreed in writing.",
-                "Rights in third-party materials are governed by their applicable licence terms and may be narrower than the licence to the Provider's original work.",
-            ],
-        },
-        {
-            "title": "13. Portfolio, showreel and credit",
-            "paragraphs": [
-                "The Provider may use publicly released final Deliverables or reasonable Project excerpts in its portfolio, showreel, social media, awards submissions and service presentations where this was agreed, follows from the circumstances of the engagement or is supported by another valid legal basis.",
-                "If the Project is confidential, embargoed or the Client objects to portfolio use before the contract is formed, the parties will agree an appropriate restriction or exclusion.",
-            ],
-            "bullets": [
-                "The Provider will not disclose non-public business information, personal data or material it is not authorised to publish.",
-                "Any reference to the Client's name or brand identifies the completed Project only and does not imply a partnership or endorsement of other services.",
-            ],
-        },
-        {
-            "title": "14. Subcontractors, stock assets and technology",
-            "paragraphs": [
-                "The Provider may engage trusted subcontractors or suppliers while remaining responsible for managing its contractual performance within the agreed scope.",
-                "A Project may use licensed fonts, music, stock content, plugins, cloud services, render farms or other third-party technology.",
-            ],
-            "bullets": [
-                "Third-party materials may be subject to separate licence, territory or time restrictions.",
-                "Where generative or other AI tools are appropriate for a Project, the Provider will take account of agreed confidentiality, licensing and technical requirements. The Client may request that AI tools not be used; this may affect price or schedule.",
-            ],
-        },
-        {
-            "title": "15. Confidentiality and Project files",
-            "paragraphs": [
-                "The parties will protect confidential information obtained during the engagement and use it only for the Project, legal compliance or the protection of their rights.",
-                "Information is not confidential where it became public without breach, was lawfully obtained from a third party or must be disclosed by law.",
-            ],
-            "bullets": [
-                "The Provider is not required to retain Working Files or Project files indefinitely. The Client will maintain its own backup of final Deliverables after delivery.",
-                "Long-term archiving, reopening an old Project or migrating Working Files may be chargeable and depends on technical availability.",
-            ],
-        },
-        {
-            "title": "16. Suspension, cancellation and termination",
-            "paragraphs": [
-                "The Client may request suspension or cancellation of a Project. The Provider is entitled to payment for properly completed work, approved costs, purchased licences and reasonable non-refundable commitments incurred up to termination.",
-                "A cancellation fee or settlement method may be stated in the quotation or contract. Where none is stated, documented work performed and non-refundable costs will be invoiced.",
-            ],
-            "bullets": [
-                "The Provider may suspend or terminate a Project for a material Client breach, overdue payment, prolonged failure to cooperate, unlawful instructions or a security risk.",
-                "For a remediable breach, the Provider will give a reasonable opportunity to remedy it where circumstances permit.",
-                "Termination does not grant rights to use unfinished or unpaid Deliverables unless agreed in writing.",
-            ],
-        },
-        {
-            "title": "17. Liability and force majeure",
-            "paragraphs": [
-                "Each party is responsible for loss caused by its breach to the extent provided by applicable law and the contract.",
-                "The Provider is not liable for delay or non-performance caused by events outside its reasonable control, including major infrastructure outages, natural disasters, government action, war, civil unrest, epidemic or serious supplier failure, provided reasonable mitigation steps are taken.",
-            ],
-            "bullets": [
-                "The Provider does not guarantee campaign performance, commercial success, audience figures or other business outcomes unless a specific measurable guarantee was expressly agreed.",
-                "Nothing excludes liability that cannot lawfully be excluded or limited, or any mandatory consumer right.",
-            ],
-        },
-        {
-            "title": "18. Consumers and withdrawal from distance contracts",
-            "paragraphs": [
-                "Where the Client is a consumer and the contract was concluded at a distance or away from the Provider's business premises, the Client may have a statutory right to withdraw without giving a reason, generally within 14 days after the service contract is concluded.",
-                "If the consumer expressly requests performance to begin before the withdrawal period expires, the consumer may have to pay a proportionate amount for services supplied before withdrawal. Once the service has been fully performed, the right of withdrawal may be lost where the statutory conditions, including prior express consent and acknowledgement, have been met.",
-            ],
-            "bullets": [
-                f"A withdrawal notice may be sent to {email} or made by another clear statement delivered to the Provider.",
-                "This Section does not apply to business Clients and does not limit any mandatory consumer right.",
-            ],
-        },
-        {
-            "title": "19. Personal data protection",
-            "paragraphs": [
-                f"Personal data processing is governed by the separate Personal Data Protection (GDPR) notice available at {website}.",
-                "The Client will ensure that personal data contained in Project materials is supplied and used lawfully. Where the Provider processes personal data on the Client's behalf as a processor, the parties will enter into an appropriate data processing agreement where required.",
-            ],
-        },
-        {
-            "title": "20. Complaints and alternative dispute resolution",
-            "paragraphs": [
-                f"The Client may send a question, complaint or request for redress to {email}. The parties will first seek to resolve disputes amicably.",
-                "A consumer dissatisfied with the response to a request for redress, or who did not receive a response within the statutory period, may apply to a competent alternative dispute resolution entity under applicable law, including the Slovak Trade Inspection where the matter falls within its authority.",
-            ],
-        },
-        {
-            "title": "21. Governing law and courts",
-            "paragraphs": [
-                "The contractual relationship is governed by the laws of the Slovak Republic unless mandatory conflict-of-law rules provide otherwise.",
-                "The choice of Slovak law does not deprive a consumer of mandatory protections available under the law of the consumer's habitual residence where those protections apply.",
-                "If a dispute cannot be resolved amicably, it will be decided by the court having jurisdiction under applicable law.",
-            ],
-        },
-        {
-            "title": "22. Amendments and final provisions",
-            "paragraphs": [
-                "The Provider may reasonably update these Terms, particularly following changes to services, processes or law. A Project will normally remain subject to the version effective when the contract was formed, unless the parties agree otherwise or a change is required by law.",
-                "If any provision is invalid or unenforceable, the remaining provisions remain effective. The invalid provision will be replaced by a lawful solution that most closely reflects its commercial purpose.",
-                "The English version is a translation of the Slovak version. If interpretations differ, the Slovak version prevails unless mandatory law requires otherwise.",
-                f"Last updated: {formatted_date('en')}",
-                f"Version: {DATA['version']}",
-            ],
-        },
-    ]
+        }
+        result.append(section)
+    return result
+
+
+def _replace_tokens(value: str, replacements: dict[str, str]) -> str:
+    for token, replacement in replacements.items():
+        value = value.replace(token, replacement)
+    return value
 
 
 def ensure_paths() -> None:
@@ -712,8 +700,8 @@ def create_styles() -> dict[str, ParagraphStyle]:
         "TEXT": ParagraphStyle(
             "TEXT",
             fontName="Roboto",
-            fontSize=9.4,
-            leading=12.6,
+            fontSize=9.2,
+            leading=12.4,
             textColor=INK,
             spaceBefore=0,
             spaceAfter=0,
@@ -754,7 +742,6 @@ def box(title: str, paragraphs: list[str], bullets: list[str], styles: dict) -> 
         rows.append([p("—", styles["TEXT"])])
 
     table = Table(rows, colWidths=[CONTENT_WIDTH], repeatRows=1, hAlign="LEFT")
-
     commands = [
         ("BACKGROUND", (0, 0), (-1, -1), colors.Color(1, 1, 1, alpha=0)),
         ("BOX", (0, 0), (-1, -1), 0.8, LINE),
@@ -767,11 +754,8 @@ def box(title: str, paragraphs: list[str], bullets: list[str], styles: dict) -> 
         ("TOPPADDING", (0, 1), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 1), (-1, -1), 7),
     ]
-
-    # Keep each section heading with at least its first body row.
     if len(rows) >= 2:
         commands.append(("NOSPLIT", (0, 0), (-1, 1)))
-
     table.setStyle(TableStyle(commands))
     return table
 
@@ -792,7 +776,6 @@ def draw_page(canv, doc, title: str, language: str) -> None:
     scale = min(width / image_width, height / image_height) * 0.92
     draw_width = image_width * scale
     draw_height = image_height * scale
-
     canv.drawImage(
         image,
         (width - draw_width) / 2.0,
@@ -804,22 +787,18 @@ def draw_page(canv, doc, title: str, language: str) -> None:
     canv.restoreState()
 
     canv.saveState()
-    canv.setFont("Roboto", 19)
+    canv.setFont("Roboto", 15)
     canv.setFillColor(ACCENT)
     canv.drawRightString(width - 2 * cm, height - 2.2 * cm, title)
 
     canv.setFont("Roboto", 8)
     canv.setFillColor(MUTED)
     canv.drawString(2 * cm, 1.2 * cm, f"{DATA['website']}  |  {formatted_date(language)}")
-    canv.drawRightString(
-        width - 2 * cm,
-        1.2 * cm,
-        f"{labels['page']} {doc.page}",
-    )
+    canv.drawRightString(width - 2 * cm, 1.2 * cm, f"{labels['page']} {doc.page}")
 
     canv.setTitle(title)
     canv.setAuthor(DATA["provider"]["brand_name"])
-    canv.setSubject("Terms and Conditions" if language == "en" else "Obchodné podmienky")
+    canv.setSubject("Software Terms and Conditions" if language == "en" else "Podmienky používania softvéru")
     canv.restoreState()
 
 
@@ -840,7 +819,7 @@ def generate_pdf(language: str, output_pdf: str) -> None:
         bottomMargin=2 * cm,
         title=labels["title"],
         author=DATA["provider"]["brand_name"],
-        subject="Terms and Conditions" if language == "en" else "Obchodné podmienky",
+        subject="Software Terms and Conditions" if language == "en" else "Podmienky používania softvéru",
     )
 
     story = [
@@ -867,26 +846,15 @@ def generate_pdf(language: str, output_pdf: str) -> None:
         )
         story.append(Spacer(1, 8))
 
-    page_callback = partial(
-        draw_page,
-        title=labels["title"],
-        language=language,
-    )
-
-    document.build(
-        story,
-        onFirstPage=page_callback,
-        onLaterPages=page_callback,
-    )
+    page_callback = partial(draw_page, title=labels["title"], language=language)
+    document.build(story, onFirstPage=page_callback, onLaterPages=page_callback)
 
 
 def main() -> None:
     ensure_paths()
     register_fonts()
-
     generate_pdf("sk", OUTPUT_PDF_SK)
     generate_pdf("en", OUTPUT_PDF_EN)
-
     print(f"Generated: {OUTPUT_PDF_SK}")
     print(f"Generated: {OUTPUT_PDF_EN}")
 
