@@ -53,6 +53,8 @@ DATA_ROOT = Path(
     )
 ).expanduser().resolve()
 
+TRADING_SETUP_ROOT = (BASE_DIR / "TRADING SET UP").resolve()
+
 CHARTS_ROOT = Path(
     os.getenv(
         "SPECTLINE_CHARTS_ROOT",
@@ -279,13 +281,20 @@ def get_client_paths(identity: ClientIdentity) -> ClientPaths:
     strategy_root = market_root / identity.strategy_id
     tradingbot_root = strategy_root / identity.tradingbot_id
 
+    if WEB_MODE:
+        learning_setups_file = market_root / DEFAULT_SETUP_FILENAME
+    else:
+        learning_setups_file = (
+            TRADING_SETUP_ROOT / identity.market / DEFAULT_SETUP_FILENAME
+        )
+
     return ClientPaths(
         identity=identity,
         customer_root=customer_root,
         market_root=market_root,
         strategy_root=strategy_root,
         tradingbot_root=tradingbot_root,
-        learning_setups_file=tradingbot_root / DEFAULT_SETUP_FILENAME,
+        learning_setups_file=learning_setups_file,
         models_root=tradingbot_root / "MODELS",
         results_root=tradingbot_root / "RESULTS",
         runtime_root=tradingbot_root / "RUNTIME",
@@ -297,6 +306,7 @@ def ensure_client_directories(identity: ClientIdentity) -> ClientPaths:
     paths = get_client_paths(identity)
 
     for directory in (
+        paths.learning_setups_file.parent,
         paths.tradingbot_root,
         paths.models_root,
         paths.results_root,
@@ -371,6 +381,7 @@ __all__ = [
     "BASE_DIR",
     "WEB_MODE",
     "DATA_ROOT",
+    "TRADING_SETUP_ROOT",
     "CHARTS_ROOT",
     "SUPPORTED_TIMEFRAMES",
     "ClientIdentity",

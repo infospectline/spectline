@@ -1,0 +1,632 @@
+tree /f /a > tree.txt
+
+Folder PATH listing for volume Novì svazek
+Volume serial number is 021A-6DEE
+D:.
+|   .env.local
+|   ai.py
+|   backend.py
+|   chart.js
+|   chart.py
+|   client.py
+|   frontend.css
+|   frontend.html
+|   frontend.js
+|   geometry.js
+|   gestures.js
+|   learning.js
+|   requirements.txt
+|   results.js
+|   runtime.py
+|   setups.py
+|   socket.js
+|   state.js
+|   strategy.py
+|   trading.py
+|   tree.txt
+|   webmode.py
+|   
++---CHARTS
+|   +---AUDUSD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---BTCUSD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---EURGBP
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---EURJPY
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---EURUSD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---GBPJPY
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---GBPUSD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---GER40.cash
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---NZDUSD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---UK100.cash
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---US100.cash
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---US30.cash
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---US500.cash
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---USDCAD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---USDCHF
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---USDJPY
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   +---XAGUSD
+|   |   +---D1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---H4
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M1
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M15
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M30
+|   |   |       candles.csv
+|   |   |       
+|   |   +---M5
+|   |   |       candles.csv
+|   |   |       
+|   |   \---W1
+|   |           candles.csv
+|   |           
+|   \---XAUUSD
+|       +---D1
+|       |       candles.csv
+|       |       
+|       +---H1
+|       |       candles.csv
+|       |       
+|       +---H4
+|       |       candles.csv
+|       |       
+|       +---M1
+|       |       candles.csv
+|       |       
+|       +---M15
+|       |       candles.csv
+|       |       
+|       +---M30
+|       |       candles.csv
+|       |       
+|       +---M5
+|       |       candles.csv
+|       |       
+|       \---W1
+|               candles.csv
+|               
++---CUSTOMERS
+|   \---LOCAL
+|       \---EURUSD
+|           \---DEFAULT_STRATEGY
+|               \---DEFAULT_TRADINGBOT
+|                   |   setups.json
+|                   |   
+|                   +---MODELS
+|                   |   |   model.pth
+|                   |   |   
+|                   |   \---TRAINING_RUNS
+|                   |           EVENTS.jsonl
+|                   |           
+|                   +---RESULTS
+|                   \---RUNTIME
++---engine
+|   |   catalog.py
+|   |   data.py
+|   |   dataset.py
+|   |   evaluation.py
+|   |   features.py
+|   |   finetune.py
+|   |   history.py
+|   |   inference.py
+|   |   labels.py
+|   |   memory.py
+|   |   model.py
+|   |   probability.py
+|   |   relevance.py
+|   |   replay.py
+|   |   scaling.py
+|   |   settings.py
+|   |   situations.py
+|   |   stages.py
+|   |   storage.py
+|   |   testing.py
+|   |   timeline.py
+|   |   training.py
+|   |   versions.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           data.cpython-310.pyc
+|           dataset.cpython-310.pyc
+|           features.cpython-310.pyc
+|           history.cpython-310.pyc
+|           inference.cpython-310.pyc
+|           labels.cpython-310.pyc
+|           memory.cpython-310.pyc
+|           model.cpython-310.pyc
+|           scaling.cpython-310.pyc
+|           settings.cpython-310.pyc
+|           storage.cpython-310.pyc
+|           training.cpython-310.pyc
+|           versions.cpython-310.pyc
+|           __init__.cpython-310.pyc
+|           
++---images
+|       add.png
+|       analysis.png
+|       anchor.png
+|       delete.png
+|       favicon.png
+|       learning.png
+|       left.png
+|       levels.png
+|       lines.png
+|       list.png
+|       loss.png
+|       market.png
+|       profit.png
+|       ratio.png
+|       results.png
+|       right.png
+|       royale_trades.png
+|       save.png
+|       setup.png
+|       timeframe.png
+|       trades.png
+|       
++---MODELS
+|   +---DEFAULT
+|   |       model.json
+|   |       
+|   \---EURUSD
+|           model.pth
+|           
++---SSH
+|       id_ed25519
+|       id_ed25519.pub
+|       
++---TRADING SET UP
+|   +---BTCUSD
+|   |       setups.json
+|   |       
+|   +---EURGBP
+|   +---EURJPY
+|   +---EURUSD
+|   |       setups.json
+|   |       
+|   +---GBPJPY
+|   +---GBPUSD
+|   +---NZDUSD
+|   +---TRADING SET UP
+|   |   \---EURUSD
+|   |           setups.json
+|   |           
+|   +---UK100.cash
+|   +---US100.cash
+|   +---US30.cash
+|   +---US500.cash
+|   +---USDCAD
+|   +---USDCHF
+|   +---USDJPY
+|   \---XAGUSD
++---VERSIONS
+|   +---ARTIFACTS
+|   |   \---CUSTOMER_2e5b67324a7445b553406019
+|   |       \---training_run
+|   |               training_20261108T090723Z_29fdd6f16a8b.json
+|   |               training_20261108T090723Z_29fdd6f16a8b.json.lock
+|   |               training_20261109T083938Z_40decb1c2369.json
+|   |               training_20261109T083938Z_40decb1c2369.json.lock
+|   |               training_20261109T085748Z_7b600d788a5f.json
+|   |               training_20261109T085748Z_7b600d788a5f.json.lock
+|   |               training_20261109T093416Z_43934c1fb072.json
+|   |               training_20261109T093416Z_43934c1fb072.json.lock
+|   |               
+|   \---CUSTOMER_2e5b67324a7445b553406019
+|       \---training_run
+|           |   EVENTS.jsonl
+|           |   EVENTS.jsonl.lock
+|           |   
+|           \---MANIFESTS
+|                   training_20261108T090723Z_29fdd6f16a8b.json
+|                   training_20261108T090723Z_29fdd6f16a8b.json.lock
+|                   training_20261109T083938Z_40decb1c2369.json
+|                   training_20261109T083938Z_40decb1c2369.json.lock
+|                   training_20261109T085748Z_7b600d788a5f.json
+|                   training_20261109T085748Z_7b600d788a5f.json.lock
+|                   training_20261109T093416Z_43934c1fb072.json
+|                   training_20261109T093416Z_43934c1fb072.json.lock
+|                   
+\---__pycache__
+        ai.cpython-310.pyc
+        authentication_backend.cpython-310.pyc
+        auth_database.cpython-310.pyc
+        backend.cpython-310.pyc
+        chart.cpython-310.pyc
+        client.cpython-310.pyc
+        runtime.cpython-310.pyc
+        setups.cpython-310.pyc
+        strategy.cpython-310.pyc
+        trading.cpython-310.pyc
+        webmode.cpython-310.pyc
+        

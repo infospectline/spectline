@@ -2408,7 +2408,7 @@ export default function AndroidBasic({
                       <div className="mt-auto pt-4">
                         <button
                           type="button"
-                          onClick={() => scrollToSection("contact")}
+                          onClick={() => scrollToSection("portfolio")}
                           className={[
                             "services-contact-btn",
                             "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition",

@@ -1,4 +1,4 @@
-"""Historical candle loading and point-in-time timeframe alignment."""
+"""Historical candle loading, validation and point-in-time timeframe alignment."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import csv
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 try:
     from client import (
@@ -23,6 +23,7 @@ try:
         CANDLE_FILENAME,
         SUPPORTED_TIMEFRAMES,
         TIMEFRAME_SECONDS,
+        WEB_MODE,
     )
 except ImportError:
     from ..client import (
@@ -36,13 +37,31 @@ except ImportError:
         CANDLE_FILENAME,
         SUPPORTED_TIMEFRAMES,
         TIMEFRAME_SECONDS,
+        WEB_MODE,
     )
+
+
+# ============================================================================
+# MODULE CONFIGURATION
+# ============================================================================
+
+_CSV_SAMPLE_SIZE = 8192
+_CSV_DELIMITERS = ",;\t|"
+_CSV_ENCODING = "utf-8-sig"
+
+_OHLC_COLUMNS = {
+    "time": ("time", "timestamp", "datetime", "date", "time_msc"),
+    "open": ("open", "o"),
+    "high": ("high", "h"),
+    "low": ("low", "l"),
+    "close": ("close", "c"),
+    "volume": ("tick_volume", "tickvolume", "volume", "real_volume"),
+}
 
 
 # ============================================================================
 # TIMEFRAME SELECTION
 # ============================================================================
-
 
 def _setup_value(setup: Any, field_name: str) -> Any:
     """Read a setup field from either a normalized object or a dictionary."""
@@ -52,16 +71,19 @@ def _setup_value(setup: Any, field_name: str) -> Any:
 
 
 def select_required_timeframes(setups_or_timeframes: Iterable[Any]) -> List[str]:
-    """Return unique required timeframes in the configured chronological order.
+    """Return the unique runtime-supported timeframes used by the input.
 
-    The input can contain normalized Learning setup objects, setup dictionaries,
-    or timeframe strings. For setup records, setup, entry and optional
-    resolution timeframes are included. Timeframes unavailable in the current
-    runtime mode are not selected.
+    The input may contain timeframe strings, setup dictionaries or normalized
+    setup objects. Setup, entry and optional resolution timeframes are read.
+    The returned order always follows the configured timeframe order.
     """
     requested: set[str] = set()
     supported = set(SUPPORTED_TIMEFRAMES)
-    items = (setups_or_timeframes,) if isinstance(setups_or_timeframes, str) else setups_or_timeframes
+    items = (
+        (setups_or_timeframes,)
+        if isinstance(setups_or_timeframes, str)
+        else setups_or_timeframes
+    )
 
     for item in items:
         if isinstance(item, str):
@@ -80,67 +102,99 @@ def select_required_timeframes(setups_or_timeframes: Iterable[Any]) -> List[str]
             if timeframe in supported:
                 requested.add(timeframe)
 
-    return [timeframe for timeframe in SUPPORTED_TIMEFRAMES if timeframe in requested]
+    return [
+        timeframe
+        for timeframe in SUPPORTED_TIMEFRAMES
+        if timeframe in requested
+    ]
+
+
+def _runtime_mode_name() -> str:
+    """Return a short label for the active chart runtime mode."""
+    return "WebMode" if WEB_MODE else "local mode"
 
 
 def _normalize_timeframes(timeframes: Iterable[str]) -> List[str]:
     """Validate and de-duplicate an explicit timeframe list."""
-    requested: set[str] = set()
+    if timeframes is None:
+        raise TypeError("timeframes must be an iterable of timeframe names.")
+
     values = (timeframes,) if isinstance(timeframes, str) else timeframes
+    requested: set[str] = set()
 
     for value in values:
+        if value is None:
+            raise ValueError("A timeframe value cannot be None.")
+
         timeframe = str(value).strip().upper()
         if not timeframe:
             continue
+
         if timeframe not in SUPPORTED_TIMEFRAMES:
-            mode = "WebMode" if "M1" not in SUPPORTED_TIMEFRAMES else "local mode"
             raise ValueError(
-                f"Timeframe '{timeframe}' is not available in {mode}."
+                f"Timeframe '{timeframe}' is not available in {_runtime_mode_name()}."
             )
         requested.add(timeframe)
 
-    return [timeframe for timeframe in SUPPORTED_TIMEFRAMES if timeframe in requested]
+    return [
+        timeframe
+        for timeframe in SUPPORTED_TIMEFRAMES
+        if timeframe in requested
+    ]
 
 
 # ============================================================================
-# ARCHIVE PATHS
+# ARCHIVE PATHS AND IDENTITY VALIDATION
 # ============================================================================
-
 
 def chart_path(market: str, timeframe: str) -> Path:
     """Return the shared, read-only candle archive path for a market."""
     normalized_market = normalize_market(market)
-    normalized_timeframe = str(timeframe).strip().upper()
+    normalized_timeframes = _normalize_timeframes((timeframe,))
+    normalized_timeframe = normalized_timeframes[0]
 
-    if normalized_timeframe not in SUPPORTED_TIMEFRAMES:
-        mode = "WebMode" if "M1" not in SUPPORTED_TIMEFRAMES else "local mode"
-        raise ValueError(
-            f"Timeframe '{normalized_timeframe}' is not available in {mode}."
+    return Path(
+        get_chart_history_path(
+            normalized_market,
+            normalized_timeframe,
+            CANDLE_FILENAME,
         )
-
-    return get_chart_history_path(
-        normalized_market,
-        normalized_timeframe,
-        CANDLE_FILENAME,
     )
+
+
+def _validate_identity_market(
+    market: str,
+    identity: Optional[ClientIdentity],
+) -> None:
+    """Validate that an optional customer identity belongs to the market."""
+    if identity is None:
+        return
+
+    if not isinstance(identity, ClientIdentity):
+        raise TypeError("identity must be a ClientIdentity instance.")
+
+    if identity.market != market:
+        raise ValueError(
+            f"Identity market {identity.market} does not match requested market {market}."
+        )
 
 
 # ============================================================================
 # CSV NORMALIZATION
 # ============================================================================
 
-
 def _normalized_row(row: Mapping[Any, Any]) -> Dict[str, Any]:
     """Normalize CSV column names while retaining their original values."""
-    return {
-        str(key).strip().lower(): value
-        for key, value in row.items()
-        if key is not None
-    }
+    normalized: Dict[str, Any] = {}
+    for key, value in row.items():
+        if key is None:
+            continue
+        normalized[str(key).strip().lower()] = value
+    return normalized
 
 
 def _row_value(row: Mapping[str, Any], *names: str) -> Any:
-    """Return the first present, non-empty value from a list of column names."""
+    """Return the first present, non-empty value from candidate column names."""
     for name in names:
         value = row.get(name.lower())
         if value is not None and str(value).strip() != "":
@@ -149,39 +203,58 @@ def _row_value(row: Mapping[str, Any], *names: str) -> Any:
 
 
 def _csv_reader(file_object: Any) -> csv.DictReader:
-    """Create a DictReader using the delimiter found in the archive header."""
-    sample = file_object.read(8192)
+    """Create a DictReader using the delimiter detected in the archive header."""
+    sample = file_object.read(_CSV_SAMPLE_SIZE)
     file_object.seek(0)
 
     try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        dialect = csv.Sniffer().sniff(sample, delimiters=_CSV_DELIMITERS)
         return csv.DictReader(file_object, dialect=dialect)
     except csv.Error:
         first_line = sample.splitlines()[0] if sample.splitlines() else ""
-        delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
+        delimiter_counts = {
+            delimiter: first_line.count(delimiter)
+            for delimiter in _CSV_DELIMITERS
+        }
+        delimiter = max(delimiter_counts, key=delimiter_counts.get)
+        if delimiter_counts[delimiter] == 0:
+            delimiter = ","
         return csv.DictReader(file_object, delimiter=delimiter)
+
+
+def _valid_ohlc(
+    open_price: float,
+    high_price: float,
+    low_price: float,
+    close_price: float,
+) -> bool:
+    """Return whether the candle prices form a valid OHLC range."""
+    values = (open_price, high_price, low_price, close_price)
+    if not all(math.isfinite(value) for value in values):
+        return False
+
+    if high_price < low_price:
+        return False
+
+    if high_price < max(open_price, close_price):
+        return False
+
+    if low_price > min(open_price, close_price):
+        return False
+
+    return True
 
 
 def _candle_from_row(row: Mapping[Any, Any]) -> Optional[Candle]:
     """Convert one CSV row into a validated normalized Candle instance."""
     values = _normalized_row(row)
 
-    timestamp = parse_timestamp(
-        _row_value(values, "time", "timestamp", "datetime", "date", "time_msc")
-    )
-    open_price = to_float(_row_value(values, "open", "o"))
-    high_price = to_float(_row_value(values, "high", "h"))
-    low_price = to_float(_row_value(values, "low", "l"))
-    close_price = to_float(_row_value(values, "close", "c"))
-    volume = to_float(
-        _row_value(
-            values,
-            "tick_volume",
-            "tickvolume",
-            "volume",
-            "real_volume",
-        )
-    )
+    timestamp = parse_timestamp(_row_value(values, *_OHLC_COLUMNS["time"]))
+    open_price = to_float(_row_value(values, *_OHLC_COLUMNS["open"]))
+    high_price = to_float(_row_value(values, *_OHLC_COLUMNS["high"]))
+    low_price = to_float(_row_value(values, *_OHLC_COLUMNS["low"]))
+    close_price = to_float(_row_value(values, *_OHLC_COLUMNS["close"]))
+    volume = to_float(_row_value(values, *_OHLC_COLUMNS["volume"]))
 
     if timestamp is None:
         return None
@@ -190,19 +263,21 @@ def _candle_from_row(row: Mapping[Any, Any]) -> Optional[Candle]:
     if any(value is None for value in prices):
         return None
 
-    if not all(math.isfinite(float(value)) for value in prices if value is not None):
-        return None
-
     open_value = float(open_price)
     high_value = float(high_price)
     low_value = float(low_price)
     close_value = float(close_price)
 
-    if high_value < low_value:
+    if not _valid_ohlc(
+        open_value,
+        high_value,
+        low_value,
+        close_value,
+    ):
         return None
 
     volume_value = float(volume) if volume is not None else 0.0
-    if not math.isfinite(volume_value):
+    if not math.isfinite(volume_value) or volume_value < 0.0:
         volume_value = 0.0
 
     return Candle(
@@ -219,35 +294,99 @@ def _candle_from_row(row: Mapping[Any, Any]) -> Optional[Candle]:
 # HISTORICAL CANDLE LOADING
 # ============================================================================
 
+def _empty_load_report(path: Path, market: str, timeframe: str) -> Dict[str, Any]:
+    """Create a consistent load report for an absent or empty archive."""
+    return {
+        "market": market,
+        "timeframe": timeframe,
+        "path": str(path),
+        "archive_exists": path.is_file(),
+        "rows_read": 0,
+        "valid_rows": 0,
+        "invalid_rows": 0,
+        "duplicate_timestamps": 0,
+        "candle_count": 0,
+        "first_candle_time": None,
+        "last_candle_time": None,
+    }
 
-def load_candles(market: str, timeframe: str) -> List[Candle]:
-    """Load, normalize, sort and de-duplicate one chart archive.
 
-    A missing archive returns an empty list. An archive that exists but cannot
-    be read raises an OSError so the caller can distinguish missing history
-    from an inaccessible file.
-    """
-    path = chart_path(market, timeframe)
+def _load_candles_internal(
+    market: str,
+    timeframe: str,
+) -> Tuple[List[Candle], Dict[str, Any]]:
+    """Load one archive and return normalized candles with quality metadata."""
+    normalized_market = normalize_market(market)
+    normalized_timeframe = _normalize_timeframes((timeframe,))[0]
+    path = chart_path(normalized_market, normalized_timeframe)
+    report = _empty_load_report(path, normalized_market, normalized_timeframe)
+
     if not path.is_file():
-        return []
+        return [], report
 
     candles_by_time: Dict[int, Candle] = {}
 
     try:
-        with path.open("r", newline="", encoding="utf-8-sig") as file_object:
+        with path.open("r", newline="", encoding=_CSV_ENCODING) as file_object:
             reader = _csv_reader(file_object)
             for row in reader:
                 if not row:
                     continue
+
+                report["rows_read"] += 1
                 candle = _candle_from_row(row)
                 if candle is None:
+                    report["invalid_rows"] += 1
                     continue
-                # The last valid row wins when an archive contains duplicate times.
+
+                report["valid_rows"] += 1
+                if candle.time in candles_by_time:
+                    report["duplicate_timestamps"] += 1
+
                 candles_by_time[candle.time] = candle
     except OSError as error:
-        raise OSError(f"Could not read chart archive '{path}': {error}") from error
+        raise OSError(
+            f"Could not read chart archive '{path}': {error}"
+        ) from error
+    except (csv.Error, UnicodeError) as error:
+        raise ValueError(
+            f"Could not parse chart archive '{path}': {error}"
+        ) from error
 
-    return [candles_by_time[timestamp] for timestamp in sorted(candles_by_time)]
+    candles = [
+        candles_by_time[timestamp]
+        for timestamp in sorted(candles_by_time)
+    ]
+
+    report.update(
+        {
+            "archive_exists": True,
+            "candle_count": len(candles),
+            "first_candle_time": candles[0].time if candles else None,
+            "last_candle_time": candles[-1].time if candles else None,
+        }
+    )
+    return candles, report
+
+
+def load_candles(market: str, timeframe: str) -> List[Candle]:
+    """Load, normalize, chronologically sort and de-duplicate one archive.
+
+    A missing archive returns an empty list. An archive that exists but cannot
+    be read or parsed raises an exception, allowing callers to distinguish a
+    missing history from an inaccessible or malformed archive. When duplicate
+    timestamps occur, the last valid row in the CSV is retained.
+    """
+    candles, _ = _load_candles_internal(market, timeframe)
+    return candles
+
+
+def load_candles_with_report(
+    market: str,
+    timeframe: str,
+) -> Tuple[List[Candle], Dict[str, Any]]:
+    """Load one archive and return candle-quality and coverage metadata."""
+    return _load_candles_internal(market, timeframe)
 
 
 def load_candles_for_timeframes(
@@ -256,29 +395,45 @@ def load_candles_for_timeframes(
     *,
     identity: Optional[ClientIdentity] = None,
 ) -> Dict[str, List[Candle]]:
-    """Load each requested archive once for the supplied market.
+    """Load each requested shared market archive once for a TradingBot.
 
-    Historical chart archives are shared and read-only. The identity argument
-    is accepted to keep the data-loading interface TradingBot-aware; it is
-    validated against the requested market but does not change the shared
-    archive location.
+    Market archives are shared and read-only. The optional identity is checked
+    against the market but does not alter the shared archive location.
+    Missing archives are represented by empty lists for their timeframe keys.
     """
     normalized_market = normalize_market(market)
-
-    if identity is not None:
-        if not isinstance(identity, ClientIdentity):
-            raise TypeError("identity must be a ClientIdentity instance.")
-        if identity.market != normalized_market:
-            raise ValueError(
-                f"Identity market {identity.market} does not match "
-                f"requested market {normalized_market}."
-            )
-
+    _validate_identity_market(normalized_market, identity)
     selected = _normalize_timeframes(timeframes)
+
     return {
         timeframe: load_candles(normalized_market, timeframe)
         for timeframe in selected
     }
+
+
+def load_candles_with_reports(
+    market: str,
+    timeframes: Sequence[str],
+    *,
+    identity: Optional[ClientIdentity] = None,
+) -> Tuple[Dict[str, List[Candle]], Dict[str, Dict[str, Any]]]:
+    """Load multiple timeframe archives and return a report for each one."""
+    normalized_market = normalize_market(market)
+    _validate_identity_market(normalized_market, identity)
+    selected = _normalize_timeframes(timeframes)
+
+    candles_by_timeframe: Dict[str, List[Candle]] = {}
+    reports_by_timeframe: Dict[str, Dict[str, Any]] = {}
+
+    for timeframe in selected:
+        candles, report = _load_candles_internal(
+            normalized_market,
+            timeframe,
+        )
+        candles_by_timeframe[timeframe] = candles
+        reports_by_timeframe[timeframe] = report
+
+    return candles_by_timeframe, reports_by_timeframe
 
 
 def load_all_market_candles(
@@ -291,16 +446,9 @@ def load_all_market_candles(
     if identity is None:
         resolved_identity = resolve_identity(market=normalized_market)
     else:
-        if not isinstance(identity, ClientIdentity):
-            raise TypeError("identity must be a ClientIdentity instance.")
-        if identity.market != normalized_market:
-            raise ValueError(
-                f"Identity market {identity.market} does not match "
-                f"requested market {normalized_market}."
-            )
+        _validate_identity_market(normalized_market, identity)
         resolved_identity = identity
 
-    # Import here to avoid a module-level circular dependency with engine.data.
     try:
         from engine.data import load_learning_setups
     except ImportError:
@@ -320,9 +468,49 @@ def load_all_market_candles(
 
 
 # ============================================================================
-# CANDLE UTILITIES
+# HISTORY QUALITY AND CHRONOLOGY
 # ============================================================================
 
+def is_chronological(candles: Sequence[Candle]) -> bool:
+    """Return whether candle opening timestamps are in non-decreasing order."""
+    previous_time: Optional[int] = None
+    for candle in candles:
+        current_time = int(candle.time)
+        if previous_time is not None and current_time < previous_time:
+            return False
+        previous_time = current_time
+    return True
+
+
+def require_chronological(candles: Sequence[Candle]) -> None:
+    """Raise when a candle sequence is not ordered from oldest to newest."""
+    if not is_chronological(candles):
+        raise ValueError("Candle history must be sorted in ascending timestamp order.")
+
+
+def history_coverage(
+    candles_by_timeframe: Mapping[str, Sequence[Candle]],
+) -> Dict[str, Dict[str, Any]]:
+    """Return candle counts and timestamp coverage for each loaded timeframe."""
+    coverage: Dict[str, Dict[str, Any]] = {}
+
+    for raw_timeframe, candles in candles_by_timeframe.items():
+        timeframe = str(raw_timeframe).strip().upper()
+        ordered = list(candles or [])
+        require_chronological(ordered)
+
+        coverage[timeframe] = {
+            "candle_count": len(ordered),
+            "first_candle_time": ordered[0].time if ordered else None,
+            "last_candle_time": ordered[-1].time if ordered else None,
+        }
+
+    return coverage
+
+
+# ============================================================================
+# CANDLE UTILITIES
+# ============================================================================
 
 def candle_return(previous: Candle, current: Candle) -> float:
     """Return the close-to-close price change normalized by prior close."""
@@ -407,27 +595,21 @@ def rolling_slope(values: Sequence[float]) -> float:
 # POINT-IN-TIME CANDLE ALIGNMENT
 # ============================================================================
 
-
 def last_closed_index(
     candles: Sequence[Candle],
     target_time: int,
     timeframe: str,
 ) -> int:
-    """Return the newest candle fully closed by ``target_time``.
+    """Return the newest candle fully closed by the requested UTC timestamp.
 
     Candle timestamps represent candle opening times. A candle opened at T
-    with duration D is available only when T + D <= target_time. This prevents
-    an unfinished candle or future price data from entering historical input.
+    with duration D is available only when T + D <= target_time. The input
+    sequence must already be sorted in ascending timestamp order.
     """
     if not candles:
         return -1
 
-    normalized_timeframe = str(timeframe).strip().upper()
-    if normalized_timeframe not in SUPPORTED_TIMEFRAMES:
-        raise ValueError(
-            f"Timeframe '{normalized_timeframe}' is not supported in this runtime."
-        )
-
+    normalized_timeframe = _normalize_timeframes((timeframe,))[0]
     duration = TIMEFRAME_SECONDS[normalized_timeframe]
     cutoff = int(target_time) - int(duration)
 
@@ -454,20 +636,59 @@ def slice_closed_history(
     timeframe: str,
     max_count: int,
 ) -> List[Candle]:
-    """Return up to ``max_count`` candles fully closed by ``target_time``."""
-    if max_count <= 0 or not candles:
+    """Return up to max_count candles fully closed by the requested timestamp."""
+    count = int(max_count)
+    if count <= 0 or not candles:
         return []
 
     last_index = last_closed_index(
         candles=candles,
-        target_time=target_time,
+        target_time=int(target_time),
         timeframe=timeframe,
     )
     if last_index < 0:
         return []
 
-    first_index = max(0, last_index - int(max_count) + 1)
+    first_index = max(0, last_index - count + 1)
     return list(candles[first_index:last_index + 1])
+
+
+def align_timeframes_at(
+    candles_by_timeframe: Mapping[str, Sequence[Candle]],
+    target_time: int,
+) -> Dict[str, Candle]:
+    """Return the latest fully closed candle for each available timeframe."""
+    aligned: Dict[str, Candle] = {}
+
+    for timeframe in _normalize_timeframes(candles_by_timeframe.keys()):
+        candles = candles_by_timeframe.get(timeframe, [])
+        index = last_closed_index(candles, target_time, timeframe)
+        if index >= 0:
+            aligned[timeframe] = candles[index]
+
+    return aligned
+
+
+def slice_timeframes_at(
+    candles_by_timeframe: Mapping[str, Sequence[Candle]],
+    target_time: int,
+    lookbacks: Mapping[str, int],
+) -> Dict[str, List[Candle]]:
+    """Return point-in-time candle windows for several timeframe archives."""
+    windows: Dict[str, List[Candle]] = {}
+
+    for timeframe in _normalize_timeframes(candles_by_timeframe.keys()):
+        if timeframe not in lookbacks:
+            continue
+
+        windows[timeframe] = slice_closed_history(
+            candles=candles_by_timeframe.get(timeframe, []),
+            target_time=target_time,
+            timeframe=timeframe,
+            max_count=int(lookbacks[timeframe]),
+        )
+
+    return windows
 
 
 # ============================================================================
@@ -477,9 +698,14 @@ def slice_closed_history(
 __all__ = [
     "chart_path",
     "load_candles",
+    "load_candles_with_report",
     "load_candles_for_timeframes",
+    "load_candles_with_reports",
     "load_all_market_candles",
     "select_required_timeframes",
+    "is_chronological",
+    "require_chronological",
+    "history_coverage",
     "candle_return",
     "true_range",
     "rolling_mean",
@@ -487,4 +713,6 @@ __all__ = [
     "rolling_slope",
     "last_closed_index",
     "slice_closed_history",
+    "align_timeframes_at",
+    "slice_timeframes_at",
 ]

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import inspect
 import json
 import logging
@@ -21,14 +22,16 @@ from fastapi.responses import FileResponse, JSONResponse
 try:
     import ai
 except ImportError:
-    ai = None
+    try:
+        from . import ai
+    except ImportError:
+        ai = None
 
 try:
     from client import (
         BASE_DIR,
         ClientIdentity,
         ensure_client_directories,
-        get_model_path,
         resolve_identity,
     )
     from runtime import RuntimeContext, RuntimeRegistry, cancel_runtime_tasks
@@ -51,7 +54,6 @@ except ImportError:
         BASE_DIR,
         ClientIdentity,
         ensure_client_directories,
-        get_model_path,
         resolve_identity,
     )
     from .runtime import RuntimeContext, RuntimeRegistry, cancel_runtime_tasks
@@ -79,6 +81,7 @@ LOGGER = logging.getLogger("spectline.backend")
 
 DEFAULT_MARKET = os.getenv("SPECTLINE_DEFAULT_MARKET", "EURUSD").strip().upper()
 DEFAULT_TIMEFRAME = os.getenv("SPECTLINE_DEFAULT_TIMEFRAME", "H1").strip().upper()
+DEFAULT_PROBABILITY_THRESHOLD = float(os.getenv("SPECTLINE_PROBABILITY_THRESHOLD", "0.50"))
 STARTING_BALANCE = float(os.getenv("SPECTLINE_STARTING_BALANCE", "100000"))
 MANUAL_RISK_PERCENT = float(os.getenv("SPECTLINE_MANUAL_RISK_PERCENT", "1.0"))
 LEVEL_RECALC_INTERVAL = int(os.getenv("SPECTLINE_LEVEL_RECALC_INTERVAL", "20"))
@@ -86,22 +89,28 @@ LEVEL_RECALC_INTERVAL = int(os.getenv("SPECTLINE_LEVEL_RECALC_INTERVAL", "20"))
 RUNTIME_REGISTRY = RuntimeRegistry()
 CHART_SERVICE = ChartService()
 TRADING_CONFIG = trading_engine.TradingConfig()
+MODEL_OPERATION_TASKS = ("training", "evaluation", "historical_test")
 
-# Shared chart files are protected from concurrent load/update operations.
 CHART_IO_LOCK = asyncio.Lock()
+LEARNING_ARCHIVE_LOCKS: Dict[str, asyncio.Lock] = {}
 
 FRONTEND_HTML_CANDIDATES = (
     "frontend.html",
-    "index.html",
-    "frontend(1).html",
 )
 FRONTEND_JS_CANDIDATES = (
     "frontend.js",
-    "frontend(1).js",
 )
+FRONTEND_MODULE_FILES = frozenset({
+    "state.js",
+    "chart.js",
+    "results.js",
+    "learning.js",
+    "geometry.js",
+    "gestures.js",
+    "socket.js",
+})
 FRONTEND_CSS_CANDIDATES = (
     "frontend.css",
-    "frontend(1).css",
 )
 
 
@@ -176,6 +185,18 @@ def _get_or_create_runtime(
     ensure_client_directories(identity)
     return runtime
 
+def _learning_archive_lock(
+    runtime: RuntimeContext,
+) -> asyncio.Lock:
+    key = runtime.identity.key
+    lock = LEARNING_ARCHIVE_LOCKS.get(key)
+
+    if lock is None:
+        lock = asyncio.Lock()
+        LEARNING_ARCHIVE_LOCKS[key] = lock
+
+    return lock
+
 
 # ============================================================================
 # AI INTEGRATION BOUNDARY
@@ -237,71 +258,106 @@ def _verify_checkpoint_identity(
 
 
 def load_ai_runtime(runtime: RuntimeContext) -> bool:
-    """Load the model and shared market features for one TradingBot runtime."""
-    session = runtime.current_session
-
-    runtime.ai_model = None
-    runtime.ai_scaler = None
-    runtime.ai_checkpoint = {}
-    runtime.ai_market_candles = None
-    runtime.ai_error = None
-    session.model_available = False
-    session.model_info = {}
-    session.last_training_info = {}
-
+    """Load a verified approved model without discarding a working prior model."""
     if ai is None:
         runtime.ai_error = "The ai.py module could not be imported."
+        if runtime.ai_model is None:
+            runtime.clear_ai_artifacts(runtime.ai_error)
         return False
+
+    previous_model = runtime.ai_model
+    session = runtime.current_session
 
     try:
         identity_kwargs = _identity_kwargs_for_ai(ai.load_model, runtime.identity)
-        model, scaler, checkpoint = ai.load_model(
+        model, scaler, model_metadata = ai.load_model(
             runtime.market,
             **identity_kwargs,
         )
-        _verify_checkpoint_identity(checkpoint, runtime.identity)
+        if not isinstance(model_metadata, dict):
+            raise RuntimeError("The inference loader returned invalid model metadata.")
+        _verify_checkpoint_identity(model_metadata, runtime.identity)
+
+        if str(model_metadata.get("model_status", "")).upper() != "APPROVED":
+            raise RuntimeError("Only an approved immutable model can be loaded for production inference.")
+        if str(model_metadata.get("model_target_schema", "")).upper() not in {
+            "TP_BEFORE_SL_BINARY",
+            "TP_BEFORE_SL",
+        }:
+            raise RuntimeError("The approved model does not use the TP-before-SL binary target.")
 
         market_candles = ai.load_all_market_candles(
             runtime.market,
             identity=runtime.identity,
         )
-        if not market_candles:
+        if not isinstance(market_candles, dict) or not any(market_candles.values()):
+            timeframe_list = list(
+                getattr(ai, "SUPPORTED_TIMEFRAMES", (runtime.active_timeframe,))
+            )
+            market_candles = ai.load_candles_for_timeframes(
+                runtime.market,
+                timeframe_list,
+                identity=runtime.identity,
+            )
+        if not isinstance(market_candles, dict) or not any(market_candles.values()):
             raise RuntimeError(
-                f"No AI market candle history is available for {runtime.market}."
+                f"No closed market candle history is available for {runtime.market}."
             )
 
-        runtime.ai_model = model
-        runtime.ai_scaler = scaler
-        runtime.ai_checkpoint = checkpoint
-        runtime.ai_market_candles = market_candles
-        session.model_available = True
+        runtime.set_ai_artifacts(
+            model,
+            scaler,
+            model_metadata,
+            market_candles,
+            model_version=model_metadata.get("model_version_id"),
+            scaler_version=model_metadata.get("scaler_version_id"),
+            dataset_version=model_metadata.get("dataset_version_id"),
+        )
 
         model_info = {
             **runtime.identity.as_dict(),
-            "model_path": str(get_model_path(runtime.identity)),
-            "trained_at": checkpoint.get("trained_at"),
-            "format_version": checkpoint.get("format_version"),
-            "training_summary": checkpoint.get("training_summary", {}),
+            "model_status": model_metadata.get("model_status"),
+            "model_version_id": model_metadata.get("model_version_id"),
+            "dataset_version_id": model_metadata.get("dataset_version_id"),
+            "scaler_version_id": model_metadata.get("scaler_version_id"),
+            "model_target_schema": model_metadata.get("model_target_schema"),
+            "feature_count": len(model_metadata.get("feature_names", ())),
+            "feature_schema_hash": model_metadata.get("feature_schema_hash"),
+            "trained_at": model_metadata.get("trained_at"),
+            "approval": copy.deepcopy(model_metadata.get("approval", {})),
+            "calibration_status": model_metadata.get("calibration_status", "NOT_CALIBRATED"),
+            "model_path": model_metadata.get("loaded_from"),
         }
-        session.model_info = model_info
-        session.last_training_info = copy.deepcopy(
-            checkpoint.get("training_summary", {})
-        )
+        for timeframe_session in runtime.timeframe_sessions.values():
+            timeframe_session.model_available = True
+            timeframe_session.model_info = copy.deepcopy(model_info)
+        runtime.ai_error = None
+        _invalidate_strategy_cache(runtime)
         return True
 
     except FileNotFoundError as error:
         runtime.ai_error = str(error)
-        session.model_available = False
+        if previous_model is None:
+            runtime.clear_ai_artifacts(str(error))
+        else:
+            LOGGER.warning(
+                "Could not replace the active approved model for %s; keeping version %s: %s",
+                runtime.identity.key,
+                runtime.ai_model_version,
+                error,
+            )
         return False
-
     except Exception as error:
         runtime.ai_error = str(error)
-        session.model_available = False
-        LOGGER.warning(
-            "AI model load failed for %s: %s",
-            runtime.identity.key,
-            error,
-        )
+        if previous_model is None:
+            runtime.clear_ai_artifacts(str(error))
+        else:
+            LOGGER.warning(
+                "Could not replace the active approved model for %s; keeping version %s: %s",
+                runtime.identity.key,
+                runtime.ai_model_version,
+                error,
+            )
         return False
 
 
@@ -364,6 +420,79 @@ def _prepare_ai_data_for_runtime(
 
 
 # ============================================================================
+# STRATEGY DECISION CACHE
+# ============================================================================
+
+def _invalidate_strategy_cache(runtime: RuntimeContext) -> None:
+    """Invalidate the cached decision after any input or model change."""
+    for session in runtime.timeframe_sessions.values():
+        session.__dict__.pop("_spectline_strategy_cache_key", None)
+        session.__dict__.pop("_spectline_strategy_cache_value", None)
+
+
+def _strategy_cache_key(runtime: RuntimeContext, visible: Sequence[Dict[str, Any]]) -> str:
+    """Build a stable key from the latest closed candle, candidate and model."""
+    latest = visible[-1] if visible else {}
+    candidate = runtime.get_pending_setup()
+    payload = {
+        "identity": runtime.identity.as_dict(),
+        "timeframe": runtime.active_timeframe,
+        "latest_candle": latest,
+        "candidate": candidate,
+        "model_version_id": runtime.ai_model_version,
+        "scaler_version_id": runtime.ai_scaler_version,
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_json_default,
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _evaluate_strategy_cached(
+    runtime: RuntimeContext,
+    visible: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Evaluate a strategy once per unchanged candle, candidate and model version."""
+    session = runtime.current_session
+    cache_key = _strategy_cache_key(runtime, visible)
+    previous_key = session.__dict__.get("_spectline_strategy_cache_key")
+    previous_value = session.__dict__.get("_spectline_strategy_cache_value")
+    if previous_key == cache_key and isinstance(previous_value, dict):
+        return copy.deepcopy(previous_value)
+
+    decision = strategy_engine.evaluate_strategy(
+        runtime,
+        visible,
+        ai_api=ai,
+        level_recalc_interval=LEVEL_RECALC_INTERVAL,
+        probability_threshold=DEFAULT_PROBABILITY_THRESHOLD,
+        persist_prediction=True,
+    )
+    if not isinstance(decision, dict):
+        raise TypeError("The strategy engine returned an invalid decision.")
+
+    prediction = decision.get("prediction")
+    if isinstance(prediction, dict):
+        try:
+            prediction_time = prediction.get("predicted_at")
+            if prediction_time is not None and (
+                session.last_prediction_time is None
+                or int(prediction_time) > int(session.last_prediction_time)
+            ):
+                session.record_prediction(prediction)
+        except (TypeError, ValueError):
+            LOGGER.warning("A strategy prediction could not be attached to the runtime history.")
+
+    session.__dict__["_spectline_strategy_cache_key"] = cache_key
+    session.__dict__["_spectline_strategy_cache_value"] = copy.deepcopy(decision)
+    return decision
+
+
+# ============================================================================
 # CHART AND SNAPSHOT HELPERS
 # ============================================================================
 
@@ -385,6 +514,10 @@ def startup_snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
         "model_available": session.model_available,
         "model_info": session.model_info,
         "last_training_info": session.last_training_info,
+        "last_evaluation_info": getattr(session, "last_evaluation_info", {}),
+        "last_historical_test_info": getattr(session, "last_historical_test_info", {}),
+        "active_model_version": runtime.ai_model_version,
+        "model_status": runtime.ai_status,
     }
 
 
@@ -418,12 +551,7 @@ def snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
     }
     if visible:
         try:
-            decision = strategy_engine.evaluate_strategy(
-                runtime,
-                visible,
-                ai_api=ai,
-                level_recalc_interval=LEVEL_RECALC_INTERVAL,
-            )
+            decision = _evaluate_strategy_cached(runtime, visible)
         except Exception as error:
             decision = {
                 "action": "WAIT",
@@ -445,6 +573,11 @@ def snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
         "model_available": session.model_available,
         "model_info": session.model_info,
         "last_training_info": session.last_training_info,
+        "last_evaluation_info": getattr(session, "last_evaluation_info", {}),
+        "last_historical_test_info": getattr(session, "last_historical_test_info", {}),
+        "active_model_version": runtime.ai_model_version,
+        "model_status": runtime.ai_status,
+        "pending_setup": runtime.get_pending_setup(),
         "learning_trades": learning_trades,
         "results_source": results_source,
         "manual_analysis_results": manual_results,
@@ -531,6 +664,7 @@ async def _load_runtime_chart(runtime: RuntimeContext) -> None:
             runtime,
         )
 
+    _invalidate_strategy_cache(runtime)
     runtime.startup_stage = "Chart ready"
     runtime.startup_progress = 100
     runtime.startup_message = (
@@ -599,17 +733,17 @@ def _resolve_manual_collision(
                     return (
                         "AMBIGUOUS",
                         None,
-                        int(candle["time"]),
+                        None,
                         "SL_AND_TP_SAME_M1_CANDLE",
                     )
                 collision_on_this_timeframe = True
                 break
 
             if sl_hit:
-                return "LOSS", sl, int(candle["time"]), f"SL_RESOLVED_ON_{lower_timeframe}"
+                return "LOSS", sl, int(candle["time"]) + lower_duration, f"SL_RESOLVED_ON_{lower_timeframe}"
 
             if tp_hit:
-                return "WIN", tp, int(candle["time"]), f"TP_RESOLVED_ON_{lower_timeframe}"
+                return "WIN", tp, int(candle["time"]) + lower_duration, f"TP_RESOLVED_ON_{lower_timeframe}"
 
         if collision_on_this_timeframe:
             continue
@@ -620,10 +754,19 @@ def _resolve_manual_collision(
 def _analyze_manual_setup(
     runtime: RuntimeContext,
     setup: Dict[str, Any],
-    ordinal: int,
     current_balance: float,
     lower_cache: Dict[str, List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
+    raw_id = setup.get("id")
+
+    if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
+        return {
+            "valid": False,
+            "error": "Invalid or missing trade id.",
+        }
+
+    current_id = raw_id
+    
     direction_raw = str(setup.get("direction", "")).strip().upper()
     direction = {"LONG": "BUY", "SHORT": "SELL"}.get(direction_raw, direction_raw)
     if direction not in {"BUY", "SELL"}:
@@ -692,13 +835,13 @@ def _analyze_manual_setup(
         if sl_hit:
             result = "LOSS"
             exit_price = float(sl)
-            exit_time = int(candle["time"])
+            exit_time = int(candle["time"]) + duration
             exit_reason = "SL"
             break
         if tp_hit:
             result = "WIN"
             exit_price = float(tp)
-            exit_time = int(candle["time"])
+            exit_time = int(candle["time"]) + duration
             exit_reason = "TP"
             break
 
@@ -711,7 +854,7 @@ def _analyze_manual_setup(
 
     return {
         "valid": True,
-        "trade_id": int(setup.get("id")) if str(setup.get("id", "")).isdigit() else ordinal,
+        "id": current_id,
         "source": "MANUAL_ANALYSIS",
         "direction": direction,
         "entry": float(entry),
@@ -719,14 +862,18 @@ def _analyze_manual_setup(
         "tp": float(tp),
         "opened_at": int(entry_time),
         "exit": exit_price,
-        "closed_at": exit_time,
+        "end_time": exit_time,
+        "actual_outcome": (
+            "TP" if result == "WIN"
+            else "SL" if result == "LOSS"
+            else None
+        ),
         "result": result,
         "exit_reason": exit_reason,
         "risk_amount": risk_amount,
         "reward_r_multiple": reward_r_multiple,
         "pnl": pnl,
         "training_eligible": result in {"WIN", "LOSS"},
-        "setup_id": setup.get("id"),
         "setup_snapshot": copy.deepcopy(setup),
     }
 
@@ -768,7 +915,6 @@ async def manual_analysis_loop(runtime: RuntimeContext) -> None:
                 _analyze_manual_setup,
                 runtime,
                 setup,
-                index,
                 balance,
                 lower_cache,
             )
@@ -848,49 +994,129 @@ async def manual_analysis_loop(runtime: RuntimeContext) -> None:
 # TRAINING AND TESTING TASKS
 # ============================================================================
 
+def _compact_metrics_report(report: Any) -> Dict[str, Any]:
+    """Keep frontend reports concise while preserving the complete report internally."""
+    if not isinstance(report, dict):
+        return {}
+    allowed = (
+        "schema_version",
+        "evaluation_id",
+        "testing_run_id",
+        "run_id",
+        "model_version_id",
+        "dataset_version_id",
+        "scaler_version_id",
+        "split",
+        "sample_count",
+        "trade_count",
+        "metrics",
+        "approval_gate",
+        "calibration_status",
+        "model_approval",
+        "approval_blocked",
+        "approval_blocking_reasons",
+        "warnings",
+        "persistence",
+    )
+    result = {key: copy.deepcopy(report[key]) for key in allowed if key in report}
+    result["status"] = "COMPLETED"
+    return result
+
+
+def _resolve_model_version_for_runtime(
+    runtime: RuntimeContext,
+    requested_version_id: Optional[Any] = None,
+) -> str:
+    """Resolve an explicit, newly trained or active approved model version."""
+    if requested_version_id is not None and str(requested_version_id).strip():
+        return str(requested_version_id).strip()
+
+    session = runtime.current_session
+    training_info = session.last_training_info if isinstance(session.last_training_info, dict) else {}
+    model_section = training_info.get("model", {})
+    if isinstance(model_section, dict) and model_section.get("model_version_id"):
+        return str(model_section["model_version_id"])
+    if training_info.get("model_version_id"):
+        return str(training_info["model_version_id"])
+
+    evaluation_info = getattr(session, "last_evaluation_info", {})
+    if isinstance(evaluation_info, dict) and evaluation_info.get("model_version_id"):
+        return str(evaluation_info["model_version_id"])
+
+    if runtime.ai_model_version:
+        return str(runtime.ai_model_version)
+
+    model_info = session.model_info if isinstance(session.model_info, dict) else {}
+    if model_info.get("model_version_id"):
+        return str(model_info["model_version_id"])
+
+    raise RuntimeError(
+        "No model version is available. Train a model or supply model_version_id."
+    )
+
+
 async def training_loop(runtime: RuntimeContext) -> None:
+    """Create a new DRAFT candidate without replacing the active approved model."""
     session = runtime.current_session
     session.running = True
     session.analysis_status = "training"
     session.analysis_phase = "training"
     session.analysis_started = True
     session.analysis_completed = False
-    runtime.results_source = "testing"
+    runtime.results_source = "model_training"
     runtime.manual_analysis.reset()
-    runtime.startup_stage = "Training model"
-    runtime.startup_progress = 70
-    runtime.startup_message = f"Starting TRAINING for {runtime.market}..."
+    runtime.set_startup_progress(
+        "Training model",
+        70,
+        f"Starting TP-before-SL training for {runtime.market}...",
+    )
+    session.last_evaluation_info = {}
+    session.last_historical_test_info = {}
+    session.__dict__.pop("_spectline_last_evaluation_report", None)
+    session.__dict__.pop("_spectline_last_testing_report", None)
     await broadcast_snapshot(runtime)
 
     try:
         await asyncio.sleep(0)
-        runtime.startup_stage = "Training model"
-        runtime.startup_progress = 82
-        runtime.startup_message = "Building identity-scoped AI training dataset..."
+        runtime.set_startup_progress(
+            "Training model",
+            82,
+            "Building point-in-time dataset and fitting the train-only scaler...",
+        )
         await broadcast_snapshot(runtime)
 
         result = await asyncio.to_thread(_train_ai_for_runtime, runtime)
-        if not load_ai_runtime(runtime):
-            raise RuntimeError(
-                runtime.ai_error or "The newly trained model could not be loaded."
-            )
+        if not isinstance(result, dict):
+            raise RuntimeError("The training pipeline returned an invalid result.")
+        model_section = result.get("model", {})
+        training_section = result.get("training", {})
+        if not isinstance(model_section, dict) or not model_section.get("model_version_id"):
+            raise RuntimeError("Training completed without registering a model version.")
+        if str(model_section.get("status", "")).upper() != "DRAFT":
+            raise RuntimeError("A newly trained model must remain in DRAFT state.")
+        if not isinstance(training_section, dict) or str(
+            training_section.get("model_target_schema", "")
+        ).upper() != "TP_BEFORE_SL_BINARY":
+            raise RuntimeError("The training result does not use the TP-before-SL binary objective.")
 
+        session.last_training_info = copy.deepcopy(result)
         session.running = False
         session.analysis_status = "completed"
-        session.analysis_phase = "training_completed"
+        session.analysis_phase = "training_completed_draft"
         session.analysis_completed = True
-        runtime.startup_stage = "Training complete"
-        runtime.startup_progress = 100
-        runtime.startup_message = f"TRAINING complete for {runtime.market}."
-        session.last_training_info = copy.deepcopy(result.get("training", {}))
-        session.model_info = copy.deepcopy(result.get("model", {}))
+        runtime.set_startup_progress(
+            "Draft model created",
+            100,
+            "Training completed. The new model is DRAFT and must pass evaluation and historical testing before approval.",
+        )
+        _invalidate_strategy_cache(runtime)
 
     except asyncio.CancelledError:
         session.running = False
         session.analysis_status = "paused"
         session.analysis_phase = "training_paused"
         session.analysis_completed = False
-        runtime.startup_message = "Training was cancelled."
+        runtime.set_startup_progress("Training paused", 100, "Training was cancelled.")
         raise
 
     except Exception as error:
@@ -898,37 +1124,102 @@ async def training_loop(runtime: RuntimeContext) -> None:
         session.analysis_status = "error"
         session.analysis_phase = "training_error"
         session.analysis_completed = False
-        runtime.startup_stage = "Training error"
-        runtime.startup_progress = 100
-        runtime.startup_message = str(error)
+        runtime.set_startup_progress("Training error", 100, str(error))
         LOGGER.exception("Training failed for %s", runtime.key)
 
     finally:
         await broadcast_snapshot(runtime)
 
 
+async def evaluation_loop(
+    runtime: RuntimeContext,
+    model_version_id: Optional[str] = None,
+) -> None:
+    """Evaluate one immutable DRAFT model on its linked held-out test split."""
+    session = runtime.current_session
+    session.running = True
+    session.analysis_status = "evaluation"
+    session.analysis_phase = "evaluation"
+    session.analysis_started = True
+    session.analysis_completed = False
+    runtime.results_source = "model_evaluation"
+    runtime.set_startup_progress("Evaluating model", 70, "Preparing independent test evaluation...")
+    await broadcast_snapshot(runtime)
+
+    try:
+        selected_version = _resolve_model_version_for_runtime(runtime, model_version_id)
+        if ai is None or not callable(getattr(ai, "evaluate_model_version", None)):
+            raise AIIntegrationPending("ai.py does not expose evaluate_model_version().")
+        report = await asyncio.to_thread(
+            ai.evaluate_model_version,
+            runtime.market,
+            selected_version,
+            identity=runtime.identity,
+            split="test",
+            approve_if_passed=False,
+        )
+        if not isinstance(report, dict):
+            raise RuntimeError("Evaluation returned an invalid report.")
+        report_model_id = str(report.get("model_version_id", ""))
+        if report_model_id != selected_version:
+            raise RuntimeError("Evaluation report references a different model version.")
+        session.__dict__["_spectline_last_evaluation_report"] = copy.deepcopy(report)
+        session.last_evaluation_info = _compact_metrics_report(report)
+        session.last_evaluation_info["model_version_id"] = selected_version
+        gate = report.get("approval_gate", {})
+        passed = isinstance(gate, dict) and gate.get("passed") is True and gate.get("approval_eligible") is True
+        session.running = False
+        session.analysis_status = "completed"
+        session.analysis_phase = "evaluation_passed" if passed else "evaluation_blocked"
+        session.analysis_completed = True
+        runtime.set_startup_progress(
+            "Evaluation complete",
+            100,
+            "Held-out evaluation passed. Run historical testing, then explicitly approve the model."
+            if passed
+            else "Held-out evaluation did not pass the approval gate. The model remains DRAFT.",
+        )
+
+    except asyncio.CancelledError:
+        session.running = False
+        session.analysis_status = "paused"
+        session.analysis_phase = "evaluation_paused"
+        session.analysis_completed = False
+        runtime.set_startup_progress("Evaluation paused", 100, "Evaluation was cancelled.")
+        raise
+    except Exception as error:
+        session.running = False
+        session.analysis_status = "error"
+        session.analysis_phase = "evaluation_error"
+        session.analysis_completed = False
+        runtime.set_startup_progress("Evaluation error", 100, str(error))
+        LOGGER.exception("Evaluation failed for %s", runtime.key)
+    finally:
+        await broadcast_snapshot(runtime)
+
+
 async def testing_loop(runtime: RuntimeContext) -> None:
+    """Replay the active chart candle by candle using the existing TradingBot flow."""
     session = runtime.current_session
     session.reset(STARTING_BALANCE)
     session.running = True
     session.analysis_status = "testing"
-    session.analysis_phase = "testing"
+    session.analysis_phase = "paper_replay"
     session.analysis_started = True
     session.analysis_completed = False
     runtime.results_source = "testing"
     runtime.manual_analysis.reset()
 
-    if not load_ai_runtime(runtime):
+    loaded = await asyncio.to_thread(load_ai_runtime, runtime)
+    if not loaded:
         session.running = False
         session.analysis_status = "error"
-        session.analysis_phase = "testing_error"
-        session.analysis_started = True
+        session.analysis_phase = "paper_replay_error"
         session.analysis_completed = False
-        runtime.startup_stage = "Testing unavailable"
-        runtime.startup_progress = 100
-        runtime.startup_message = (
-            runtime.ai_error
-            or f"No identity-compatible trained model exists for {runtime.market}."
+        runtime.set_startup_progress(
+            "Testing unavailable",
+            100,
+            runtime.ai_error or f"No approved TP-before-SL model exists for {runtime.market}.",
         )
         await broadcast_snapshot(runtime)
         return
@@ -937,38 +1228,41 @@ async def testing_loop(runtime: RuntimeContext) -> None:
     if len(candles) < 2:
         session.running = False
         session.analysis_status = "error"
-        session.analysis_phase = "testing_error"
-        runtime.startup_stage = "Testing unavailable"
-        runtime.startup_progress = 100
-        runtime.startup_message = "At least two chart candles are required for testing."
+        session.analysis_phase = "paper_replay_error"
+        session.analysis_completed = False
+        runtime.set_startup_progress(
+            "Testing unavailable",
+            100,
+            "At least two chart candles are required for paper replay.",
+        )
         await broadcast_snapshot(runtime)
         return
 
     total = max(1, len(candles) - 1)
     last_reported = -1
     last_trade_count = 0
-
-    runtime.startup_stage = "Testing model"
-    runtime.startup_progress = 70
-    runtime.startup_message = f"Starting TESTING for {runtime.market} {runtime.active_timeframe}..."
+    runtime.set_startup_progress(
+        "Paper replay",
+        70,
+        f"Starting candle-by-candle replay for {runtime.market} {runtime.active_timeframe}...",
+    )
     await broadcast_snapshot(runtime)
 
     try:
         while session.current_index < len(candles) - 1:
-            trading_engine.step_testing(
+            await asyncio.to_thread(
+                trading_engine.step_testing,
                 runtime,
                 ai_api=ai,
                 config=TRADING_CONFIG,
             )
-
             progress = int(session.current_index / total * 100)
             trade_count = len(session.trade_history)
             if progress != last_reported or trade_count != last_trade_count:
-                runtime.startup_stage = "Testing model"
-                runtime.startup_progress = 70 + int(progress * 0.30)
-                runtime.startup_message = (
-                    f"Testing {session.current_index:,}/{total:,} "
-                    f"| {progress}% | Trades: {trade_count}"
+                runtime.set_startup_progress(
+                    "Paper replay",
+                    70 + int(progress * 0.30),
+                    f"Replayed {session.current_index:,}/{total:,} candles | {progress}% | Trades: {trade_count}",
                 )
                 last_reported = progress
                 last_trade_count = trade_count
@@ -979,32 +1273,180 @@ async def testing_loop(runtime: RuntimeContext) -> None:
 
         session.running = False
         session.analysis_status = "completed"
-        session.analysis_phase = "testing_completed"
+        session.analysis_phase = "paper_replay_completed"
         session.analysis_completed = True
-        runtime.startup_stage = "Testing complete"
-        runtime.startup_progress = 100
-        runtime.startup_message = f"TESTING complete for {runtime.market}."
+        runtime.set_startup_progress(
+            "Paper replay complete",
+            100,
+            f"Candle-by-candle replay completed for {runtime.market} {runtime.active_timeframe}.",
+        )
 
     except asyncio.CancelledError:
         session.running = False
         session.analysis_status = "paused"
-        session.analysis_phase = "testing_paused"
+        session.analysis_phase = "paper_replay_paused"
         session.analysis_completed = False
-        runtime.startup_message = "Testing was cancelled."
+        runtime.set_startup_progress("Paper replay paused", 100, "Paper replay was cancelled.")
         raise
-
     except Exception as error:
         session.running = False
         session.analysis_status = "error"
-        session.analysis_phase = "testing_error"
+        session.analysis_phase = "paper_replay_error"
         session.analysis_completed = False
-        runtime.startup_stage = "Testing error"
-        runtime.startup_progress = 100
-        runtime.startup_message = str(error)
-        LOGGER.exception("Testing failed for %s", runtime.key)
-
+        runtime.set_startup_progress("Paper replay error", 100, str(error))
+        LOGGER.exception("Paper replay failed for %s", runtime.key)
     finally:
         await broadcast_snapshot(runtime)
+
+
+async def historical_testing_loop(
+    runtime: RuntimeContext,
+    model_version_id: Optional[str] = None,
+) -> None:
+    """Run the immutable historical test for one explicit model version."""
+    session = runtime.current_session
+    session.running = True
+    session.analysis_status = "testing"
+    session.analysis_phase = "historical_testing"
+    session.analysis_started = True
+    session.analysis_completed = False
+    runtime.results_source = "historical_model_test"
+    runtime.set_startup_progress("Historical model test", 70, "Loading the selected immutable model and test split...")
+    await broadcast_snapshot(runtime)
+
+    try:
+        selected_version = _resolve_model_version_for_runtime(runtime, model_version_id)
+        if ai is None or not callable(getattr(ai, "run_model_version_test", None)):
+            raise AIIntegrationPending("ai.py does not expose run_model_version_test().")
+        report = await asyncio.to_thread(
+            ai.run_model_version_test,
+            runtime.market,
+            selected_version,
+            identity=runtime.identity,
+            persist=True,
+        )
+        if not isinstance(report, dict):
+            raise RuntimeError("Historical testing returned an invalid report.")
+        if str(report.get("model_version_id", "")) != selected_version:
+            raise RuntimeError("Historical test report references a different model version.")
+        session.__dict__["_spectline_last_testing_report"] = copy.deepcopy(report)
+        session.last_historical_test_info = _compact_metrics_report(report)
+        session.last_historical_test_info["model_version_id"] = selected_version
+        session.running = False
+        session.analysis_status = "completed"
+        session.analysis_phase = "historical_testing_completed"
+        session.analysis_completed = True
+        runtime.set_startup_progress(
+            "Historical test complete",
+            100,
+            "Historical test report was stored. The model remains DRAFT until the separate approval action.",
+        )
+
+    except asyncio.CancelledError:
+        session.running = False
+        session.analysis_status = "paused"
+        session.analysis_phase = "historical_testing_paused"
+        session.analysis_completed = False
+        runtime.set_startup_progress("Historical test paused", 100, "Historical testing was cancelled.")
+        raise
+    except Exception as error:
+        session.running = False
+        session.analysis_status = "error"
+        session.analysis_phase = "historical_testing_error"
+        session.analysis_completed = False
+        runtime.set_startup_progress("Historical test error", 100, str(error))
+        LOGGER.exception("Historical testing failed for %s", runtime.key)
+    finally:
+        await broadcast_snapshot(runtime)
+
+
+def approve_model_for_runtime(
+    runtime: RuntimeContext,
+    model_version_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Approve a DRAFT model only after its matching test-split evaluation and historical test."""
+    if ai is None or not callable(getattr(ai, "approve_evaluated_model", None)):
+        raise AIIntegrationPending("ai.py does not expose approve_evaluated_model().")
+
+    session = runtime.current_session
+    selected_version = _resolve_model_version_for_runtime(runtime, model_version_id)
+    evaluation_report = session.__dict__.get("_spectline_last_evaluation_report")
+    testing_report = session.__dict__.get("_spectline_last_testing_report")
+    if not isinstance(evaluation_report, dict):
+        raise RuntimeError("Run held-out model evaluation before approval.")
+    if not isinstance(testing_report, dict):
+        raise RuntimeError("Run historical model testing before approval.")
+    if str(evaluation_report.get("model_version_id", "")) != selected_version:
+        raise RuntimeError("The saved evaluation belongs to a different model version.")
+    if str(testing_report.get("model_version_id", "")) != selected_version:
+        raise RuntimeError("The saved historical test belongs to a different model version.")
+    if str(testing_report.get("model_target_schema", "")).upper() != "TP_BEFORE_SL_BINARY":
+        raise RuntimeError("The historical test report does not use the TP-before-SL target schema.")
+    if testing_report.get("split") != "test":
+        raise RuntimeError("Historical model testing must use the independent test split.")
+    if testing_report.get("testing_mode") != "FROZEN_MODEL_CHRONOLOGICAL_FORWARD_TEST":
+        raise RuntimeError("The saved report is not a frozen chronological model test.")
+    if testing_report.get("identity") != runtime.identity.as_dict():
+        raise RuntimeError("The historical test report belongs to a different TradingBot identity.")
+    testing_integrity = testing_report.get("integrity", {})
+    if not isinstance(testing_integrity, dict) or any(
+        testing_integrity.get(flag) is not True
+        for flag in (
+            "chronological_purge_verified",
+            "test_rows_excluded_from_scaler_fit",
+            "test_rows_excluded_from_model_training",
+            "model_weights_frozen_during_test",
+        )
+    ):
+        raise RuntimeError("The historical test integrity checks are incomplete.")
+    version_integrity = testing_report.get("version_integrity", {})
+    if not isinstance(version_integrity, dict) or any(
+        not isinstance(version_integrity.get(name), dict)
+        or version_integrity[name].get("valid") is not True
+        for name in ("model", "dataset", "scaler")
+    ):
+        raise RuntimeError("The historical test did not verify every immutable artifact dependency.")
+
+    testing_run_id = str(testing_report.get("testing_run_id") or "").strip()
+    report_loader = getattr(ai, "load_test_report", None)
+    if not testing_run_id or not callable(report_loader):
+        raise RuntimeError("A persisted, verifiable historical test report is required for approval.")
+    verified_testing_report = report_loader(
+        testing_run_id,
+        identity=runtime.identity,
+        verify=True,
+    )
+    verification = verified_testing_report.get("report_verification", {})
+    if not isinstance(verification, dict) or verification.get("valid") is not True:
+        raise RuntimeError("The persisted historical test report failed its integrity check.")
+    if str(verified_testing_report.get("model_version_id", "")) != selected_version:
+        raise RuntimeError("The persisted historical test report references another model version.")
+    if verified_testing_report.get("identity") != runtime.identity.as_dict():
+        raise RuntimeError("The persisted historical test report identity does not match this TradingBot.")
+
+    gate = evaluation_report.get("approval_gate", {})
+    if not isinstance(gate, dict) or gate.get("evaluated_split") != "test":
+        raise RuntimeError("Model approval requires an independent held-out test evaluation.")
+    if gate.get("passed") is not True or gate.get("approval_eligible") is not True:
+        raise RuntimeError("The held-out evaluation gate did not pass. The model remains DRAFT.")
+
+    approval = ai.approve_evaluated_model(
+        selected_version,
+        evaluation_report,
+        identity=runtime.identity,
+    )
+    if not load_ai_runtime(runtime):
+        raise RuntimeError(
+            "The model was approved but could not be loaded for production inference: "
+            + str(runtime.ai_error or "unknown model loading error")
+        )
+    _invalidate_strategy_cache(runtime)
+    return {
+        "model_version_id": selected_version,
+        "approval": approval.to_dict() if callable(getattr(approval, "to_dict", None)) else approval,
+        "active_model_version": runtime.ai_model_version,
+        "model_status": runtime.ai_status,
+    }
 
 
 # ============================================================================
@@ -1016,22 +1458,66 @@ def _start_runtime_task(
     task_name: str,
     coroutine: Any,
 ) -> Tuple[asyncio.Task, bool]:
+    """Start one runtime task and avoid leaking an unawaited coroutine."""
     existing = runtime.get_task(task_name)
     if existing is not None and not existing.done():
+        close_method = getattr(coroutine, "close", None)
+        if callable(close_method):
+            close_method()
         return existing, False
 
     task = asyncio.create_task(coroutine)
-    runtime.set_task(task_name, task)
+    if hasattr(runtime, "register_task"):
+        if not runtime.register_task(task_name, task):
+            task.cancel()
+            return runtime.get_task(task_name), False
+    else:
+        runtime.set_task(task_name, task)
     task.add_done_callback(
         lambda completed: runtime.clear_task(task_name, completed)
     )
     return task, True
 
 
+def _active_model_operation(runtime: RuntimeContext) -> Optional[str]:
+    for task_name in MODEL_OPERATION_TASKS:
+        task = runtime.get_task(task_name)
+        if task is not None and not task.done():
+            return task_name
+    return None
+
+
+async def _send_operation_conflict(
+    websocket: WebSocket,
+    runtime: RuntimeContext,
+    requested_operation: str,
+) -> None:
+    active_operation = _active_model_operation(runtime)
+    response = snapshot(runtime)
+    response["success"] = False
+    response["operation_conflict"] = {
+        "requested": requested_operation,
+        "active": active_operation,
+        "message": (
+            f"Cannot start {requested_operation} while {active_operation} is running. "
+            "The active model operation is not interrupted because its worker thread "
+            "cannot be safely cancelled."
+        ),
+    }
+    await websocket.send_text(_json_dumps(response))
+
+
 async def _cancel_runtime_task(runtime: RuntimeContext, task_name: str) -> None:
     task = runtime.get_task(task_name)
     if task is None or task.done():
         runtime.clear_task(task_name)
+        return
+    if task_name in MODEL_OPERATION_TASKS:
+        LOGGER.warning(
+            "Leaving non-interruptible model operation %s running for %s",
+            task_name,
+            runtime.key,
+        )
         return
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
@@ -1074,6 +1560,7 @@ async def _handle_market_switch(
             new_runtime.startup_message = str(error)
 
     load_ai_runtime(new_runtime)
+    _invalidate_strategy_cache(new_runtime)
     return new_runtime
 
 
@@ -1083,7 +1570,7 @@ async def _handle_action(
     claims: Optional[VerifiedTradingBotClaims],
     message: Dict[str, Any],
 ) -> RuntimeContext:
-    action = message.get("action")
+    action = str(message.get("action", "")).strip().lower()
 
     if action == "symbol":
         new_runtime = await _handle_market_switch(
@@ -1103,13 +1590,16 @@ async def _handle_action(
                 runtime,
                 timeframe,
             )
+        _invalidate_strategy_cache(runtime)
         await send_snapshot(websocket, runtime)
         return runtime
 
     if action == "update_data":
-        runtime.startup_stage = "Updating chart data"
-        runtime.startup_progress = 5
-        runtime.startup_message = "Synchronizing local chart archives with MT5..."
+        runtime.set_startup_progress(
+            "Updating chart data",
+            5,
+            "Synchronizing local chart archives with MT5...",
+        )
         await send_snapshot(websocket, runtime)
 
         async with CHART_IO_LOCK:
@@ -1121,12 +1611,46 @@ async def _handle_action(
                     runtime.active_timeframe,
                 )
 
-        runtime.startup_stage = "Chart ready" if result.get("success") else "Update unavailable"
-        runtime.startup_progress = 100
-        runtime.startup_message = result.get("message", "Chart update finished.")
+        if result.get("success"):
+            load_ai_runtime(runtime)
+        _invalidate_strategy_cache(runtime)
+        runtime.set_startup_progress(
+            "Chart ready" if result.get("success") else "Update unavailable",
+            100,
+            result.get("message", "Chart update finished."),
+        )
         response = snapshot(runtime)
         response["update_result"] = result
         await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action in {"set_setup", "setup_candidate", "candidate_setup", "predict_setup"}:
+        setup = message.get("setup", message.get("candidate_setup"))
+        if not isinstance(setup, dict):
+            raise ValueError("A setup candidate mapping is required.")
+        candidate = copy.deepcopy(setup)
+        candidate.setdefault("market", runtime.market)
+        candidate.setdefault("user_id", runtime.user_id)
+        candidate.setdefault("strategy_id", runtime.strategy_id)
+        candidate.setdefault("tradingbot_id", runtime.tradingbot_id)
+        candidate_timeframe = str(
+            candidate.get("entry_timeframe") or candidate.get("timeframe") or runtime.active_timeframe
+        ).strip().upper()
+        candidate["entry_timeframe"] = candidate_timeframe
+        candidate.setdefault("setup_timeframe", candidate_timeframe)
+        runtime.set_pending_setup(
+            candidate,
+            timeframe=candidate_timeframe,
+        )
+        _invalidate_strategy_cache(runtime)
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action in {"clear_setup", "clear_candidate", "clear_pending_setup"}:
+        timeframe = message.get("timeframe")
+        runtime.clear_pending_setup(timeframe=timeframe)
+        _invalidate_strategy_cache(runtime)
+        await send_snapshot(websocket, runtime)
         return runtime
 
     if action == "manual_analysis":
@@ -1154,37 +1678,64 @@ async def _handle_action(
         return runtime
 
     if action == "prepare_ai_data":
-
+        active_operation = _active_model_operation(runtime)
+        if active_operation is not None:
+            await _send_operation_conflict(websocket, runtime, "prepare_ai_data")
+            return runtime
         result = await asyncio.to_thread(
             _prepare_ai_data_for_runtime,
             runtime,
         )
-
         response = snapshot(runtime)
-
         response["ai_data_preparation"] = result
-
-        await websocket.send_text(
-            _json_dumps(response)
-        )
-
+        await websocket.send_text(_json_dumps(response))
         return runtime
 
     if action in {"training", "play"}:
-        existing = runtime.get_task("training")
+        async with _learning_archive_lock(runtime):
+            existing = runtime.get_task("training")
+
+            if existing is not None and not existing.done():
+                await send_snapshot(websocket, runtime)
+                return runtime
+
+            active_operation = _active_model_operation(runtime)
+
+            if active_operation is not None:
+                await _send_operation_conflict(
+                    websocket,
+                    runtime,
+                    "training",
+                )
+                return runtime
+
+            await _cancel_runtime_task(runtime, "testing")
+            await _cancel_runtime_task(runtime, "manual_analysis")
+
+            _start_runtime_task(
+                runtime,
+                "training",
+                training_loop(runtime),
+            )
+
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action in {"evaluation", "evaluate_model", "evaluate"}:
+        existing = runtime.get_task("evaluation")
         if existing is not None and not existing.done():
             await send_snapshot(websocket, runtime)
             return runtime
-
+        active_operation = _active_model_operation(runtime)
+        if active_operation is not None:
+            await _send_operation_conflict(websocket, runtime, "evaluation")
+            return runtime
         await _cancel_runtime_task(runtime, "testing")
-        session = runtime.current_session
-        session.reset(STARTING_BALANCE)
-        runtime.results_source = "testing"
-        runtime.manual_analysis.reset()
-        task, started = _start_runtime_task(
+        version_id = message.get("model_version_id")
+        _start_runtime_task(
             runtime,
-            "training",
-            training_loop(runtime),
+            "evaluation",
+            evaluation_loop(runtime, version_id),
         )
         await send_snapshot(websocket, runtime)
         return runtime
@@ -1194,10 +1745,10 @@ async def _handle_action(
         if existing is not None and not existing.done():
             await send_snapshot(websocket, runtime)
             return runtime
-
-        await _cancel_runtime_task(runtime, "training")
-        runtime.results_source = "testing"
-        runtime.manual_analysis.reset()
+        active_operation = _active_model_operation(runtime)
+        if active_operation is not None:
+            await _send_operation_conflict(websocket, runtime, "paper_replay")
+            return runtime
         _start_runtime_task(
             runtime,
             "testing",
@@ -1206,15 +1757,98 @@ async def _handle_action(
         await send_snapshot(websocket, runtime)
         return runtime
 
-    if action == "stop":
+    if action in {"historical_test", "model_test"}:
+        existing = runtime.get_task("historical_test")
+        if existing is not None and not existing.done():
+            await send_snapshot(websocket, runtime)
+            return runtime
+        active_operation = _active_model_operation(runtime)
+        if active_operation is not None:
+            await _send_operation_conflict(websocket, runtime, "historical_test")
+            return runtime
         await _cancel_runtime_task(runtime, "testing")
-        await _cancel_runtime_task(runtime, "training")
-        await _cancel_runtime_task(runtime, "manual_analysis")
-        runtime.current_session.running = False
+        version_id = message.get("model_version_id")
+        _start_runtime_task(
+            runtime,
+            "historical_test",
+            historical_testing_loop(runtime, version_id),
+        )
+        await send_snapshot(websocket, runtime)
+        return runtime
+
+    if action in {"approve_model", "approve_model_version"}:
+        active_operation = _active_model_operation(runtime)
+        if active_operation is not None:
+            await _send_operation_conflict(websocket, runtime, "approve_model")
+            return runtime
+        result = await asyncio.to_thread(
+            approve_model_for_runtime,
+            runtime,
+            message.get("model_version_id"),
+        )
+        response = snapshot(runtime)
+        response["model_approval"] = result
+        await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action in {"reload_model", "load_model"}:
+        loaded = await asyncio.to_thread(load_ai_runtime, runtime)
+        _invalidate_strategy_cache(runtime)
+        response = snapshot(runtime)
+        response["model_reload"] = {
+            "success": loaded,
+            "error": runtime.ai_error,
+            "model_version_id": runtime.ai_model_version,
+        }
+        await websocket.send_text(_json_dumps(response))
+        return runtime
+
+    if action == "timeline":
+        if ai is None or not callable(getattr(ai, "build_timeline_from_storage", None)):
+            raise AIIntegrationPending("ai.py does not expose build_timeline_from_storage().")
+        timeline = await asyncio.to_thread(
+            ai.build_timeline_from_storage,
+            runtime.market,
+            identity=runtime.identity,
+            timeframe=message.get("timeframe"),
+            start_time=message.get("start_time"),
+            end_time_exclusive=message.get("end_time_exclusive"),
+            as_of_time=message.get("as_of_time"),
+        )
+        await websocket.send_text(_json_dumps({
+            "type": "timeline",
+            "success": True,
+            "symbol": runtime.market,
+            "identity": runtime.identity.as_dict(),
+            "timeline": timeline,
+        }))
+        return runtime
+
+    if action == "engine_capabilities":
+        if ai is None or not callable(getattr(ai, "get_engine_capabilities", None)):
+            raise AIIntegrationPending("ai.py does not expose get_engine_capabilities().")
+        capabilities = ai.get_engine_capabilities(import_modules=False)
+        await websocket.send_text(_json_dumps({
+            "type": "engine_capabilities",
+            "success": True,
+            "capabilities": capabilities,
+        }))
+        return runtime
+
+    if action == "stop":
+        for task_name in ("testing", "manual_analysis"):
+            await _cancel_runtime_task(runtime, task_name)
+        active_operation = _active_model_operation(runtime)
         runtime.current_session.trading_enabled = False
-        runtime.startup_stage = "Stopped"
-        runtime.startup_progress = 100
-        runtime.startup_message = "TradingBot stopped."
+        if active_operation is None:
+            runtime.current_session.running = False
+            runtime.set_startup_progress("Stopped", 100, "TradingBot stopped.")
+        else:
+            runtime.set_startup_progress(
+                "Trading stopped",
+                100,
+                f"Trading is disabled. The active {active_operation} operation will finish safely.",
+            )
         await send_snapshot(websocket, runtime)
         return runtime
 
@@ -1223,11 +1857,26 @@ async def _handle_action(
         if not isinstance(setup, dict):
             raise ValueError("Invalid learning setup data.")
 
-        saved_setup = await asyncio.to_thread(
-            setup_storage.save_learning_setup,
-            runtime.identity,
-            setup,
-        )
+        async with _learning_archive_lock(runtime):
+            if _active_model_operation(runtime) == "training":
+                await _send_operation_conflict(
+                    websocket,
+                    runtime,
+                    "learning_save",
+                )
+                return runtime
+
+            await _cancel_runtime_task(runtime, "manual_analysis")
+
+            saved_setup = await asyncio.to_thread(
+                setup_storage.save_learning_setup,
+                runtime.identity,
+                setup,
+            )
+
+            runtime.manual_analysis.reset()
+            _invalidate_strategy_cache(runtime)
+
         response = snapshot(runtime)
         response["learning_action"] = "saved"
         response["learning_setup"] = saved_setup
@@ -1235,28 +1884,51 @@ async def _handle_action(
             setup_storage.load_learning_setups,
             runtime.identity,
         )
+
         await websocket.send_text(_json_dumps(response))
         return runtime
 
     if action == "learning_delete":
-        try:
-            setup_id = int(message.get("setup_id"))
-        except (TypeError, ValueError):
-            raise ValueError("Invalid setup_id.")
+        raw_id = message.get("id")
 
-        deleted = await asyncio.to_thread(
-            setup_storage.delete_learning_setup,
-            runtime.identity,
-            setup_id,
-        )
+        try:
+            if isinstance(raw_id, bool):
+                raise ValueError
+            id_value = int(raw_id)
+            if id_value <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("Invalid id.")
+
+        async with _learning_archive_lock(runtime):
+            if _active_model_operation(runtime) == "training":
+                await _send_operation_conflict(
+                    websocket,
+                    runtime,
+                    "learning_delete",
+                )
+                return runtime
+
+            await _cancel_runtime_task(runtime, "manual_analysis")
+
+            deleted = await asyncio.to_thread(
+                setup_storage.delete_learning_setup,
+                runtime.identity,
+                id_value,
+            )
+
+            runtime.manual_analysis.reset()
+            _invalidate_strategy_cache(runtime)
+
         response = snapshot(runtime)
         response["learning_action"] = "deleted"
-        response["learning_setup_id"] = setup_id
+        response["id"] = id_value
         response["learning_deleted"] = deleted
         response["learning_trades"] = await asyncio.to_thread(
             setup_storage.load_learning_setups,
             runtime.identity,
         )
+
         await websocket.send_text(_json_dumps(response))
         return runtime
 
@@ -1274,25 +1946,32 @@ async def _handle_action(
         return runtime
 
     if action == "trade_detail":
+        raw_id = message.get("id")
+
         try:
-            trade_id = int(message.get("trade_id"))
-        except (TypeError, ValueError):
+            if isinstance(raw_id, bool):
+                raise ValueError
+            id_value = int(raw_id)
+            if id_value <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
             await websocket.send_text(_json_dumps({
                 "type": "trade_detail",
                 "success": False,
-                "error": "Invalid trade_id.",
+                "error": "Invalid id.",
             }))
             return runtime
 
-        detail = trading_engine.get_trade_detail(runtime, trade_id)
+        detail = trading_engine.get_trade_detail(runtime, id_value)
+
         await websocket.send_text(_json_dumps({
             "type": "trade_detail",
             "success": detail is not None,
-            "trade_id": trade_id,
+            "id": id_value,
             "symbol": runtime.market,
             "timeframe": runtime.active_timeframe,
             "trade": detail,
-            "error": None if detail is not None else f"Trade #{trade_id} was not found.",
+            "error": None if detail is not None else f"Trade #{id_value} was not found.",
         }))
         return runtime
 
@@ -1302,7 +1981,6 @@ async def _handle_action(
             to_time = int(message.get("to", 0))
         except (TypeError, ValueError):
             raise ValueError("Invalid viewport range.")
-
         view_levels = strategy_engine.find_levels_for_view(
             runtime.get_chart_data(),
             from_time,
@@ -1377,6 +2055,9 @@ async def get_config() -> Dict[str, Any]:
         "web_mode": WEB_MODE,
         "default_market": DEFAULT_MARKET,
         "supported_timeframes": sorted(TIMEFRAME_SECONDS),
+        "model_target": "TP_BEFORE_SL",
+        "probability_threshold": DEFAULT_PROBABILITY_THRESHOLD,
+        "supported_ai_actions": ["prepare_ai_data", "training", "evaluation", "testing", "historical_test", "approve_model", "reload_model", "timeline"],
     }
 
 
@@ -1386,6 +2067,8 @@ async def health_check() -> Dict[str, Any]:
         "status": "ok",
         "web_mode": WEB_MODE,
         "active_runtimes": len(RUNTIME_REGISTRY),
+        "ai_facade_available": ai is not None,
+        "ai_target": "TP_BEFORE_SL",
     }
 
 
@@ -1427,6 +2110,28 @@ async def frontend_image(filename: str):
     if images_root not in requested.parents or not requested.is_file():
         return JSONResponse(status_code=404, content={"error": "Image was not found."})
     return FileResponse(requested)
+
+@app.get("/{filename}")
+async def frontend_module(filename: str):
+    if filename not in FRONTEND_MODULE_FILES:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Frontend module was not found."},
+        )
+
+    frontend_root = BASE_DIR.resolve()
+    requested = (frontend_root / filename).resolve()
+
+    if requested.parent != frontend_root or not requested.is_file():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Frontend module {filename} was not found."},
+        )
+
+    return FileResponse(
+        requested,
+        media_type="application/javascript",
+    )
 
 
 # ============================================================================
