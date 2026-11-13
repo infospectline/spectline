@@ -690,7 +690,6 @@ export default function AndroidBasic({
 
     type ParticleTransitionPhase =
       | "scatter"
-      | "hold"
       | "reform";
 
     type ParticleTransition = {
@@ -703,8 +702,7 @@ export default function AndroidBasic({
     let queuedAction: string | null = null;
 
     const PARTICLE_SCATTER_SECONDS = 0.85;
-    const PARTICLE_HOLD_SECONDS = 0.12;
-    const PARTICLE_REFORM_SECONDS = 1.05;
+    const PARTICLE_REFORM_SECONDS = 2.2;
 
     // PARTICLE FOG CHARACTER
 
@@ -719,11 +717,12 @@ export default function AndroidBasic({
     const PARTICLE_FOG_OUTER_MIN = 0.30;
     const PARTICLE_FOG_OUTER_MAX = 0.82;
 
-    const particleBatches: {
+   const particleBatches: {
       mesh: THREE.Mesh;
       triangleIndices: Uint32Array;
       barycentric: Float32Array;
       scatterOffsets: Float32Array;
+      tornadoTurns: Float32Array;
       positionAttribute: THREE.BufferAttribute;
       points: THREE.Points;
     }[] = [];
@@ -812,7 +811,7 @@ export default function AndroidBasic({
           "(max-width: 900px), (pointer: coarse)"
         ).matches;
 
-        const mobileZoom = isMobileViewport ? 0.50 : 1;
+        const mobileZoom = isMobileViewport ? 0.55 : 1;
 
         const distance =
           (Math.max(distanceX, distanceY) + modelSize.z * 0.5) *
@@ -940,9 +939,9 @@ export default function AndroidBasic({
 
       return true;
     };
-    
+
     // --------------------------------------------------
-    // PARTICLE DISPERSION
+    // PARTICLE DISPERSION + TORNADO PREPARATION
     // --------------------------------------------------
 
     const beginParticleTransition = (targetAction: string) => {
@@ -968,7 +967,6 @@ export default function AndroidBasic({
           const py = positions[offset + 1];
           const pz = positions[offset + 2];
 
-                    
           direction.set(px, py, pz);
 
           if (direction.lengthSq() < 0.0001) {
@@ -981,15 +979,13 @@ export default function AndroidBasic({
 
           direction.normalize();
 
-          // Controlled directional turbulence.
-          // Keeps the overall human silhouette readable.
+          // Original directional turbulence.
           direction.x += (Math.random() - 0.5) * 0.45;
           direction.y += (Math.random() - 0.5) * 0.32 + 0.12;
           direction.z += (Math.random() - 0.5) * 0.45;
 
           direction.normalize();
 
-          // Choose between dense core and outer fog.
           const isOuterFogParticle =
             Math.random() > PARTICLE_FOG_CORE_SHARE;
 
@@ -1001,18 +997,25 @@ export default function AndroidBasic({
             ? PARTICLE_FOG_OUTER_MAX
             : PARTICLE_FOG_CORE_MAX;
 
-          // Calculate distance relative to model height.
           const distance =
             modelSize.y *
             (minSpread + Math.random() * (maxSpread - minSpread));
 
-          // Store final particle displacement.
+          // Original scatter offsets.
           offsets[offset] = direction.x * distance;
           offsets[offset + 1] = direction.y * distance;
           offsets[offset + 2] = direction.z * distance;
 
+          // Every particle gets its own rotation speed.
+          // 1 = 360 degrees, 2 = 720 degrees.
+          batch.tornadoTurns[i] = 1;
         }
       }
+
+      // Start the new Blender animation immediately.
+      // Its crossfade happens while particles scatter.
+      modelMixer.timeScale = 1;
+      startAction(nextName, true);
 
       particleTransition = {
         phase: "scatter",
@@ -1021,7 +1024,6 @@ export default function AndroidBasic({
       };
 
       queuedAction = null;
-
     };
 
     // --------------------------------------------------
@@ -1044,8 +1046,18 @@ export default function AndroidBasic({
 
       const transition = particleTransition;
 
+      // --------------------------------------------------
+      // SCATTER
+      // --------------------------------------------------
+
       if (transition.phase === "scatter") {
-        transition.targetAction = desiredAction;
+        if (desiredAction !== transition.targetAction) {
+          transition.targetAction = desiredAction;
+
+          if (desiredAction !== currentActionName) {
+            startAction(desiredAction, true);
+          }
+        }
       } else {
         queuedAction =
           desiredAction !== currentActionName
@@ -1055,44 +1067,34 @@ export default function AndroidBasic({
 
       transition.elapsed += dt;
 
+      // --------------------------------------------------
+      // START INDIVIDUAL TORNADO MOVEMENT
+      // --------------------------------------------------
+
       if (
         transition.phase === "scatter" &&
         transition.elapsed >= PARTICLE_SCATTER_SECONDS
       ) {
-        const nextAction = transition.targetAction;
+        // Freeze the new Blender pose.
+        modelMixer.timeScale = 0;
 
-        if (nextAction !== currentActionName) {
-          startAction(nextAction, true);
-        }
-
-        transition.phase = "hold";
+        // Immediately begin the spiral into the new silhouette.
+        transition.phase = "reform";
         transition.elapsed = 0;
 
         return;
       }
 
-      if (transition.phase === "hold") {
-        if (queuedAction && queuedAction !== currentActionName) {
-          const nextAction = queuedAction;
-
-          queuedAction = null;
-
-          startAction(nextAction, true);
-          transition.targetAction = nextAction;
-        }
-
-        if (transition.elapsed >= PARTICLE_HOLD_SECONDS) {
-          transition.phase = "reform";
-          transition.elapsed = 0;
-        }
-
-        return;
-      }
+      // --------------------------------------------------
+      // FINISH TORNADO AND RESUME ANIMATION
+      // --------------------------------------------------
 
       if (
         transition.phase === "reform" &&
         transition.elapsed >= PARTICLE_REFORM_SECONDS
       ) {
+        modelMixer.timeScale = 1;
+
         particleTransition = null;
 
         const nextAction = queuedAction;
@@ -1113,10 +1115,6 @@ export default function AndroidBasic({
 
       const transition = particleTransition;
 
-      if (transition.phase === "hold") {
-        return 1;
-      }
-
       const duration =
         transition.phase === "scatter"
           ? PARTICLE_SCATTER_SECONDS
@@ -1132,12 +1130,12 @@ export default function AndroidBasic({
         return 1 - Math.pow(1 - progress, 3);
       }
 
+      // Smooth inward spiral.
       const smoothProgress =
         progress * progress * (3 - 2 * progress);
 
       return 1 - smoothProgress;
     };
-
 
     // --------------------------------------------------
     // AMBIENT PARTICLE FIELD
@@ -1407,6 +1405,7 @@ export default function AndroidBasic({
             const barycentric = new Float32Array(particleCount * 3);
             const positions = new Float32Array(particleCount * 3);
             const scatterOffsets = new Float32Array(particleCount * 3);
+            const tornadoTurns = new Float32Array(particleCount);
             const positionAttribute = new THREE.BufferAttribute(positions, 3);
             positionAttribute.setUsage(THREE.DynamicDrawUsage);
 
@@ -1457,6 +1456,7 @@ export default function AndroidBasic({
               triangleIndices,
               barycentric,
               scatterOffsets,
+              tornadoTurns,
               positionAttribute,
               points,
             });
@@ -1551,6 +1551,38 @@ export default function AndroidBasic({
 
       const scatterAmount = getParticleScatterAmount();
 
+      // --------------------------------------------------
+      // CONTINUOUS TORNADO PROGRESS
+      // --------------------------------------------------
+
+      const tornadoScatterShare =
+        PARTICLE_SCATTER_SECONDS /
+        (PARTICLE_SCATTER_SECONDS + PARTICLE_REFORM_SECONDS);
+
+      let tornadoProgress = 0;
+
+      if (particleTransition?.phase === "scatter") {
+        const progress = THREE.MathUtils.clamp(
+          particleTransition.elapsed / PARTICLE_SCATTER_SECONDS,
+          0,
+          1
+        );
+
+        tornadoProgress = progress * tornadoScatterShare;
+      }
+
+      if (particleTransition?.phase === "reform") {
+        const progress = THREE.MathUtils.clamp(
+          particleTransition.elapsed / PARTICLE_REFORM_SECONDS,
+          0,
+          1
+        );
+
+        tornadoProgress =
+          tornadoScatterShare +
+          progress * (1 - tornadoScatterShare);
+      }
+
       if (modelGroup) modelGroup.updateMatrixWorld(true);
       for (const skeleton of skeletons) skeleton.update();
 
@@ -1581,17 +1613,43 @@ export default function AndroidBasic({
             .addScaledVector(tempC, w2)
             .applyMatrix4(batch.mesh.matrixWorld);
 
+          // --------------------------------------------------
+          // CONTINUOUS INDIVIDUAL TORNADO
+          // --------------------------------------------------
+
+          const turns = batch.tornadoTurns[i];
+
+          // One complete rotation, to the right.
+          // Use positive angle for the opposite direction.
+          const angle =
+            -Math.PI * 2 * turns * tornadoProgress;
+
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+
+          // Original scattered position.
+          const startX =
+            tempPosition.x + batch.scatterOffsets[offset];
+
+          const startY =
+            tempPosition.y + batch.scatterOffsets[offset + 1];
+
+          const startZ =
+            tempPosition.z + batch.scatterOffsets[offset + 2];
+
+          // Individual circular orbit around vertical Y axis.
+          const orbitX = startX * cos + startZ * sin;
+          const orbitZ = -startX * sin + startZ * cos;
+
+          // Simultaneously rotate and move toward the new position.
           positions[offset] =
-            tempPosition.x +
-            batch.scatterOffsets[offset] * scatterAmount;
+            tempPosition.x + (orbitX - tempPosition.x) * scatterAmount;
 
           positions[offset + 1] =
-            tempPosition.y +
-            batch.scatterOffsets[offset + 1] * scatterAmount;
+            tempPosition.y + (startY - tempPosition.y) * scatterAmount;
 
           positions[offset + 2] =
-            tempPosition.z +
-            batch.scatterOffsets[offset + 2] * scatterAmount;
+            tempPosition.z + (orbitZ - tempPosition.z) * scatterAmount;
         }
 
         batch.positionAttribute.needsUpdate = true;
