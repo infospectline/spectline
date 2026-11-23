@@ -61,6 +61,13 @@ Thumbs.db
 /prisma.config.ts.*
 
 # ============================================================
+# Tree
+# ============================================================
+
+# Tree
+/tradingbot/tree.txt
+
+# ============================================================
 # Arrows editor
 # ============================================================
 
@@ -111,6 +118,7 @@ Thumbs.db
 
 # Local model data and trading setup files
 /tradingbot/**/MODELS/
+/tradingbot/**/VERSIONS/
 /tradingbot/**/TRADING SET UP/
 
 # Ignore only M1 and M5 chart data
