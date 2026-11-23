@@ -559,7 +559,7 @@ def _setup_timeframe_index(setup: Optional[UserSetup], field_name: str) -> int:
     value = str(getattr(setup, field_name, "")).strip().upper()
     if value not in TIMEFRAME_TO_INDEX:
         raise ValueError(
-            f"Setup {setup.setup_id} has unsupported {field_name}: {value!r}."
+            f"Setup {setup.id} has unsupported {field_name}: {value!r}."
         )
     return TIMEFRAME_TO_INDEX[value]
 
@@ -591,7 +591,7 @@ def setup_target_vector(
     direction = _normalised_direction(setup.direction)
     if direction not in DIRECTION_TO_INDEX or direction == "WAIT":
         raise ValueError(
-            f"Setup {setup.setup_id} has unsupported direction: {setup.direction!r}."
+            f"Setup {setup.id} has unsupported direction: {setup.direction!r}."
         )
     direction_index = DIRECTION_TO_INDEX[direction]
 
@@ -1513,7 +1513,7 @@ def build_auto_levels_for_setups(
     normalized_frames = _normalized_frame_map(candles_by_timeframe)
     results: Dict[int, List[Dict[str, Any]]] = {}
     for setup in setups:
-        setup_id = int(setup.setup_id)
+        setup_id = int(setup.id)
         decision_time = getattr(setup, "decision_time", None)
         if decision_time is None:
             results[setup_id] = []

@@ -14,7 +14,7 @@ import math
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -519,6 +519,30 @@ def _normalize_training_dataset(dataset: Mapping[str, Any]) -> Dict[str, Any]:
 # MODEL TRAINING
 # ============================================================================
 
+
+def _emit_training_progress(
+    callback: Optional[Callable[[int, str, str], None]],
+    progress: int,
+    stage: str,
+    message: str,
+) -> None:
+    """Report training progress without interrupting model training."""
+    if callback is None:
+        return
+
+    try:
+        callback(
+            max(0, min(99, int(progress))),
+            str(stage),
+            str(message),
+        )
+    except Exception as error:
+        print(
+            f"[TRAIN][WARNING] Progress callback failed: {error}",
+            flush=True,
+        )
+
+
 def train_model(
     dataset: Mapping[str, Any],
     epochs: int = DEFAULT_EPOCHS,
@@ -530,7 +554,9 @@ def train_model(
     min_delta: float = DEFAULT_MIN_DELTA,
     hidden_sizes: Sequence[int] = DEFAULT_HIDDEN_SIZES,
     scaling_method: str = DEFAULT_SCALING_METHOD,
+    progress_callback: Optional[Callable[[int, str, str], None]] = None,
 ) -> Tuple[TradingMicroModel, Any, Dict[str, Any]]:
+
     """Train the binary model with a train-only scaler and chronological validation."""
     normalized = _normalize_training_dataset(dataset)
     if isinstance(epochs, bool) or int(epochs) <= 0:
@@ -600,6 +626,13 @@ def train_model(
     history: list[Dict[str, Any]] = []
     has_validation = len(validation_indices) > 0
 
+    _emit_training_progress(
+        progress_callback,
+        0,
+        "Neural network training",
+        "Starting neural network training...",
+    )
+
     for epoch in range(1, int(epochs) + 1):
         model.train()
         running_loss = 0.0
@@ -648,6 +681,16 @@ def train_model(
         if epoch == 1 or epoch % 10 == 0 or epoch == int(epochs):
             validation_text = f" validation_loss={monitor_loss:.6f}" if has_validation else " validation_loss=unavailable"
             print(f"[TRAIN] epoch={epoch:04d} train_loss={train_loss:.6f}{validation_text}")
+
+        epoch_progress = int(round(epoch / int(epochs) * 90))
+
+        _emit_training_progress(
+            progress_callback,
+            epoch_progress,
+            "Neural network training",
+            f"Epoch {epoch}/{int(epochs)}",
+        )
+
         if has_validation and int(patience) > 0 and stale_epochs >= int(patience):
             break
 
@@ -861,6 +904,7 @@ def train_market(
     strategy_id: Optional[str] = None,
     tradingbot_id: Optional[str] = None,
     identity: Optional[Any] = None,
+    progress_callback: Optional[Callable[[int, str, str], None]] = None,
 ) -> Dict[str, Any]:
     """Build, train and immutably register one customer TradingBot model."""
     normalized_market = normalize_market(market)
@@ -898,12 +942,53 @@ def train_market(
         batch_size=batch_size,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
+        progress_callback=progress_callback,
     )
+
+    _emit_training_progress(
+        progress_callback,
+        90,
+        "Neural network training",
+        "Neural network training completed.",
+    )
+
+    print(
+        f"[TRAIN][PHASE 1 COMPLETE] Neural network training finished. "
+        f"epochs={training_summary['epochs_completed']} "
+        f"best_epoch={training_summary['best_epoch']}",
+        flush=True,
+    )
+
+    print(
+        "[TRAIN][PHASE 2 START] Starting scaler registration...",
+        flush=True,
+    )
+
+    _emit_training_progress(
+        progress_callback,
+        90,
+        "Scaler registration",
+        "Registering scaler artifact...",
+    )
+    
     scaler_version_id = _register_scaler_and_approve(
         scaler,
         identity=resolved,
         dataset_version_id=dataset_version_id,
     )
+
+    _emit_training_progress(
+        progress_callback,
+        95,
+        "Scaler registration",
+        "Scaler successfully registered.",
+    )
+
+    print(
+        f"[TRAIN][PHASE 2 COMPLETE] Scaler registered: {scaler_version_id}",
+        flush=True,
+    )
+    
     model_version_id = _generated_version_id("model")
 
     training_summary.update(
@@ -919,6 +1004,14 @@ def train_market(
             "source_bundle_created_at": bundle.get("created_at"),
         }
     )
+
+    _emit_training_progress(
+        progress_callback,
+        96,
+        "Model saving",
+        "Saving trained model and registering its version...",
+    )
+
     saved_path = memory_engine.save_model(
         normalized_market,
         model,
@@ -933,6 +1026,13 @@ def train_market(
             "model_target_schema": MODEL_TARGET_SCHEMA,
             "feature_schema_hash": normalized_dataset["feature_schema_hash"],
         },
+    )
+
+    _emit_training_progress(
+        progress_callback,
+        99,
+        "Model saving",
+        "Model successfully saved and registered.",
     )
 
     return {

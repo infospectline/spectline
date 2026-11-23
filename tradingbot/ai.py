@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 try:
     from client import ClientIdentity
@@ -820,6 +820,7 @@ def train_market(
     identity: Optional[ClientIdentity] = None,
     run_id: Optional[str] = None,
     config: Any = None,
+    progress_callback: Optional[Callable[[int, str, str], None]] = None,
 ) -> Dict[str, Any]:
     kwargs: Dict[str, Any] = {
         "strategy_id": strategy_id,
@@ -829,6 +830,10 @@ def train_market(
     }
     if config is not None:
         kwargs["config"] = config
+
+    if progress_callback is not None:
+        kwargs["progress_callback"] = progress_callback
+        
     return _call_engine(
         "training",
         "train_market",

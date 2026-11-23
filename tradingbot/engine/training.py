@@ -15,7 +15,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 
 # ============================================================================
@@ -477,6 +477,7 @@ def train_market(
     identity: Optional[Any] = None,
     run_id: Optional[str] = None,
     config: Optional[TrainingConfig] = None,
+    progress_callback: Optional[Callable[[int, str, str], None]] = None,
 ) -> Dict[str, Any]:
     """Run the complete TP-before-SL training pipeline for one TradingBot.
 
@@ -535,14 +536,23 @@ def train_market(
         started_recorded = True
 
         model_engine = _load_model_engine()
+        
+        model_train_kwargs: Dict[str, Any] = {
+            "epochs": selected_config.epochs,
+            "batch_size": selected_config.batch_size,
+            "learning_rate": selected_config.learning_rate,
+            "weight_decay": selected_config.weight_decay,
+            "identity": resolved_identity,
+        }
+
+        if progress_callback is not None:
+            model_train_kwargs["progress_callback"] = progress_callback
+
         result = model_engine.train_market(
             normalized_market,
-            epochs=selected_config.epochs,
-            batch_size=selected_config.batch_size,
-            learning_rate=selected_config.learning_rate,
-            weight_decay=selected_config.weight_decay,
-            identity=resolved_identity,
+            **model_train_kwargs,
         )
+
         if not isinstance(result, Mapping):
             raise TrainingValidationError("engine.model.train_market returned an invalid result.")
         result_data = dict(result)

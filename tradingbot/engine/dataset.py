@@ -1137,20 +1137,19 @@ def _labels_from_inputs(
             else OUTCOME_SL_FIRST
         )
 
+        
         label = {
+            **label_identity,
             "id": int(setup_id),
             "entry_time": entry_time,
             "end_time": end_time,
-
-            # Temporary compatibility with the current model.py interface.
-            # Both timestamps represent the same end_time.
             "outcome_known_at": end_time,
-
-            "actual_outcome": int(outcome),
-            "outcome_name": label.get("outcome_name"),
+            "actual_outcome": int(numeric_label),
+            "outcome_name": outcome_name,
             "label_target": DATASET_TARGET,
-            "label_source": label.get("label_source"),
+            "label_source": str(source.get("label_source") or source_name),
         }
+
 
         previous = seen.get(setup_id)
 
@@ -1243,17 +1242,19 @@ def _chronological_purged_split(
     validation_start = int(metadata[validation_candidates[0]]["decision_time"])
     test_start = int(metadata[test_indices[0]]["decision_time"])
 
+
     train_indices = [
         index
         for index in train_candidates
-        parse_timestamp(metadata[index].get("end_time")) is not None
-        and int(metadata[index]["end_time"]) < validation_start
+        if (end_time := parse_timestamp(metadata[index].get("end_time"))) is not None
+        and end_time < validation_start
     ]
+
     validation_indices = [
         index
         for index in validation_candidates
-        parse_timestamp(metadata[index].get("end_time")) is not None
-        and int(metadata[index]["end_time"]) < test_start
+        if (end_time := parse_timestamp(metadata[index].get("end_time"))) is not None
+        and end_time < test_start
     ]
 
     warnings: List[str] = []
@@ -1495,6 +1496,7 @@ def build_training_dataset(
                 unlabelled_candidates.append(
                     {
                         **metadata,
+                        "setup_id": setup_id,
                         "status": str(setup.get("outcome_status", "UNLABELLED")).upper(),
                         "training_eligible": False,
                         "target": None,
@@ -1535,12 +1537,15 @@ def build_training_dataset(
                 "end_time": end_time,
             }
         )
+        exit_time = end_time
+        outcome_known_at = end_time
         label_metadata.append(
             {
                 "label_id": label.get("label_id"),
                 "trade_id": str(label.get("trade_id")),
-                "setup_id": str(label.get("setup_id")),
+                "setup_id": str(label.get("setup_id")),               
                 "entry_time": entry_time,
+                "end_time": end_time,
                 "exit_time": exit_time,
                 "outcome_known_at": outcome_known_at,
                 "actual_outcome": int(outcome),

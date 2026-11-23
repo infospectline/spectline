@@ -15,6 +15,7 @@ const DEFAULT_SOCKET_PATH = "/ws";
 
 const COMPLETED_ANALYSIS_PHASES = new Set([
     "training_completed",
+    "training_completed_draft",
     "testing_completed",
     "training_error",
     "testing_error",

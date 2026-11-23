@@ -340,6 +340,10 @@ class RuntimeContext:
     results_source: str = "testing"
     manual_analysis: ManualAnalysisState = field(default_factory=ManualAnalysisState)
 
+    training_progress: int = 0
+    training_stage: str = "idle"
+    training_message: str = ""
+
     websocket_clients: Set[Any] = field(default_factory=set)
     tasks: Dict[str, Any] = field(default_factory=dict)
 
@@ -622,6 +626,28 @@ class RuntimeContext:
             self.startup_message = str(message)
             self.last_activity_at = time.time()
 
+    def set_training_progress(
+        self,
+        progress: int,
+        *,
+        stage: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        """Update bounded training progress for this TradingBot."""
+        with self.lock:
+            self.training_progress = max(
+                0,
+                min(MAX_STARTUP_PROGRESS, int(progress)),
+            )
+
+            if stage is not None:
+                self.training_stage = str(stage)
+
+            if message is not None:
+                self.training_message = str(message)
+
+            self.last_activity_at = time.time()
+
     def set_task(self, task_name: str, task: Any) -> None:
         """Register or remove one named asynchronous task."""
         name = str(task_name).strip()
@@ -706,6 +732,9 @@ class RuntimeContext:
                 "startup_stage": self.startup_stage,
                 "startup_progress": self.startup_progress,
                 "startup_message": self.startup_message,
+                "training_progress": self.training_progress,
+                "training_stage": self.training_stage,
+                "training_message": self.training_message,
                 "connected_clients": len(self.websocket_clients),
                 "active_tasks": sorted(self.tasks),
                 "candles_loaded": len(self.get_chart_data()),

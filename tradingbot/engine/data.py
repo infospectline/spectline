@@ -1705,7 +1705,7 @@ def validate_training_data(bundle: Dict[str, Any]) -> Dict[str, Any]:
 # TRAINING DATA BUNDLE ASSEMBLY
 # ============================================================================
 
-setup_labels = bundle.get("setup_labels", [])
+    setup_labels = bundle.get("setup_labels", [])
 
     if not isinstance(setup_labels, list):
         errors.append("setup_labels must be a list.")

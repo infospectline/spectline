@@ -63,6 +63,9 @@ let initialized = false;
 let initializationPromise = null;
 let overlayFrame = null;
 let updateDataResetTimer = null;
+let trainingProgress = 0;
+let trainingRequestPending = false;
+let trainingObservedRunning = false;
 
 
 // ============================================================================
@@ -556,6 +559,7 @@ function processBackendData(data) {
         return false;
     }
 
+    updateTrainingButton(data);
     updateLoading(data);
 
     const isLoading =
@@ -643,7 +647,94 @@ function updateManualAnalysisButton(data) {
     }
 }
 
-function handleAnalysisFinished() {
+function updateTrainingButton(data) {
+    const button = elements.trainingButton;
+
+    if (!button) {
+        return;
+    }
+
+    const status = String(data?.analysis_status || "");
+    const phase = String(data?.analysis_phase || "");
+
+    if (status === "training") {
+        trainingRequestPending = true;
+        trainingObservedRunning = true;
+
+        const rawProgress = Number(data?.training_progress ?? 0);
+        const incomingProgress = Number.isFinite(rawProgress)
+            ? Math.max(0, Math.min(99, Math.round(rawProgress)))
+            : 0;
+
+        trainingProgress = Math.max(trainingProgress, incomingProgress);
+
+        button.disabled = true;
+        button.textContent = `TRAINING ${trainingProgress}%`;
+
+        if (elements.testingButton) {
+            elements.testingButton.disabled = true;
+        }
+
+        return;
+    }
+
+    const successful = [
+        "training_completed",
+        "training_completed_draft"
+    ].includes(phase);
+
+    const failed = [
+        "training_error",
+        "training_paused"
+    ].includes(phase);
+
+    if (!successful && !failed) {
+        return;
+    }
+
+    const stage = String(data?.training_stage || "").toLowerCase();
+
+    // Ignore a stale completion snapshot from the previous training.
+    if (
+        successful &&
+        trainingRequestPending &&
+        !trainingObservedRunning &&
+        stage === "completed"
+    ) {
+        return;
+    }
+
+    trainingRequestPending = false;
+    trainingObservedRunning = false;
+
+    button.textContent = "TRAINING";
+    button.disabled = false;
+
+    if (elements.testingButton) {
+        elements.testingButton.disabled = false;
+    }
+}
+
+function handleAnalysisFinished(data) {
+    const phase = String(data?.analysis_phase || "");
+    const successfulTraining = [
+        "training_completed",
+        "training_completed_draft"
+    ].includes(phase);
+
+    // Do not unlock buttons from an old completion snapshot.
+    if (
+        data?.analysis_status === "training" ||
+        (
+            successfulTraining &&
+            trainingRequestPending &&
+            !trainingObservedRunning &&
+            String(data?.training_stage || "").toLowerCase() === "completed"
+        )
+    ) {
+        return;
+    }
+
     if (elements.trainingButton) {
         elements.trainingButton.disabled = false;
     }
@@ -660,7 +751,6 @@ function handleAnalysisFinished() {
         elements.learningAddButton.disabled = false;
     }
 }
-
 
 // ============================================================================
 // APPLICATION ACTIONS
@@ -686,11 +776,20 @@ function handleTraining() {
     }
 
     elements.trainingButton.disabled = true;
+
+    trainingRequestPending = true;
+    trainingObservedRunning = false;
+    trainingProgress = 0;
+    elements.trainingButton.textContent = "TRAINING 0%";
+
     if (elements.testingButton) {
         elements.testingButton.disabled = true;
     }
 
     if (!sendSocketAction("training")) {
+        trainingRequestPending = false;
+        trainingObservedRunning = false;
+        elements.trainingButton.textContent = "TRAINING";
         handleAnalysisFinished();
         setStatus("Training request could not be sent.");
         return;

@@ -421,8 +421,10 @@ def _atomic_write_gzip_json(path: Path, payload: Mapping[str, Any], *, immutable
     try:
         with gzip.open(buffer_path, "wb", compresslevel=6) as compressed_file:
             compressed_file.write(encoded)
-        with buffer_path.open("rb") as file_handle:
+       
+        with buffer_path.open("rb+") as file_handle:
             os.fsync(file_handle.fileno())
+
         payload_bytes = buffer_path.read_bytes()
         _atomic_write_bytes(path, payload_bytes, immutable=immutable)
     finally:
@@ -1119,7 +1121,7 @@ def save_model(
         ) as temporary_file:
             staged_temp = Path(temporary_file.name)
         torch.save(checkpoint, staged_temp)
-        with staged_temp.open("rb") as file_handle:
+        with staged_temp.open("rb+") as file_handle:
             os.fsync(file_handle.fileno())
         try:
             os.chmod(staged_temp, 0o600)

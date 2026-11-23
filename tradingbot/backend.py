@@ -360,13 +360,25 @@ def load_ai_runtime(runtime: RuntimeContext) -> bool:
             )
         return False
 
-
-def _train_ai_for_runtime(runtime: RuntimeContext) -> Dict[str, Any]:
-    """Call ai.py only when its API accepts the complete TradingBot identity."""
+def _train_ai_for_runtime(
+    runtime: RuntimeContext,
+    progress_callback: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Call ai.py with identity and optional training progress reporting."""
     if ai is None:
         raise AIIntegrationPending("The ai.py module could not be imported.")
 
     identity_kwargs = _identity_kwargs_for_ai(ai.train_market, runtime.identity)
+
+    if progress_callback is not None:
+        try:
+            parameters = inspect.signature(ai.train_market).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+
+        if "progress_callback" in parameters:
+            identity_kwargs["progress_callback"] = progress_callback
+
     return ai.train_market(
         runtime.market,
         **identity_kwargs,
@@ -504,6 +516,9 @@ def startup_snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
         "startup_stage": runtime.startup_stage,
         "startup_progress": runtime.startup_progress,
         "startup_message": runtime.startup_message,
+        "training_progress": runtime.training_progress,
+        "training_stage": runtime.training_stage,
+        "training_message": runtime.training_message,
         "mt5_connected": CHART_SERVICE.mt5_connected,
         "symbol": runtime.market,
         "timeframe": runtime.active_timeframe,
@@ -570,6 +585,9 @@ def snapshot(runtime: RuntimeContext) -> Dict[str, Any]:
         "analysis_completed": analysis_completed,
         "analysis_phase": analysis_phase,
         "manual_analysis_progress": manual_progress,
+        "training_progress": runtime.training_progress,
+        "training_stage": runtime.training_stage,
+        "training_message": runtime.training_message,
         "model_available": session.model_available,
         "model_info": session.model_info,
         "last_training_info": session.last_training_info,
@@ -688,6 +706,7 @@ def _manual_hit_flags(
     return float(candle["high"]) >= sl, float(candle["low"]) <= tp
 
 
+
 def _resolve_manual_collision(
     market: str,
     parent_candle: Dict[str, Any],
@@ -701,6 +720,7 @@ def _resolve_manual_collision(
     parent_start = int(parent_candle["time"])
     parent_duration = TIMEFRAME_SECONDS[parent_timeframe]
     parent_end = parent_start + parent_duration
+    ambiguous_end_time = parent_end
 
     for lower_timeframe in ("M5", "M1"):
         lower_duration = TIMEFRAME_SECONDS[lower_timeframe]
@@ -725,30 +745,54 @@ def _resolve_manual_collision(
             continue
 
         collision_on_this_timeframe = False
+        collision_end_time: Optional[int] = None
+
         for candle in relevant:
             sl_hit, tp_hit = _manual_hit_flags(direction, candle, sl, tp)
 
             if sl_hit and tp_hit:
+                candle_end_time = int(candle["time"]) + lower_duration
+
                 if lower_timeframe == "M1":
                     return (
                         "AMBIGUOUS",
                         None,
-                        None,
+                        candle_end_time,
                         "SL_AND_TP_SAME_M1_CANDLE",
                     )
+
                 collision_on_this_timeframe = True
+                collision_end_time = candle_end_time
                 break
 
             if sl_hit:
-                return "LOSS", sl, int(candle["time"]) + lower_duration, f"SL_RESOLVED_ON_{lower_timeframe}"
+                return (
+                    "LOSS",
+                    sl,
+                    int(candle["time"]) + lower_duration,
+                    f"SL_RESOLVED_ON_{lower_timeframe}",
+                )
 
             if tp_hit:
-                return "WIN", tp, int(candle["time"]) + lower_duration, f"TP_RESOLVED_ON_{lower_timeframe}"
+                return (
+                    "WIN",
+                    tp,
+                    int(candle["time"]) + lower_duration,
+                    f"TP_RESOLVED_ON_{lower_timeframe}",
+                )
 
         if collision_on_this_timeframe:
+            ambiguous_end_time = collision_end_time or parent_end
             continue
+        else:
+            ambiguous_end_time = parent_end
 
-    return "AMBIGUOUS", None, None, "SL_TP_ORDER_UNRESOLVED"
+    return (
+        "AMBIGUOUS",
+        None,
+        ambiguous_end_time,
+        "SL_TP_ORDER_UNRESOLVED",
+    )
 
 
 def _analyze_manual_setup(
@@ -772,10 +816,26 @@ def _analyze_manual_setup(
     if direction not in {"BUY", "SELL"}:
         return {"valid": False, "error": "Invalid direction."}
 
+    
     entry = setup_storage._manual_setup_value(setup, "entry", "entry")
     sl = setup_storage._manual_setup_value(setup, "sl", "sl")
     tp = setup_storage._manual_setup_value(setup, "tp", "tp")
-    entry_time = setup_storage._manual_setup_time(setup)
+
+    geometry = setup.get("trade_geometry")
+    entry_point = geometry.get("entry") if isinstance(geometry, dict) else None
+
+    entry_time = None
+
+    if isinstance(entry_point, dict):
+        for field_name in ("time", "timestamp", "candle_time"):
+            entry_time = setup_storage._manual_parse_timestamp(
+                entry_point.get(field_name)
+            )
+            if entry_time is not None:
+                break
+
+    if entry_time is None:
+        entry_time = setup_storage._manual_setup_time(setup)
 
     if entry is None or sl is None or tp is None or entry_time is None:
         return {"valid": False, "error": "Missing entry, SL, TP or entry time."}
@@ -793,18 +853,22 @@ def _analyze_manual_setup(
     candles = CHART_SERVICE.load_local_history(history_path)
     if not candles:
         return {"valid": False, "error": f"No chart data for {runtime.market} {timeframe}."}
-
+   
     duration = TIMEFRAME_SECONDS[timeframe]
+
     start_index = next(
         (
             index
             for index, candle in enumerate(candles)
-            if int(candle["time"]) + duration > int(entry_time)
+            if int(candle["time"]) >= int(entry_time)
         ),
         None,
     )
+
     if start_index is None:
         return {"valid": False, "error": "Entry time is outside chart history."}
+
+    entry_candle_time = int(candles[start_index]["time"])
 
     risk_distance = abs(float(entry) - float(sl))
     reward_distance = abs(float(tp) - float(entry))
@@ -859,13 +923,15 @@ def _analyze_manual_setup(
         "direction": direction,
         "entry": float(entry),
         "sl": float(sl),
-        "tp": float(tp),
-        "opened_at": int(entry_time),
+        "tp": float(tp),       
+        "opened_at": entry_candle_time,
+        "entry_candle_time": entry_candle_time,
         "exit": exit_price,
         "end_time": exit_time,
         "actual_outcome": (
             "TP" if result == "WIN"
             else "SL" if result == "LOSS"
+            else "AMBIGUOUS" if result == "AMBIGUOUS"
             else None
         ),
         "result": result,
@@ -921,14 +987,51 @@ async def manual_analysis_loop(runtime: RuntimeContext) -> None:
 
             if not analysis.get("valid"):
                 invalid_trades += 1
+            
             else:
+                analysis_id = int(analysis["id"])
+                update_record = {
+                    "id": analysis_id,
+                    "entry_candle_time": int(analysis["entry_candle_time"]),
+                    "end_time": analysis["end_time"],
+                    "actual_outcome": analysis["actual_outcome"],
+                }
+
+                async with _learning_archive_lock(runtime):
+                    archived_setups = await asyncio.to_thread(
+                        setup_storage.load_learning_setups,
+                        runtime.identity,
+                    )
+
+                    setup_exists = any(
+                        isinstance(item, dict)
+                        and setup_storage._parse_setup_id(item.get("id")) == analysis_id
+                        for item in archived_setups
+                    )
+
+                    if not setup_exists:
+                        raise RuntimeError(
+                            f"Learning setup {analysis_id} no longer exists; "
+                            "refusing to create a replacement record."
+                        )
+
+                    await asyncio.to_thread(
+                        setup_storage.save_learning_setup,
+                        runtime.identity,
+                        update_record,
+                    )
+
                 results.append(analysis)
+
                 if analysis["result"] == "WIN":
                     balance += float(analysis["pnl"])
+
                 elif analysis["result"] == "LOSS":
                     balance += float(analysis["pnl"])
+
                 elif analysis["result"] == "AMBIGUOUS":
                     ambiguous_trades += 1
+
                 else:
                     open_trades += 1
 
@@ -1065,6 +1168,11 @@ async def training_loop(runtime: RuntimeContext) -> None:
     session.analysis_completed = False
     runtime.results_source = "model_training"
     runtime.manual_analysis.reset()
+    runtime.set_training_progress(
+        0,
+        stage="Preparing dataset",
+        message="Preparing training data...",
+    )
     runtime.set_startup_progress(
         "Training model",
         70,
@@ -1084,16 +1192,68 @@ async def training_loop(runtime: RuntimeContext) -> None:
             "Building point-in-time dataset and fitting the train-only scaler...",
         )
         await broadcast_snapshot(runtime)
+       
+        loop = asyncio.get_running_loop()
 
-        result = await asyncio.to_thread(_train_ai_for_runtime, runtime)
+        async def publish_training_progress(
+            progress: int,
+            stage: str,
+            message: str,
+        ) -> None:
+            runtime.set_training_progress(
+                progress,
+                stage=stage,
+                message=message,
+            )
+            await broadcast_snapshot(runtime)
+
+        def report_training_progress(
+            progress: int,
+            stage: str = "Training",
+            message: str = "",
+        ) -> None:
+            future = asyncio.run_coroutine_threadsafe(
+                publish_training_progress(progress, stage, message),
+                loop,
+            )
+
+            try:
+                future.result()
+            except Exception:
+                LOGGER.exception(
+                    "[TRAIN] Failed to publish progress update."
+                )
+           
+        result = await asyncio.to_thread(
+            _train_ai_for_runtime,
+            runtime,
+            report_training_progress,
+        )
+
         if not isinstance(result, dict):
             raise RuntimeError("The training pipeline returned an invalid result.")
+
+        runtime.set_training_progress(
+            99,
+            stage="Finalizing",
+            message="Validating and finalizing the trained model...",
+        )
+        await broadcast_snapshot(runtime)
+
+        print(
+            f"[TRAIN][DEBUG] Pipeline result type: {type(result).__name__}",
+            flush=True,
+        )
+
         model_section = result.get("model", {})
         training_section = result.get("training", {})
+
         if not isinstance(model_section, dict) or not model_section.get("model_version_id"):
             raise RuntimeError("Training completed without registering a model version.")
+
         if str(model_section.get("status", "")).upper() != "DRAFT":
             raise RuntimeError("A newly trained model must remain in DRAFT state.")
+
         if not isinstance(training_section, dict) or str(
             training_section.get("model_target_schema", "")
         ).upper() != "TP_BEFORE_SL_BINARY":
@@ -1104,6 +1264,11 @@ async def training_loop(runtime: RuntimeContext) -> None:
         session.analysis_status = "completed"
         session.analysis_phase = "training_completed_draft"
         session.analysis_completed = True
+        runtime.set_training_progress(
+            100,
+            stage="Completed",
+            message="Training completed successfully.",
+        )
         runtime.set_startup_progress(
             "Draft model created",
             100,
@@ -1117,6 +1282,12 @@ async def training_loop(runtime: RuntimeContext) -> None:
         session.analysis_phase = "training_paused"
         session.analysis_completed = False
         runtime.set_startup_progress("Training paused", 100, "Training was cancelled.")
+
+        runtime.set_training_progress(
+            runtime.training_progress,
+            stage="Paused",
+            message="Training was cancelled.",
+        )
         raise
 
     except Exception as error:
@@ -1125,6 +1296,12 @@ async def training_loop(runtime: RuntimeContext) -> None:
         session.analysis_phase = "training_error"
         session.analysis_completed = False
         runtime.set_startup_progress("Training error", 100, str(error))
+
+        runtime.set_training_progress(
+            runtime.training_progress,
+            stage="Failed",
+            message=str(error),
+        )
         LOGGER.exception("Training failed for %s", runtime.key)
 
     finally:
