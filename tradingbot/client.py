@@ -275,17 +275,26 @@ class ClientPaths:
         version: Optional[str] = None,
         filename: str = DEFAULT_MODEL_FILENAME,
     ) -> Path:
-        """Return a model checkpoint path."""
+        """Return a market-specific model checkpoint path."""
         safe_filename = _validate_path_component(filename, "model filename")
+
+        if safe_filename == DEFAULT_MODEL_FILENAME:
+            safe_filename = f"{self.identity.market.lower()}.pth"
+
         return self.model_dir(version) / safe_filename
 
 
 def get_client_paths(identity: ClientIdentity) -> ClientPaths:
-    """Resolve all private storage paths for one TradingBot identity."""
+    """Resolve storage locations for one customer's market."""
+
     if not isinstance(identity, ClientIdentity):
         raise TypeError("identity must be a ClientIdentity instance.")
 
-    customer_root = DATA_ROOT / identity.user_id
+    if WEB_MODE:
+        customer_root = DATA_ROOT / identity.user_id
+    else:
+        customer_root = BASE_DIR
+
     market_root = customer_root / identity.market
     strategy_root = market_root / identity.strategy_id
     tradingbot_root = strategy_root / identity.tradingbot_id
@@ -297,6 +306,9 @@ def get_client_paths(identity: ClientIdentity) -> ClientPaths:
             TRADING_SETUP_ROOT / identity.market / DEFAULT_SETUP_FILENAME
         )
 
+    models_root = customer_root / "MODELS" / identity.market
+    runtime_root = models_root / "RUNTIME"
+
     return ClientPaths(
         identity=identity,
         customer_root=customer_root,
@@ -304,27 +316,25 @@ def get_client_paths(identity: ClientIdentity) -> ClientPaths:
         strategy_root=strategy_root,
         tradingbot_root=tradingbot_root,
         learning_setups_file=learning_setups_file,
-        models_root=tradingbot_root / "MODELS",
-        results_root=tradingbot_root / "RESULTS",
-        runtime_root=tradingbot_root / "RUNTIME",
+        models_root=models_root,
+        results_root=runtime_root,
+        runtime_root=runtime_root,
     )
 
 
 def ensure_client_directories(identity: ClientIdentity) -> ClientPaths:
-    """Create the private directory tree for one TradingBot, if necessary."""
+    """Create the required market model and runtime directories."""
+
     paths = get_client_paths(identity)
 
     for directory in (
         paths.learning_setups_file.parent,
-        paths.tradingbot_root,
         paths.models_root,
-        paths.results_root,
         paths.runtime_root,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
     return paths
-
 
 # ============================================================================
 # SHARED MARKET DATA PATHS

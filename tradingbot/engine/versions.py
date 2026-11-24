@@ -546,6 +546,82 @@ def _copy_immutable_artifact(source: Path, destination: Path) -> Tuple[str, int,
         raise VersionIntegrityError("Copied artifact failed checksum verification.")
     return final_hash, final_size, True
 
+def _client_paths_for_identity(identity: Any) -> Any:
+    """Resolve storage paths for the exact customer identity."""
+    try:
+        from client import get_client_paths, resolve_identity
+    except ImportError:
+        try:
+            from ..client import get_client_paths, resolve_identity
+        except ImportError as error:
+            raise VersionValidationError(
+                "The project client path resolver is unavailable."
+            ) from error
+
+    if callable(getattr(identity, "as_dict", None)):
+        path_identity = identity
+    else:
+        values = _identity_mapping(identity)
+        path_identity = resolve_identity(
+            market=values["market"],
+            user_id=values["user_id"],
+            strategy_id=values["strategy_id"],
+            tradingbot_id=values["tradingbot_id"],
+        )
+
+    return get_client_paths(path_identity)
+
+
+@contextmanager
+def _next_model_artifact_path(
+    identity: Any,
+    market: str,
+    *,
+    timeout: float,
+) -> Iterator[Path]:
+    """Reserve the next market model filename without overwriting old models."""
+
+    paths = _client_paths_for_identity(identity)
+
+    models_directory = Path(paths.models_root).expanduser().resolve()
+    runtime_directory = Path(paths.runtime_root).expanduser().resolve()
+
+    models_directory.mkdir(parents=True, exist_ok=True)
+    runtime_directory.mkdir(parents=True, exist_ok=True)
+
+    market_stem = _normalize_market(market).lower()
+
+    filename_pattern = re.compile(
+        rf"^{re.escape(market_stem)}(?:_(\d+))?\.pth$",
+        re.IGNORECASE,
+    )
+
+    lock_path = runtime_directory / ".model-version-sequence.lock"
+
+    with _file_lock(lock_path, timeout=timeout):
+        used_indices = []
+
+        for candidate in models_directory.iterdir():
+            if not candidate.is_file():
+                continue
+
+            match = filename_pattern.fullmatch(candidate.name)
+
+            if match:
+                used_indices.append(
+                    int(match.group(1)) if match.group(1) else 0
+                )
+
+        next_index = max(used_indices, default=-1) + 1
+
+        filename = (
+            f"{market_stem}.pth"
+            if next_index == 0
+            else f"{market_stem}_{next_index}.pth"
+        )
+
+        yield models_directory / filename
+
 
 def _append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
     encoded = _canonical_json(record) + b"\n"
@@ -761,30 +837,67 @@ class VersionRegistry:
 
         if artifact_path is not None:
             resolved_artifact_path = Path(artifact_path).expanduser().resolve()
+
             if not resolved_artifact_path.is_file():
-                raise VersionValidationError(f"Artifact file does not exist: {resolved_artifact_path}")
-            suffix = resolved_artifact_path.suffix.lower()
-            if not suffix or not re.fullmatch(r"\.[a-z0-9]{1,12}", suffix):
-                suffix = ".artifact"
-            snapshot_path = (
-                self.artifact_root
-                / scope_key
-                / kind
-                / f"{safe_version_id}{suffix}"
-            )
-            artifact_hash, artifact_size, _ = _copy_immutable_artifact(
-                resolved_artifact_path,
-                snapshot_path,
-            )
+                raise VersionValidationError(
+                    f"Artifact file does not exist: {resolved_artifact_path}"
+                )
+
+            if kind == ARTIFACT_MODEL:
+                if identity is None or normalized_market is None:
+                    raise VersionValidationError(
+                        "A model artifact requires its complete customer identity and market."
+                    )
+
+                with _next_model_artifact_path(
+                    identity,
+                    normalized_market,
+                    timeout=self.lock_timeout,
+                ) as snapshot_path:
+                    artifact_hash, artifact_size, _ = _copy_immutable_artifact(
+                        resolved_artifact_path,
+                        snapshot_path,
+                    )
+
+            else:
+                suffix = resolved_artifact_path.suffix.lower()
+
+                if not suffix or not re.fullmatch(r"\.[a-z0-9]{1,12}", suffix):
+                    suffix = ".artifact"
+
+                snapshot_path = (
+                    self.artifact_root
+                    / scope_key
+                    / kind
+                    / f"{safe_version_id}{suffix}"
+                )
+
+                artifact_hash, artifact_size, _ = _copy_immutable_artifact(
+                    resolved_artifact_path,
+                    snapshot_path,
+                )
+
             artifact_uri = str(snapshot_path.resolve())
+
         else:
             encoded_payload = _canonical_json(payload)
-            snapshot_path = self._artifact_snapshot_path(scope_key, kind, safe_version_id)
-            _write_immutable_json(snapshot_path, {"artifact_payload": _to_json_value(payload)})
+            snapshot_path = self._artifact_snapshot_path(
+                scope_key,
+                kind,
+                safe_version_id,
+            )
+            _write_immutable_json(
+                snapshot_path,
+                {"artifact_payload": _to_json_value(payload)},
+            )
             artifact_uri = str(snapshot_path.resolve())
             artifact_hash, artifact_size = _sha256_file(snapshot_path)
 
         normalized_metadata = _to_json_value(dict(metadata or {}))
+
+        if kind == ARTIFACT_MODEL and artifact_path is not None:
+            normalized_metadata["model_filename"] = snapshot_path.name
+
         parent_id = (
             _safe_component(parent_version_id, "parent_version_id")
             if parent_version_id is not None
@@ -801,6 +914,7 @@ class VersionRegistry:
                     "market": normalized_market,
                 }
             )
+            
         normalized_dependencies = self._normalize_dependencies(
             dependency_inputs,
             default_identity=normalized_identity,

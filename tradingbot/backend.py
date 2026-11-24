@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import os
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -184,6 +185,31 @@ def _get_or_create_runtime(
     runtime = RUNTIME_REGISTRY.get_or_create(identity, timeframe)
     ensure_client_directories(identity)
     return runtime
+
+def _cleanup_runtime_directory(runtime: RuntimeContext) -> None:
+    """Remove temporary files after the model has been approved."""
+
+    runtime_dir = ensure_client_directories(
+        runtime.identity
+    ).runtime_root
+
+    if not runtime_dir.exists():
+        return
+
+    for item in runtime_dir.iterdir():
+        try:
+            if item.is_dir() and not item.is_symlink():
+                shutil.rmtree(item)
+            else:
+                item.unlink(missing_ok=True)
+
+        except OSError as error:
+            LOGGER.warning(
+                "[RUNTIME] Could not remove %s for %s: %s",
+                item,
+                runtime.identity.key,
+                error,
+            )    
 
 def _learning_archive_lock(
     runtime: RuntimeContext,
@@ -1958,12 +1984,21 @@ async def _handle_action(
         if active_operation is not None:
             await _send_operation_conflict(websocket, runtime, "approve_model")
             return runtime
+
         result = await asyncio.to_thread(
             approve_model_for_runtime,
             runtime,
             message.get("model_version_id"),
         )
+
+        if (
+            isinstance(result, dict)
+            and str(result.get("model_status", "")).upper() == "APPROVED"
+        ):
+            _cleanup_runtime_directory(runtime)
+
         response = snapshot(runtime)
+
         response["model_approval"] = result
         await websocket.send_text(_json_dumps(response))
         return runtime

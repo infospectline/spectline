@@ -32,6 +32,7 @@ try:
         get_model_dir,
         get_model_path,
         get_results_dir,
+        get_runtime_dir,
         resolve_identity,
     )
 except ImportError:
@@ -88,6 +89,9 @@ except ImportError:
 
     def get_results_dir(identity: ClientIdentity) -> Path:
         return _fallback_identity_root(identity) / "RESULTS"
+
+    def get_runtime_dir(identity: ClientIdentity) -> Path:
+        return get_model_dir(identity) / "RUNTIME"
 
 try:
     from engine.settings import LOOKBACK_BY_TIMEFRAME, MODEL_FILENAME, SUPPORTED_TIMEFRAMES
@@ -324,12 +328,17 @@ def model_path(
 
 
 def _bundle_directory(identity: ClientIdentity) -> Path:
-    return Path(get_results_dir(identity)).expanduser().resolve() / BUNDLE_STORAGE_DIRECTORY
+    return (
+        Path(get_runtime_dir(identity)).expanduser().resolve()
+        / BUNDLE_STORAGE_DIRECTORY
+    )
 
 
 def _dataset_directory(identity: ClientIdentity) -> Path:
-    return Path(get_results_dir(identity)).expanduser().resolve() / DATASET_STORAGE_DIRECTORY
-
+    return (
+        Path(get_runtime_dir(identity)).expanduser().resolve()
+        / DATASET_STORAGE_DIRECTORY
+    )
 
 def _validate_bundle_id(bundle_id: str) -> str:
     value = str(bundle_id).strip()
@@ -1106,9 +1115,16 @@ def save_model(
         "format_version": MODEL_FORMAT_VERSION,
         "model_version_id": model_version_id,
     }
-    directory = model_dir(market, identity=resolved) / "STAGING"
+
+    directory = (
+        Path(get_runtime_dir(resolved)).expanduser().resolve()
+        / "MODEL_STAGING"
+    )
+
     directory.mkdir(parents=True, exist_ok=True)
-    temporary_path = directory / f"{model_version_id}.pt"
+
+    temporary_path = directory / f"{model_version_id}.pth"
+    
     if temporary_path.exists():
         raise FileExistsError(f"Model version checkpoint already exists: {temporary_path}")
     try:

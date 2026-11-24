@@ -680,6 +680,59 @@ def scaler_from_serializable(value: Mapping[str, Any]) -> FeatureScaler:
     """Restore a scaler from a JSON-compatible dictionary."""
     return FeatureScaler.from_dict(value)
 
+def scaler_from_checkpoint(
+    checkpoint: Mapping[str, Any],
+) -> FeatureScaler:
+    """Restore and validate the scaler embedded in a model checkpoint."""
+
+    if not isinstance(checkpoint, Mapping):
+        raise ScalingValidationError(
+            "Model checkpoint must be a mapping."
+        )
+
+    payload = checkpoint.get("scaler")
+
+    if not isinstance(payload, Mapping):
+        raise ScalingValidationError(
+            "Model checkpoint does not contain an embedded scaler."
+        )
+
+    scaler = scaler_from_serializable(payload)
+
+    # Verify duplicated statistics stored at checkpoint level.
+    for checkpoint_key, scaler_values in (
+        ("feature_mean", scaler.mean),
+        ("feature_std", scaler.std),
+    ):
+        stored_values = checkpoint.get(checkpoint_key)
+
+        if stored_values is None:
+            continue
+
+        try:
+            stored_array = np.asarray(
+                stored_values,
+                dtype=np.float64,
+            ).reshape(-1)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ScalingValidationError(
+                f"Invalid checkpoint scaler field: {checkpoint_key}."
+            ) from error
+
+        if (
+            stored_array.shape != scaler_values.shape
+            or not np.all(np.isfinite(stored_array))
+            or not np.array_equal(
+                stored_array,
+                scaler_values,
+            )
+        ):
+            raise ScalingValidationError(
+                f"Embedded scaler does not match {checkpoint_key}."
+            )
+
+    return scaler
+
 
 def dataset_scaling_report(dataset: Mapping[str, Any], scaler: Any) -> Dict[str, Any]:
     """Summarize the dataset/scaler compatibility and train-only fitting scope."""
@@ -729,5 +782,6 @@ __all__ = [
     "validate_scaler",
     "scaler_to_serializable",
     "scaler_from_serializable",
+    "scaler_from_checkpoint",
     "dataset_scaling_report",
 ]

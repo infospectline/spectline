@@ -336,10 +336,20 @@ def _resolve_identity(
 # ============================================================================
 
 def _journal_path(identity: Any, market: str) -> Path:
-    memory_engine = _load_memory_engine()
-    root = Path(memory_engine.model_dir(market, identity=identity)).expanduser().resolve()
-    return root / "TRAINING_RUNS" / "EVENTS.jsonl"
+    """Return the temporary training journal path inside the market RUNTIME."""
 
+    memory_engine = _load_memory_engine()
+
+    models_root = Path(
+        memory_engine.model_dir(
+            market,
+            identity=identity,
+        )
+    ).expanduser().resolve()
+
+    runtime_root = models_root / "RUNTIME"
+
+    return runtime_root / "TRAINING_RUNS" / "EVENTS.jsonl"
 
 def _append_run_event(
     identity: Any,

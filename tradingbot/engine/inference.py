@@ -25,6 +25,7 @@ try:
     from . import dataset as dataset_engine
     from . import memory as memory_engine
     from . import model as model_engine
+    from . import scaling as scaling_engine
     from . import storage as storage_engine
     from . import versions as versions_engine
 except ImportError:
@@ -33,6 +34,7 @@ except ImportError:
         from engine import dataset as dataset_engine
         from engine import memory as memory_engine
         from engine import model as model_engine
+        from engine import scaling as scaling_engine
         from engine import storage as storage_engine
         from engine import versions as versions_engine
     except ImportError:
@@ -40,6 +42,7 @@ except ImportError:
         dataset_engine = None
         memory_engine = None
         model_engine = None
+        scaling_engine = None
         storage_engine = None
         versions_engine = None
 
@@ -252,6 +255,7 @@ def _required_modules() -> None:
             ("engine.dataset", dataset_engine),
             ("engine.memory", memory_engine),
             ("engine.model", model_engine),
+            ("engine.scaling", scaling_engine),
             ("engine.storage", storage_engine),
             ("engine.versions", versions_engine),
         )
@@ -355,14 +359,23 @@ def load_approved_model(
     normalized_market = identity_data["market"]
 
     try:
-        model, scaler, checkpoint = memory_engine.load_model(
+        model, _memory_scaler, checkpoint = memory_engine.load_model(
             normalized_market,
             identity=resolved,
             version_id=model_version_id,
             require_approved=True,
         )
     except Exception as error:
-        raise InferenceModelError("Could not load an approved model for this TradingBot.") from error
+        raise InferenceModelError(
+            "Could not load an approved model for this TradingBot."
+        ) from error
+
+    try:
+        scaler = scaling_engine.scaler_from_checkpoint(checkpoint)
+    except Exception as error:
+        raise InferenceModelError(
+            "The scaler embedded in the model checkpoint is invalid."
+        ) from error
 
     version_payload = checkpoint.get("version_record")
     if not isinstance(version_payload, Mapping):
@@ -371,14 +384,17 @@ def load_approved_model(
         )
     if str(version_payload.get("status", "")).upper() != "APPROVED":
         raise InferenceModelError("The loaded model version is not approved.")
+        
     if str(version_payload.get("artifact_type", "")).lower() != "model":
         raise InferenceModelError("The loaded version record is not a model artifact.")
+
     if _identity_payload(version_payload.get("identity")) != identity_data:
         raise PermissionError("The approved model belongs to another TradingBot identity.")
 
     loaded_version_id = str(checkpoint.get("model_version_id", "")).strip()
     if not loaded_version_id:
         raise InferenceModelError("The loaded checkpoint has no immutable model version ID.")
+
     if model_version_id is not None and loaded_version_id != str(model_version_id):
         raise InferenceModelError("The loaded model version does not match the requested version.")
 
@@ -386,15 +402,19 @@ def load_approved_model(
     if not isinstance(summary, Mapping):
         raise InferenceModelError("Model training summary is missing or malformed.")
     target_schema = str(summary.get("model_target_schema", "")).strip().upper()
+
     if target_schema != MODEL_TARGET_SCHEMA:
         raise InferenceModelError("The loaded model does not use the TP-before-SL binary target schema.")
+
     if summary.get("validation_available") is not True:
         raise InferenceModelError("The model was not trained with a usable chronological validation split.")
+
     if str(summary.get("selection_metric", "")).upper() != "VALIDATION_LOG_LOSS":
         raise InferenceModelError("The model was not selected using validation log loss.")
 
     dataset_version_id = str(checkpoint.get("dataset_version_id") or summary.get("dataset_version_id") or "").strip()
     scaler_version_id = str(checkpoint.get("scaler_version_id") or summary.get("scaler_version_id") or "").strip()
+
     if not dataset_version_id or not scaler_version_id:
         raise InferenceModelError("The model checkpoint does not reference an immutable dataset and scaler.")
 
@@ -411,32 +431,44 @@ def load_approved_model(
 
     if model_record.status != "APPROVED":
         raise InferenceModelError("Model version is not approved in the version registry.")
+
     if dataset_record.status != "APPROVED" or scaler_record.status != "APPROVED":
         raise InferenceModelError("Model dataset and scaler dependencies must both be approved.")
+
     if str(model_record.metadata.get("model_target_schema", "")).upper() != MODEL_TARGET_SCHEMA:
         raise InferenceModelError("Model registry metadata contains an incompatible target schema.")
+
     if int(getattr(model, "input_size", -1)) <= 0:
         raise InferenceModelError("Loaded model has an invalid input width.")
 
     feature_names = summary.get("feature_names")
+
     if not isinstance(feature_names, Sequence) or isinstance(feature_names, (str, bytes)) or not feature_names:
         raise InferenceModelError("Model checkpoint does not contain its ordered feature schema.")
     normalized_feature_names = tuple(str(item) for item in feature_names)
     calculated_schema_hash = _feature_schema_hash(normalized_feature_names)
     expected_schema_hash = str(summary.get("feature_schema_hash", "")).strip()
+
     if not expected_schema_hash or calculated_schema_hash != expected_schema_hash:
         raise InferenceModelError("Model feature names do not match the stored feature schema hash.")
+
     if len(normalized_feature_names) != int(model.input_size):
         raise InferenceModelError("Model input width does not match its stored feature names.")
+
     if scaler is None or int(getattr(scaler, "feature_count", -1)) != len(normalized_feature_names):
+
         raise InferenceModelError("Scaler width does not match the model feature schema.")
     scaler_names = tuple(str(item) for item in (getattr(scaler, "feature_names", ()) or ()))
+
     if scaler_names != normalized_feature_names:
         raise InferenceModelError("Scaler feature order does not match the model feature order.")
+
     if str(getattr(scaler, "fit_scope", "")).upper() != "TRAIN_SPLIT_ONLY":
         raise InferenceModelError("Scaler was not fitted exclusively on the training split.")
+
     if str(getattr(scaler, "feature_schema_hash", "")) != expected_schema_hash:
         raise InferenceModelError("Scaler feature schema hash does not match the model.")
+
     if int(getattr(scaler, "fit_sample_count", 0)) <= 0:
         raise InferenceModelError("Scaler has no valid training fit sample count.")
 
@@ -451,6 +483,7 @@ def load_approved_model(
     }
     if ("dataset", dataset_version_id) not in dependency_pairs:
         raise InferenceModelError("Model version manifest does not declare its dataset dependency.")
+
     if ("scaler", scaler_version_id) not in dependency_pairs:
         raise InferenceModelError("Model version manifest does not declare its scaler dependency.")
 

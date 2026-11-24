@@ -1028,6 +1028,13 @@ def train_market(
         },
     )
 
+    saved_path = Path(saved_path).expanduser().resolve()
+
+    if saved_path.suffix.lower() != ".pth":
+        raise ModelSchemaError(
+            f"Model checkpoint must use .pth format, received: {saved_path}"
+        )
+
     _emit_training_progress(
         progress_callback,
         99,
@@ -1055,6 +1062,7 @@ def train_market(
             "market": normalized_market,
             "model_version_id": model_version_id,
             "model_path": str(saved_path),
+            "model_filename": saved_path.name,
             "status": "DRAFT",
             "approval_required": True,
             "approval_reason": "A separate evaluation and calibration gate must approve this model before production inference.",
