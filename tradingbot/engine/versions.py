@@ -41,7 +41,7 @@ import numpy as np
 
 VERSION_REGISTRY_SCHEMA = 1
 VERSION_EVENT_SCHEMA = 1
-DEFAULT_REGISTRY_DIRECTORY = "VERSIONS"
+DEFAULT_REGISTRY_DIRECTORY = "REGISTRY"
 DEFAULT_ARTIFACT_DIRECTORY = "ARTIFACTS"
 DEFAULT_LOCK_TIMEOUT_SECONDS = 30.0
 DEFAULT_LOCK_STALE_SECONDS = 300.0
@@ -505,24 +505,48 @@ def _write_immutable_json(path: Path, payload: Mapping[str, Any]) -> bool:
     return True
 
 
-def _copy_immutable_artifact(source: Path, destination: Path) -> Tuple[str, int, bool]:
-    if not source.is_file():
-        raise VersionValidationError(f"Artifact file does not exist: {source}")
-    source_hash, source_size = _sha256_file(source)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = destination.with_name(destination.name + ".lock")
+def _copy_immutable_artifact(
+    source: Path,
+    destination: Path,
+    *,
+    lock_path: Optional[Path] = None,
+) -> Tuple[str, int, bool]:
 
-    with _file_lock(lock_path):
+    if not source.is_file():
+        raise VersionValidationError(
+            f"Artifact file does not exist: {source}"
+        )
+
+    source_hash, source_size = _sha256_file(source)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    effective_lock_path = (
+        Path(lock_path).expanduser().resolve()
+        if lock_path is not None
+        else destination.with_name(destination.name + ".lock")
+    )
+
+    with _file_lock(effective_lock_path):
+
         if destination.exists():
+
             existing_hash, existing_size = _sha256_file(destination)
-            if existing_hash != source_hash or existing_size != source_size:
+
+            if (
+                existing_hash != source_hash
+                or existing_size != source_size
+            ):
                 raise VersionConflictError(
                     f"Immutable artifact snapshot already exists: {destination}"
                 )
+
             return existing_hash, existing_size, False
 
         temporary_path: Optional[Path] = None
+
         try:
+
             with tempfile.NamedTemporaryFile(
                 mode="wb",
                 prefix=f".{destination.name}.",
@@ -530,20 +554,34 @@ def _copy_immutable_artifact(source: Path, destination: Path) -> Tuple[str, int,
                 dir=destination.parent,
                 delete=False,
             ) as temporary_file:
+
                 temporary_path = Path(temporary_file.name)
+
                 with source.open("rb") as source_file:
-                    shutil.copyfileobj(source_file, temporary_file, length=1024 * 1024)
+                    shutil.copyfileobj(
+                        source_file,
+                        temporary_file,
+                        length=1024 * 1024,
+                    )
+
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
+
             os.replace(temporary_path, destination)
             temporary_path = None
+
         finally:
+
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
     final_hash, final_size = _sha256_file(destination)
+
     if final_hash != source_hash or final_size != source_size:
-        raise VersionIntegrityError("Copied artifact failed checksum verification.")
+        raise VersionIntegrityError(
+            "Copied artifact failed checksum verification."
+        )
+
     return final_hash, final_size, True
 
 def _client_paths_for_identity(identity: Any) -> Any:
@@ -570,6 +608,31 @@ def _client_paths_for_identity(identity: Any) -> Any:
         )
 
     return get_client_paths(path_identity)
+
+def _market_runtime_root(market: str) -> Path:
+    """
+    Return shared runtime storage for market-scoped reference artifacts.
+    """
+
+    try:
+        from engine.settings import MARKET_MEMORY_ROOT
+
+    except ImportError:
+
+        try:
+            from .settings import MARKET_MEMORY_ROOT
+
+        except ImportError as error:
+
+            raise VersionValidationError(
+                "The market memory storage root is unavailable."
+            ) from error
+
+    return (
+        Path(MARKET_MEMORY_ROOT).expanduser().resolve()
+        / _safe_component(_normalize_market(market), "market")
+        / "RUNTIME"
+    )
 
 
 @contextmanager
@@ -684,23 +747,168 @@ class VersionRegistry:
         *,
         lock_timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
     ) -> None:
+
+        self._explicit_root = root is not None
+
         if root is None:
+
             project_root = Path(__file__).resolve().parents[1]
+
             try:
                 from engine.settings import BASE_DIR
                 project_root = Path(BASE_DIR).resolve()
+
             except (ImportError, AttributeError):
+
                 try:
                     from .settings import BASE_DIR
                     project_root = Path(BASE_DIR).resolve()
+
                 except (ImportError, AttributeError):
                     pass
-            root = project_root / DEFAULT_REGISTRY_DIRECTORY
+
+            # Default storage is now RUNTIME, not a top-level VERSIONS directory.
+            root = project_root / "RUNTIME"
+
         self.root = Path(root).expanduser().resolve()
+
         self.artifact_root = self.root / DEFAULT_ARTIFACT_DIRECTORY
+
+        self._scope_runtime_roots: Dict[str, Path] = {}
+
+        self._scope_runtime_roots_lock = threading.RLock()
+
         self.lock_timeout = float(lock_timeout)
+
         if self.lock_timeout <= 0.0:
-            raise VersionValidationError("lock_timeout must be positive.")
+            raise VersionValidationError(
+                "lock_timeout must be positive."
+            )
+
+        def _remember_scope_runtime_root(
+            self,
+            scope_key: str,
+            runtime_root: Path,
+        ) -> None:
+            """
+            Remember the runtime directory that owns one registry scope.
+            """
+
+            if self._explicit_root:
+                return
+
+            safe_scope_key = _safe_component(
+                scope_key,
+                "scope_key",
+            )
+
+            resolved_root = Path(runtime_root).expanduser().resolve()
+
+            with self._scope_runtime_roots_lock:
+
+                existing = self._scope_runtime_roots.get(safe_scope_key)
+
+                if existing is not None and existing != resolved_root:
+
+                    raise VersionValidationError(
+                        "A version scope cannot be mapped to multiple runtime directories."
+                    )
+
+                self._scope_runtime_roots[safe_scope_key] = resolved_root
+
+
+        def _registry_root_for_scope(self, scope_key: str) -> Path:
+            """
+            Resolve registry metadata storage inside the owning runtime directory.
+            """
+
+            if self._explicit_root:
+                return self.root
+
+            safe_scope_key = _safe_component(
+                scope_key,
+                "scope_key",
+            )
+
+            with self._scope_runtime_roots_lock:
+
+                runtime_root = self._scope_runtime_roots.get(safe_scope_key)
+
+            if runtime_root is None:
+
+                raise VersionValidationError(
+                    "Cannot resolve the runtime directory for this version scope. "
+                    "Resolve the scope with its customer identity or market first."
+                )
+
+            return runtime_root / DEFAULT_REGISTRY_DIRECTORY
+
+    def _remember_scope_runtime_root(
+        self,
+        scope_key: str,
+        runtime_root: Path,
+    ) -> None:
+        """
+        Remember the runtime directory that owns one registry scope.
+        """
+
+        if self._explicit_root:
+            return
+
+        safe_scope_key = _safe_component(
+            scope_key,
+            "scope_key",
+        )
+
+        resolved_root = Path(
+            runtime_root
+        ).expanduser().resolve()
+
+        with self._scope_runtime_roots_lock:
+
+            existing = self._scope_runtime_roots.get(
+                safe_scope_key
+            )
+
+            if existing is not None and existing != resolved_root:
+                raise VersionValidationError(
+                    "A version scope cannot be mapped to multiple runtime directories."
+                )
+
+            self._scope_runtime_roots[safe_scope_key] = resolved_root
+
+
+    def _registry_root_for_scope(
+        self,
+        scope_key: str,
+    ) -> Path:
+        """
+        Resolve registry metadata storage inside its owning RUNTIME.
+        """
+
+        if self._explicit_root:
+            return self.root
+
+        safe_scope_key = _safe_component(
+            scope_key,
+            "scope_key",
+        )
+
+        with self._scope_runtime_roots_lock:
+
+            runtime_root = self._scope_runtime_roots.get(
+                safe_scope_key
+            )
+
+        if runtime_root is None:
+            raise VersionValidationError(
+                "Cannot resolve RUNTIME directory for this version scope."
+            )
+
+        return (
+            runtime_root
+            / DEFAULT_REGISTRY_DIRECTORY
+        )
 
     def _scope(
         self,
@@ -710,54 +918,190 @@ class VersionRegistry:
         market: Optional[str] = None,
         scope_type: Optional[str] = None,
     ) -> Tuple[str, str, Optional[str], Optional[Dict[str, str]]]:
+
         kind = _normalize_artifact_type(artifact_type)
+
         if scope_type is not None:
+
             requested_scope = str(scope_type).strip().upper()
-            if requested_scope not in {SCOPE_MARKET, SCOPE_CUSTOMER, SCOPE_GLOBAL}:
-                raise VersionValidationError("Unsupported scope_type.")
+
+            if requested_scope not in {
+                SCOPE_MARKET,
+                SCOPE_CUSTOMER,
+                SCOPE_GLOBAL,
+            }:
+                raise VersionValidationError(
+                    "Unsupported scope_type."
+                )
+
         else:
+
             requested_scope = (
                 SCOPE_MARKET
                 if kind == ARTIFACT_PATTERN_CATALOG
                 else SCOPE_CUSTOMER
             )
 
+        # ========================================================================
+        # MARKET SCOPE
+        # ========================================================================
+
         if requested_scope == SCOPE_MARKET:
+
             if market is None and identity is not None:
                 market = _identity_mapping(identity)["market"]
+
             if market is None:
-                raise VersionValidationError("market is required for market-scoped artifacts.")
+                raise VersionValidationError(
+                    "market is required for market-scoped artifacts."
+                )
+
             normalized_market = _normalize_market(market)
-            safe_market = re.sub(r"[^A-Za-z0-9._+-]+", "_", normalized_market)
+
+            safe_market = re.sub(
+                r"[^A-Za-z0-9._+-]+",
+                "_",
+                normalized_market,
+            )
+
             scope_key = f"MARKET_{safe_market}"
-            return requested_scope, scope_key, normalized_market, None
+
+            if not self._explicit_root:
+
+                self._remember_scope_runtime_root(
+                    scope_key,
+                    _market_runtime_root(normalized_market),
+                )
+
+            return (
+                requested_scope,
+                scope_key,
+                normalized_market,
+                None,
+            )
+
+        # ========================================================================
+        # CUSTOMER SCOPE
+        # ========================================================================
 
         if requested_scope == SCOPE_CUSTOMER:
+
             normalized_identity = _identity_mapping(identity)
-            if market is not None and _normalize_market(market) != normalized_identity["market"]:
-                raise VersionValidationError("market does not match the supplied TradingBot identity.")
+
+            if (
+                market is not None
+                and _normalize_market(market) != normalized_identity["market"]
+            ):
+                raise VersionValidationError(
+                    "market does not match the supplied TradingBot identity."
+                )
+
             identity_json = _canonical_json(normalized_identity)
+
             identity_hash = _sha256_bytes(identity_json)[:24]
+
             scope_key = f"CUSTOMER_{identity_hash}"
-            return requested_scope, scope_key, normalized_identity["market"], normalized_identity
+
+            if not self._explicit_root:
+
+                paths = _client_paths_for_identity(normalized_identity)
+
+                self._remember_scope_runtime_root(
+                    scope_key,
+                    Path(paths.runtime_root),
+                )
+
+            return (
+                requested_scope,
+                scope_key,
+                normalized_identity["market"],
+                normalized_identity,
+            )
+
+        # ========================================================================
+        # GLOBAL SCOPE
+        # ========================================================================
 
         if identity is not None or market is not None:
-            raise VersionValidationError("Global-scoped artifacts cannot include customer or market identity.")
-        return requested_scope, "GLOBAL", None, None
 
-    def _manifest_directory(self, scope_key: str, artifact_type: str) -> Path:
-        return self.root / scope_key / artifact_type / "MANIFESTS"
+            raise VersionValidationError(
+                "Global-scoped artifacts cannot include customer or market identity."
+            )
 
-    def _manifest_path(self, scope_key: str, artifact_type: str, version_id: str) -> Path:
-        safe_id = _safe_component(version_id, "version_id")
-        return self._manifest_directory(scope_key, artifact_type) / f"{safe_id}.json"
+        scope_key = "GLOBAL"
 
-    def _event_path(self, scope_key: str, artifact_type: str) -> Path:
-        return self.root / scope_key / artifact_type / "EVENTS.jsonl"
+        self._remember_scope_runtime_root(
+            scope_key,
+            self.root,
+        )
 
-    def _artifact_snapshot_path(self, scope_key: str, artifact_type: str, version_id: str) -> Path:
-        safe_id = _safe_component(version_id, "version_id")
-        return self.artifact_root / scope_key / artifact_type / f"{safe_id}.json"
+        return requested_scope, scope_key, None, None
+
+    def _manifest_directory(
+        self,
+        scope_key: str,
+        artifact_type: str,
+    ) -> Path:
+
+        return (
+            self._registry_root_for_scope(scope_key)
+            / scope_key
+            / artifact_type
+            / "MANIFESTS"
+        )
+
+
+    def _manifest_path(
+        self,
+        scope_key: str,
+        artifact_type: str,
+        version_id: str,
+    ) -> Path:
+
+        safe_id = _safe_component(
+            version_id,
+            "version_id",
+        )
+
+        return (
+            self._manifest_directory(scope_key, artifact_type)
+            / f"{safe_id}.json"
+        )
+
+
+    def _event_path(
+        self,
+        scope_key: str,
+        artifact_type: str,
+    ) -> Path:
+
+        return (
+            self._registry_root_for_scope(scope_key)
+            / scope_key
+            / artifact_type
+            / "EVENTS.jsonl"
+        )
+
+
+    def _artifact_snapshot_path(
+        self,
+        scope_key: str,
+        artifact_type: str,
+        version_id: str,
+    ) -> Path:
+
+        safe_id = _safe_component(
+            version_id,
+            "version_id",
+        )
+
+        return (
+            self._registry_root_for_scope(scope_key)
+            / DEFAULT_ARTIFACT_DIRECTORY
+            / scope_key
+            / artifact_type
+            / f"{safe_id}.json"
+        )
 
     def _normalize_dependencies(
         self,
@@ -854,9 +1198,15 @@ class VersionRegistry:
                     normalized_market,
                     timeout=self.lock_timeout,
                 ) as snapshot_path:
+
+                    runtime_directory = Path(
+                        _client_paths_for_identity(identity).runtime_root
+                    ).expanduser().resolve()
+
                     artifact_hash, artifact_size, _ = _copy_immutable_artifact(
                         resolved_artifact_path,
                         snapshot_path,
+                        lock_path=runtime_directory / f".{snapshot_path.name}.copy.lock",
                     )
 
             else:
@@ -866,7 +1216,8 @@ class VersionRegistry:
                     suffix = ".artifact"
 
                 snapshot_path = (
-                    self.artifact_root
+                    self._registry_root_for_scope(scope_key)
+                    / DEFAULT_ARTIFACT_DIRECTORY
                     / scope_key
                     / kind
                     / f"{safe_version_id}{suffix}"

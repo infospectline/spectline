@@ -49,10 +49,14 @@ SUPPORTED_TIMEFRAMES = frozenset({
     "W1",
 })
 
+# ============================================================================
+# CUSTOMER DATA ROOT
+# ============================================================================
+
 DATA_ROOT = Path(
     os.getenv(
         "SPECTLINE_DATA_ROOT",
-        "/data/users" if WEB_MODE else str(BASE_DIR / "CUSTOMERS"),
+        "/data/CUSTOMERS" if WEB_MODE else str(BASE_DIR / "CUSTOMERS"),
     )
 ).expanduser().resolve()
 
@@ -263,25 +267,69 @@ class ClientPaths:
     runtime_root: Path
 
     def model_dir(self, version: Optional[str] = None) -> Path:
-        """Return the model directory, optionally for one model version."""
-        if version is None:
-            return self.models_root
+        """
+        Return the market directory containing all final .pth models.
 
-        version_folder = _validate_path_component(version, "model version")
-        return self.models_root / version_folder
+        Model versions are stored directly inside the market directory.
+        They are never stored in separate version folders.
+        """
+
+        if version is not None:
+            version_number = _validate_path_component(
+                version,
+                "model version",
+            )
+
+            if not version_number.isdigit() or int(version_number) < 1:
+                raise ValueError(
+                    "model version must be a positive integer."
+                )
+
+        return self.models_root
+
 
     def model_path(
         self,
         version: Optional[str] = None,
         filename: str = DEFAULT_MODEL_FILENAME,
     ) -> Path:
-        """Return a market-specific model checkpoint path."""
-        safe_filename = _validate_path_component(filename, "model filename")
+        """
+        Return a final .pth model file directly inside the market directory.
+        """
 
-        if safe_filename == DEFAULT_MODEL_FILENAME:
-            safe_filename = f"{self.identity.market.lower()}.pth"
+        if filename == DEFAULT_MODEL_FILENAME:
 
-        return self.model_dir(version) / safe_filename
+            model_stem = self.identity.market.lower()
+
+            if version is not None:
+
+                version_number = _validate_path_component(
+                    version,
+                    "model version",
+                )
+
+                if not version_number.isdigit() or int(version_number) < 1:
+                    raise ValueError(
+                        "model version must be a positive integer."
+                    )
+
+                model_stem = f"{model_stem}_{version_number}"
+
+            safe_filename = f"{model_stem}.pth"
+
+        else:
+
+            if version is not None:
+                raise ValueError(
+                    "Do not combine a custom model filename with a model version."
+                )
+
+            safe_filename = _validate_path_component(
+                filename,
+                "model filename",
+            )
+
+        return self.models_root / safe_filename
 
 
 def get_client_paths(identity: ClientIdentity) -> ClientPaths:

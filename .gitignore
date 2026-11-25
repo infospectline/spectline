@@ -98,9 +98,6 @@ Thumbs.db
 /tradingbot/.env.*
 !/tradingbot/.env.example
 
-# Customer data and runtime storage
-/tradingbot/CUSTOMERS/
-
 # SSH keys and key directories
 /tradingbot/**/SSH/
 /tradingbot/**/id_ed25519
@@ -118,7 +115,6 @@ Thumbs.db
 
 # Local model data and trading setup files
 /tradingbot/**/MODELS/
-/tradingbot/**/VERSIONS/
 /tradingbot/**/TRADING SET UP/
 
 # Ignore only M1 and M5 chart data

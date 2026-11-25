@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import importlib
 import json
 import math
 import uuid
@@ -514,6 +513,108 @@ def _normalize_training_dataset(dataset: Mapping[str, Any]) -> Dict[str, Any]:
         "warnings": list(dataset.get("warnings", [])) + list(report.get("warnings", [])),
     }
 
+def _validate_training_scaler(
+    scaler: Any,
+    normalized: Mapping[str, Any],
+) -> None:
+    """
+    Validate that the fitted scaler belongs to the exact training dataset
+    and uses the identical feature schema.
+    """
+
+    feature_names = tuple(
+        str(item)
+        for item in normalized.get("feature_names", ())
+    )
+
+    if not feature_names:
+        raise ModelSchemaError(
+            "Training dataset has no explicit feature order."
+        )
+
+    scaler_feature_names = tuple(
+        str(item)
+        for item in (getattr(scaler, "feature_names", ()) or ())
+    )
+
+    if scaler_feature_names != feature_names:
+        raise ModelSchemaError(
+            "Fitted scaler feature order does not match the training dataset."
+        )
+
+    mean = np.asarray(
+        getattr(scaler, "mean", []),
+        dtype=np.float64,
+    ).reshape(-1)
+
+    std = np.asarray(
+        getattr(scaler, "std", []),
+        dtype=np.float64,
+    ).reshape(-1)
+
+    if (
+        mean.size != len(feature_names)
+        or std.size != len(feature_names)
+        or not np.all(np.isfinite(mean))
+        or not np.all(np.isfinite(std))
+        or np.any(std <= 0.0)
+    ):
+        raise ModelSchemaError(
+            "Fitted scaler statistics do not match the training feature count."
+        )
+
+    expected_hash = normalized.get("feature_schema_hash")
+    scaler_hash = getattr(
+        scaler,
+        "feature_schema_hash",
+        None,
+    )
+
+    if not scaler_hash:
+        raise ModelSchemaError(
+            "Fitted scaler has no feature schema hash."
+        )
+
+    if expected_hash and str(scaler_hash) != str(expected_hash):
+        raise ModelSchemaError(
+            "Fitted scaler feature schema hash does not match the dataset."
+        )
+
+    expected_fit_count = len(
+        normalized.get("train_indices", ())
+    )
+
+    actual_fit_count = int(
+        getattr(scaler, "fit_sample_count", 0)
+    )
+
+    if actual_fit_count != expected_fit_count:
+        raise ModelSchemaError(
+            "Scaler was not fitted on exactly the dataset training split."
+        )
+
+    if getattr(scaler, "fit_scope", None) != "TRAIN_SPLIT_ONLY":
+        raise ModelSchemaError(
+            "Scaler must be fitted exclusively on the training split."
+        )
+
+    dataset_id = str(
+        normalized.get("dataset_id") or ""
+    ).strip()
+
+    scaler_dataset_id = str(
+        getattr(scaler, "fit_dataset_id", None) or ""
+    ).strip()
+
+    if (
+        dataset_id
+        and scaler_dataset_id
+        and dataset_id != scaler_dataset_id
+    ):
+        raise ModelSchemaError(
+            "Scaler was fitted against a different training dataset."
+        )
+
 
 # ============================================================================
 # MODEL TRAINING
@@ -579,6 +680,11 @@ def train_model(
     scaler_report = scaling_engine.validate_scaler(scaler)
     if not scaler_report.get("valid") or scaler.fit_scope != "TRAIN_SPLIT_ONLY":
         raise ModelSchemaError("Scaler is invalid or was not fitted exclusively on training rows.")
+    
+    _validate_training_scaler(
+        scaler,
+        normalized,
+    )
 
     scaled = scaling_engine.apply_scaler(
         normalized["features"],
@@ -707,8 +813,27 @@ def train_model(
         "dataset_target": DATASET_TARGET_NAME,
         "dataset_id": normalized["dataset_id"],
         "input_features": int(scaled.shape[1]),
+        "input_size": int(scaled.shape[1]),
+
         "feature_names": list(normalized["feature_names"]),
+        "feature_order": list(normalized["feature_names"]),
+
         "feature_schema_hash": normalized["feature_schema_hash"],
+
+        "feature_schema": {
+            "feature_count": int(scaled.shape[1]),
+            "feature_names": list(normalized["feature_names"]),
+            "sha256": normalized["feature_schema_hash"],
+        },
+
+        "model_architecture": {
+            "model_class_module": type(model).__module__,
+            "model_class_name": type(model).__name__,
+            "input_size": int(scaled.shape[1]),
+            "hidden_sizes": list(hidden),
+        },
+
+        "inference_contract_version": 1,
         "hidden_sizes": list(hidden),
         "epochs_requested": int(epochs),
         "epochs_completed": len(history),
@@ -800,19 +925,54 @@ def _dataset_timeframes(bundle: Mapping[str, Any]) -> list[str]:
     return [value for value in SUPPORTED_TIMEFRAMES if value in selected]
 
 
-def _load_data_bundle(market: str, identity: Any) -> Dict[str, Any]:
-    try:
-        module_name = f"{__package__}.data" if __package__ else "engine.data"
-        module = importlib.import_module(module_name)
-    except ImportError as error:
-        raise ModelDependencyError("engine.data is unavailable.") from error
-    function = getattr(module, "prepare_training_data", None)
-    if not callable(function):
-        raise ModelDependencyError("engine.data.prepare_training_data is unavailable.")
-    bundle = function(market, identity=identity)
+def _load_data_bundle(
+    market: str,
+    identity: Any,
+) -> Tuple[Dict[str, Any], Path]:
+    """
+    Build and persist the complete Training Data Bundle
+    inside the exact TradingBot RUNTIME directory.
+    """
+
+    if memory_engine is None:
+        raise ModelDependencyError("engine.memory is unavailable.")
+
+    prepare_and_store = getattr(
+        memory_engine,
+        "prepare_and_store_training_data",
+        None,
+    )
+
+    if not callable(prepare_and_store):
+        raise ModelDependencyError(
+            "engine.memory.prepare_and_store_training_data is unavailable."
+        )
+
+    result = prepare_and_store(
+        market,
+        identity=identity,
+    )
+
+    if not isinstance(result, tuple) or len(result) != 2:
+        raise ModelValidationError(
+            "Training bundle storage returned an invalid result."
+        )
+
+    bundle, stored_path = result
+
     if not isinstance(bundle, Mapping):
-        raise ModelValidationError("engine.data returned an invalid training bundle.")
-    return dict(bundle)
+        raise ModelValidationError(
+            "engine.memory returned an invalid training bundle."
+        )
+
+    resolved_path = Path(stored_path).expanduser().resolve()
+
+    if not resolved_path.is_file():
+        raise ModelValidationError(
+            "Training bundle was not persisted to RUNTIME."
+        )
+
+    return dict(bundle), resolved_path
 
 
 def _build_binary_dataset(bundle: Mapping[str, Any], identity: Any) -> Dict[str, Any]:
@@ -915,7 +1075,10 @@ def train_market(
         strategy_id=strategy_id,
         tradingbot_id=tradingbot_id,
     )
-    bundle = _load_data_bundle(normalized_market, resolved)
+    bundle, bundle_path = _load_data_bundle(
+        normalized_market,
+        resolved,
+    )
     bundle_validation = bundle.get("validation", {})
     bundle_report = bundle.get("report", {})
     if not isinstance(bundle_validation, Mapping) or bundle_validation.get("valid") is not True:
@@ -993,15 +1156,45 @@ def train_market(
 
     training_summary.update(
         {
-            "identity": resolved.as_dict() if callable(getattr(resolved, "as_dict", None)) else dict(resolved),
+            "identity": (
+                resolved.as_dict()
+                if callable(getattr(resolved, "as_dict", None))
+                else dict(resolved)
+            ),
+
             "market": normalized_market,
+
             "input_timeframes": _dataset_timeframes(bundle),
-            "dataset_version_id": dataset_version_id,
-            "scaler_version_id": scaler_version_id,
+
+            "input_size": len(normalized_dataset["feature_names"]),
+
+            "feature_names": list(
+                normalized_dataset["feature_names"]
+            ),
+
+            "feature_order": list(
+                normalized_dataset["feature_names"]
+            ),
+
+            "feature_schema_hash": (
+                normalized_dataset["feature_schema_hash"]
+            ),
+
             "model_target_schema": MODEL_TARGET_SCHEMA,
+
             "model_version_id": model_version_id,
+
+            "dataset_version_id": dataset_version_id,
+
+            "scaler_version_id": scaler_version_id,
+
             "source_bundle_schema_version": bundle.get("schema_version"),
+
             "source_bundle_created_at": bundle.get("created_at"),
+
+            "source_bundle_filename": bundle_path.name,
+
+            "inference_contract_version": 1,
         }
     )
 
@@ -1044,6 +1237,12 @@ def train_market(
 
     return {
         "training": training_summary,
+
+        "training_bundle": {
+            "filename": bundle_path.name,
+            "stored_in_runtime": True,
+        },
+
         "dataset": {
             "version_id": dataset_version_id,
             "content_dataset_id": dataset.get("dataset_id"),
@@ -1064,11 +1263,21 @@ def train_market(
             "model_path": str(saved_path),
             "model_filename": saved_path.name,
             "status": "DRAFT",
+
             "approval_required": True,
-            "approval_reason": "A separate evaluation and calibration gate must approve this model before production inference.",
+
+            "evaluation_required": True,
+
+            "calibration_required": True,
+
+            "production_ready": False,
+
+            "approval_reason": (
+                "The model must pass evaluation and calibration "
+                "before production inference."
+            ),
         },
     }
-
 
 # ============================================================================
 # INFERENCE

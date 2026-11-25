@@ -17,12 +17,19 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 try:
-    from client import ClientIdentity
+    from client import (
+        ClientIdentity,
+        get_model_path as _client_get_model_path,
+    )
 except ImportError:
     try:
-        from .client import ClientIdentity
+        from .client import (
+            ClientIdentity,
+            get_model_path as _client_get_model_path,
+        )
     except ImportError:
         ClientIdentity = Any
+        _client_get_model_path = None
 
 
 # ============================================================================
@@ -334,29 +341,6 @@ _ENGINE_EXPORTS: Dict[str, str] = {
     "scaler_to_serializable": "scaling",
     "scaler_from_serializable": "scaling",
     "dataset_scaling_report": "scaling",
-    "VersionError": "versions",
-    "VersionValidationError": "versions",
-    "VersionConflictError": "versions",
-    "VersionNotFoundError": "versions",
-    "VersionStateError": "versions",
-    "VersionIntegrityError": "versions",
-    "VersionDependency": "versions",
-    "VersionRecord": "versions",
-    "VersionRegistry": "versions",
-    "get_default_registry": "versions",
-    "register_version": "versions",
-    "get_version": "versions",
-    "list_versions": "versions",
-    "validate_version": "versions",
-    "approve_version": "versions",
-    "deprecate_version": "versions",
-    "latest_approved": "versions",
-    "register_pattern_catalog": "versions",
-    "register_dataset": "versions",
-    "register_scaler": "versions",
-    "register_model": "versions",
-    "verify_artifact": "versions",
-    "validate_version_status": "versions",
     "MemoryErrorBase": "memory",
     "MemoryValidationError": "memory",
     "MemoryIntegrityError": "memory",
@@ -366,19 +350,7 @@ _ENGINE_EXPORTS: Dict[str, str] = {
     "save_training_data_bundle": "memory",
     "load_training_data_bundle": "memory",
     "list_training_data_bundles": "memory",
-    "save_training_dataset": "memory",
-    "load_training_dataset": "memory",
-    "list_dataset_versions": "memory",
-    "save_scaler_artifact": "memory",
-    "load_scaler_artifact": "memory",
     "save_model": "memory",
-    "validate_artifact_version": "memory",
-    "approve_artifact_version": "memory",
-    "deprecate_artifact_version": "memory",
-    "approve_model_version": "memory",
-    "list_model_versions": "memory",
-    "latest_approved_model_version": "memory",
-    "verify_model_version": "memory",
     "ModelError": "model",
     "ModelValidationError": "model",
     "ModelDependencyError": "model",
@@ -557,9 +529,12 @@ def model_dir(
     tradingbot_id: Optional[str] = None,
     identity: Optional[ClientIdentity] = None,
 ) -> Path:
-    return _call_engine(
-        "memory",
-        "model_dir",
+    """
+    Return the central MODELS/<MARKET> directory
+    for the exact TradingBot identity.
+    """
+
+    resolved = _resolve_identity(
         market,
         user_id,
         strategy_id=strategy_id,
@@ -567,6 +542,13 @@ def model_dir(
         identity=identity,
     )
 
+    return Path(
+        _call_engine(
+            "settings",
+            "models_root_for",
+            resolved,
+        )
+    ).expanduser().resolve()
 
 def model_path(
     market: str,
@@ -575,10 +557,22 @@ def model_path(
     strategy_id: Optional[str] = None,
     tradingbot_id: Optional[str] = None,
     identity: Optional[ClientIdentity] = None,
+    version: Optional[str] = None,
+    filename: Optional[str] = None,
 ) -> Path:
-    return _call_engine(
-        "memory",
-        "model_path",
+    """
+    Return a final .pth file directly inside MODELS/<MARKET>.
+
+    version represents the numeric filename suffix,
+    not the internal model_version_id.
+    """
+
+    if _client_get_model_path is None:
+        raise AIEngineNotReadyError(
+            "client.get_model_path() is unavailable."
+        )
+
+    resolved = _resolve_identity(
         market,
         user_id,
         strategy_id=strategy_id,
@@ -586,6 +580,49 @@ def model_path(
         identity=identity,
     )
 
+    path_kwargs: Dict[str, Any] = {}
+
+    if version is not None:
+        path_kwargs["version"] = str(version)
+
+    if filename is not None:
+        path_kwargs["filename"] = filename
+
+    return Path(
+        _client_get_model_path(
+            resolved,
+            **path_kwargs,
+        )
+    ).expanduser().resolve()
+
+def runtime_dir(
+    market: str,
+    user_id: Optional[str] = None,
+    *,
+    strategy_id: Optional[str] = None,
+    tradingbot_id: Optional[str] = None,
+    identity: Optional[ClientIdentity] = None,
+) -> Path:
+    """
+    Return MODELS/<MARKET>/RUNTIME
+    for the exact TradingBot identity.
+    """
+
+    resolved = _resolve_identity(
+        market,
+        user_id,
+        strategy_id=strategy_id,
+        tradingbot_id=tradingbot_id,
+        identity=identity,
+    )
+
+    return Path(
+        _call_engine(
+            "settings",
+            "runtime_root_for",
+            resolved,
+        )
+    ).expanduser().resolve()
 
 # ============================================================================
 # CUSTOMER DATA API
@@ -748,6 +785,49 @@ def predict_from_features(*args: Any, **kwargs: Any) -> Dict[str, Any]:
 # MODEL LOADING, TRAINING AND PREDICTION API
 # ============================================================================
 
+def _select_model_identifier(
+    model_version_id: Optional[str],
+    version_id: Optional[str],
+) -> Optional[str]:
+    """
+    Resolve the canonical model identifier.
+
+    version_id remains a backward-compatible alias.
+    """
+
+    primary = (
+        str(model_version_id).strip()
+        if model_version_id is not None
+        else None
+    )
+
+    legacy = (
+        str(version_id).strip()
+        if version_id is not None
+        else None
+    )
+
+    if primary == "":
+        raise AIEngineValidationError(
+            "model_version_id cannot be empty."
+        )
+
+    if legacy == "":
+        raise AIEngineValidationError(
+            "version_id cannot be empty."
+        )
+
+    if (
+        primary is not None
+        and legacy is not None
+        and primary != legacy
+    ):
+        raise AIEngineValidationError(
+            "model_version_id and version_id refer to different models."
+        )
+
+    return primary if primary is not None else legacy
+
 def load_model(
     market: str,
     user_id: Optional[str] = None,
@@ -765,7 +845,12 @@ def load_model(
         tradingbot_id=tradingbot_id,
         identity=identity,
     )
-    selected_version = model_version_id or version_id
+
+    selected_version = _select_model_identifier(
+        model_version_id,
+        version_id,
+    )
+    
     return _call_engine(
         "inference",
         "load_approved_model",
@@ -1049,6 +1134,7 @@ __all__ = [
     "setup_path",
     "model_dir",
     "model_path",
+    "runtime_dir",
     "load_learning_setups",
     "prepare_training_data",
     "validate_training_data",

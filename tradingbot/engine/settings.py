@@ -19,6 +19,7 @@ try:
         BASE_DIR as CLIENT_BASE_DIR,
         CHARTS_ROOT as CLIENT_CHARTS_ROOT,
         DATA_ROOT as CLIENT_DATA_ROOT,
+        TRADING_SETUP_ROOT as CLIENT_TRADING_SETUP_ROOT,
         DEFAULT_CANDLE_FILENAME,
         DEFAULT_MODEL_FILENAME,
         DEFAULT_SETUP_FILENAME,
@@ -32,6 +33,7 @@ except ImportError:
         BASE_DIR as CLIENT_BASE_DIR,
         CHARTS_ROOT as CLIENT_CHARTS_ROOT,
         DATA_ROOT as CLIENT_DATA_ROOT,
+        TRADING_SETUP_ROOT as CLIENT_TRADING_SETUP_ROOT,
         DEFAULT_CANDLE_FILENAME,
         DEFAULT_MODEL_FILENAME,
         DEFAULT_SETUP_FILENAME,
@@ -47,52 +49,123 @@ except ImportError:
 # ============================================================================
 
 BASE_DIR: Final[Path] = Path(CLIENT_BASE_DIR).resolve()
+
 ENGINE_ROOT: Final[Path] = BASE_DIR / "engine"
 
 WEB_MODE: Final[bool] = bool(CLIENT_WEB_MODE)
 
-TRADING_SETUP_ROOT: Final[Path] = BASE_DIR / "TRADING SET UP"
-CHARTS_ROOT: Final[Path] = Path(CLIENT_CHARTS_ROOT).resolve()
-USER_DATA_ROOT: Final[Path] = Path(CLIENT_DATA_ROOT).resolve()
-
-LOCAL_MODELS_ROOT: Final[Path] = BASE_DIR / "MODELS"
-
-# In WebMode this is the common customer-data root.
-# The exact customer's model directory is resolved dynamically.
-MODELS_ROOT: Final[Path] = (
-    USER_DATA_ROOT if WEB_MODE else LOCAL_MODELS_ROOT
+# All shared application paths are resolved through client.py.
+TRADING_SETUP_ROOT: Final[Path] = (
+    Path(CLIENT_TRADING_SETUP_ROOT).expanduser().resolve()
 )
 
-CUSTOMERS_ROOT: Final[Path] = USER_DATA_ROOT
+CHARTS_ROOT: Final[Path] = (
+    Path(CLIENT_CHARTS_ROOT).expanduser().resolve()
+)
+
+
+# ============================================================================
+# CUSTOMER AND MODEL STORAGE ROOTS
+# ============================================================================
+
+# Customer storage exists only in WEB mode.
+# In PC mode there is no CUSTOMERS/LOCAL dependency.
+
+USER_DATA_ROOT: Final[Path | None] = (
+    Path(CLIENT_DATA_ROOT).expanduser().resolve()
+    if WEB_MODE
+    else None
+)
+
+CUSTOMERS_ROOT: Final[Path | None] = USER_DATA_ROOT
+
+
+# A global model root cannot identify a specific customer and market
+# in WEB mode. Exact model paths must always come from client.py.
+
+LOCAL_MODELS_ROOT: Final[Path | None] = (
+    BASE_DIR / "MODELS"
+    if not WEB_MODE
+    else None
+)
+
+MODELS_ROOT: Final[Path | None] = LOCAL_MODELS_ROOT
+
+
+# ============================================================================
+# MARKET MEMORY STORAGE
+# ============================================================================
 
 MARKET_MEMORY_ROOT: Final[Path] = BASE_DIR / "MARKET_MEMORY"
-MARKET_PATTERN_ROOT: Final[Path] = MARKET_MEMORY_ROOT / "PATTERNS"
-MARKET_EVENT_ROOT: Final[Path] = MARKET_MEMORY_ROOT / "EVENTS"
-PATTERN_CATALOG_ROOT: Final[Path] = MARKET_MEMORY_ROOT / "CATALOGS"
+
+MARKET_PATTERN_ROOT: Final[Path] = (
+    MARKET_MEMORY_ROOT / "PATTERNS"
+)
+
+MARKET_EVENT_ROOT: Final[Path] = (
+    MARKET_MEMORY_ROOT / "EVENTS"
+)
+
+PATTERN_CATALOG_ROOT: Final[Path] = (
+    MARKET_MEMORY_ROOT / "CATALOGS"
+)
+
+
+# ============================================================================
+# MODEL AND FILE CONFIGURATION
+# ============================================================================
 
 SETUP_FILENAME: Final[str] = DEFAULT_SETUP_FILENAME
+
 CANDLE_FILENAME: Final[str] = DEFAULT_CANDLE_FILENAME
+
 MODEL_FILENAME: Final[str] = DEFAULT_MODEL_FILENAME
 
 MODEL_FILE_EXTENSION: Final[str] = ".pth"
+
 MODEL_RUNTIME_DIRECTORY_NAME: Final[str] = "RUNTIME"
 
 CUSTOMER_MODELS_DIRECTORY_NAME: Final[str] = "MODELS"
+
 CUSTOMER_RESULTS_DIRECTORY_NAME: Final[str] = "RUNTIME"
+
 CUSTOMER_RUNTIME_DIRECTORY_NAME: Final[str] = "RUNTIME"
+
 CUSTOMER_TIMELINE_DIRECTORY_NAME: Final[str] = "TIMELINE"
 
 
+# ============================================================================
+# IDENTITY-BASED MODEL PATH RESOLUTION
+# ============================================================================
+
 def models_root_for(identity: ClientIdentity) -> Path:
-    """Return the MODELS directory for one exact customer and market."""
+    """
+    Return the exact MODELS/<MARKET> directory
+    for the specified customer and market.
+
+    All paths are resolved through client.py.
+    """
+
     paths = get_client_paths(identity)
-    return Path(paths.models_root).expanduser().resolve()
+
+    return Path(
+        paths.models_root
+    ).expanduser().resolve()
 
 
 def runtime_root_for(identity: ClientIdentity) -> Path:
-    """Return the temporary RUNTIME directory for one exact customer and market."""
+    """
+    Return the exact MODELS/<MARKET>/RUNTIME directory
+    for the specified customer and market.
+
+    All paths are resolved through client.py.
+    """
+
     paths = get_client_paths(identity)
-    return Path(paths.runtime_root).expanduser().resolve()
+
+    return Path(
+        paths.runtime_root
+    ).expanduser().resolve()
 
 
 # ============================================================================

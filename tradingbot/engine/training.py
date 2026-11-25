@@ -10,6 +10,7 @@ import hashlib
 import importlib
 import json
 import os
+import tempfile
 import threading
 import uuid
 from dataclasses import asdict, dataclass
@@ -227,19 +228,6 @@ def _json_safe(value: Any) -> Any:
             pass
     return str(value)
 
-
-def _record_to_dict(record: Any) -> Optional[Dict[str, Any]]:
-    if record is None:
-        return None
-    method = getattr(record, "to_dict", None)
-    if callable(method):
-        result = method()
-        return dict(result) if isinstance(result, Mapping) else None
-    if isinstance(record, Mapping):
-        return dict(record)
-    return None
-
-
 # ============================================================================
 # DEPENDENCY LOADERS
 # ============================================================================
@@ -274,22 +262,6 @@ def _load_memory_engine() -> Any:
         except ImportError as error:
             last_error = error
     raise TrainingDependencyError("engine.memory is unavailable.") from last_error
-
-
-def _load_versions_engine() -> Any:
-    candidates = []
-    if __package__:
-        candidates.append(f"{__package__}.versions")
-    candidates.append("engine.versions")
-    last_error: Optional[BaseException] = None
-    for module_name in candidates:
-        try:
-            module = importlib.import_module(module_name)
-            if callable(getattr(module, "register_version", None)):
-                return module
-        except ImportError as error:
-            last_error = error
-    raise TrainingDependencyError("engine.versions is unavailable.") from last_error
 
 
 def _resolve_identity(
@@ -388,6 +360,63 @@ def _append_run_event(
         os.close(descriptor)
     return path
 
+def _build_progress_callback(
+    identity: Any,
+    market: str,
+    *,
+    run_id: str,
+    config: Mapping[str, Any],
+    downstream_callback: Optional[Callable[[int, str, str], None]] = None,
+) -> Callable[[int, str, str], None]:
+    """
+    Persist training progress inside RUNTIME and forward progress
+    to the original application callback.
+    """
+
+    def _callback(progress: int, stage: str, message: str) -> None:
+
+        try:
+            normalized_progress = max(0, min(99, int(progress)))
+        except (TypeError, ValueError, OverflowError):
+            normalized_progress = 0
+
+        normalized_stage = str(stage)
+        normalized_message = str(message)
+
+        try:
+            _append_run_event(
+                identity,
+                market,
+                run_id=run_id,
+                event_type="PROGRESS",
+                status="RUNNING",
+                timestamp=_utc_now(),
+                config=config,
+                details={
+                    "progress": normalized_progress,
+                    "stage": normalized_stage,
+                    "message": normalized_message,
+                },
+            )
+
+        except Exception as error:
+
+            # Logging failure must not interrupt neural network training.
+            print(
+                f"[TRAIN][WARNING] Could not persist progress event: {error}",
+                flush=True,
+            )
+
+        if downstream_callback is not None:
+
+            downstream_callback(
+                normalized_progress,
+                normalized_stage,
+                normalized_message,
+            )
+
+    return _callback
+
 
 def read_training_events(
     *,
@@ -414,16 +443,293 @@ def read_training_events(
                 raise TrainingError(f"Training journal contains invalid JSON on line {line_number}.") from error
             if not isinstance(record, Mapping):
                 raise TrainingError(f"Training journal line {line_number} is not an object.")
-            if record.get("identity") != identity_data:
-                raise TrainingError("Training journal identity mismatch detected.")
+                
+            record_identity = record.get("identity")
+
+            if not isinstance(record_identity, Mapping):
+                raise TrainingError(
+                    f"Training journal line {line_number} has no valid identity."
+                )
+
+            # Other TradingBots can share the same market RUNTIME.
+            # Return only events belonging to the requested TradingBot.
+
+            if dict(record_identity) != identity_data:
+                continue
+
             if run_id is None or str(record.get("run_id")) == str(run_id):
                 output.append(dict(record))
     return output
 
 
 # ============================================================================
-# TRAINING RUN VERSION REGISTRATION
+# RUNTIME-LOCAL TRAINING RUN RECORDS
 # ============================================================================
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    """Serialize JSON-compatible data deterministically."""
+
+    return json.dumps(
+        _json_safe(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _training_runs_directory(
+    identity: Any,
+    market: Optional[str] = None,
+) -> Path:
+    """
+    Return the private RUNS directory for one TradingBot
+    inside its market RUNTIME directory.
+    """
+
+    identity_data = _identity_values(identity)
+
+    normalized_market = normalize_market(
+        market or identity_data["market"]
+    )
+
+    if identity_data["market"] != normalized_market:
+        raise TrainingValidationError(
+            "Identity market does not match the requested training-run directory."
+        )
+
+    # Separate TradingBots can safely reuse the same run_id.
+    identity_hash = _identity_lock_key(identity_data)
+
+    return (
+        _journal_path(identity, normalized_market).parent
+        / "RUNS"
+        / identity_hash
+    )
+
+
+def _training_run_path(
+    identity: Any,
+    run_id: str,
+) -> Path:
+
+    safe_run_id = _safe_run_id(run_id)
+
+    return (
+        _training_runs_directory(identity)
+        / f"{safe_run_id}.json"
+    )
+
+
+def _atomic_write_json(
+    path: Path,
+    value: Mapping[str, Any],
+) -> None:
+    """
+    Atomically write one JSON record without leaving partial files.
+    """
+
+    path = Path(path).expanduser().resolve()
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    encoded = _canonical_json_bytes(value)
+
+    temporary_path: Optional[Path] = None
+
+    try:
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+            delete=False,
+        ) as handle:
+
+            temporary_path = Path(handle.name)
+
+            handle.write(encoded)
+            handle.flush()
+
+            os.fsync(handle.fileno())
+
+        if path.exists():
+            raise TrainingError(
+                f"Training-run record already exists and is immutable: {path.name}"
+            )
+
+        os.replace(
+            temporary_path,
+            path,
+        )
+
+        temporary_path = None
+
+    finally:
+
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _read_training_run_record(
+    identity: Any,
+    run_id: str,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    """
+    Read a runtime-local training record and verify its identity
+    and SHA-256 integrity.
+    """
+
+    safe_run_id = _safe_run_id(run_id)
+
+    identity_data = _identity_values(identity)
+
+    path = _training_run_path(
+        identity_data,
+        safe_run_id,
+    )
+
+    if not path.is_file():
+        raise TrainingError(
+            f"Training run {safe_run_id!r} was not found in RUNTIME."
+        )
+
+    try:
+
+        stored = json.loads(
+            path.read_text(encoding="utf-8")
+        )
+
+    except (OSError, json.JSONDecodeError) as error:
+
+        raise TrainingError(
+            f"Training-run record {safe_run_id!r} cannot be read."
+        ) from error
+
+    if not isinstance(stored, Mapping):
+        raise TrainingError("Training-run record is malformed.")
+
+    record = dict(stored)
+
+    if record.get("schema_version") != MODULE_SCHEMA_VERSION:
+        raise TrainingError(
+            "Training-run record schema version is unsupported."
+        )
+
+    if record.get("record_type") != TRAINING_RUN_ARTIFACT_TYPE:
+        raise TrainingError(
+            "Stored file is not a training-run record."
+        )
+
+    if str(record.get("run_id")) != safe_run_id:
+        raise TrainingError(
+            "Training-run record ID does not match its filename."
+        )
+
+    stored_identity = record.get("identity")
+
+    if (
+        not isinstance(stored_identity, Mapping)
+        or dict(stored_identity) != identity_data
+    ):
+        raise TrainingValidationError(
+            "Training-run identity does not match the requested TradingBot."
+        )
+
+    payload = record.get("payload")
+
+    if not isinstance(payload, Mapping):
+        raise TrainingError(
+            "Training-run payload is malformed."
+        )
+
+    actual_hash = hashlib.sha256(
+        _canonical_json_bytes(payload)
+    ).hexdigest()
+
+    expected_hash = str(
+        record.get("payload_sha256") or ""
+    )
+
+    if not expected_hash or actual_hash != expected_hash:
+        raise TrainingError(
+            "Training-run payload failed its SHA-256 integrity check."
+        )
+
+    verification = {
+        "valid": True,
+        "run_id": safe_run_id,
+        "identity": identity_data,
+        "sha256": actual_hash,
+        "path": str(path),
+    }
+
+    return record, dict(payload), verification
+
+
+def _training_run_summary(
+    record: Mapping[str, Any],
+    path: Path,
+) -> Dict[str, Any]:
+    """Create a public summary compatible with the previous run-record API."""
+
+    payload = record.get("payload", {})
+
+    if not isinstance(payload, Mapping):
+        payload = {}
+
+    dependencies = record.get("dependencies", [])
+
+    if not isinstance(dependencies, list):
+        dependencies = []
+
+    status = str(
+        record.get(
+            "run_status",
+            payload.get("run_status", "UNKNOWN"),
+        )
+    ).upper()
+
+    identity_data = dict(record.get("identity", {}))
+
+    return {
+        "version_id": str(record.get("run_id", path.stem)),
+        "run_id": str(record.get("run_id", path.stem)),
+        "artifact_type": TRAINING_RUN_ARTIFACT_TYPE,
+        "scope_type": "CUSTOMER",
+        "scope_key": _identity_lock_key(identity_data),
+        "market": identity_data.get("market"),
+        "identity": identity_data,
+        "artifact_uri": str(path),
+        "artifact_sha256": str(record.get("payload_sha256", "")),
+        "artifact_size_bytes": len(
+            _canonical_json_bytes(payload)
+        ),
+        "metadata": {
+            "run_status": status,
+            "model_target_schema": record.get(
+                "target_schema",
+                MODEL_TARGET_SCHEMA,
+            ),
+            "model_version_id": record.get("model_version_id"),
+        },
+        "dependencies": [
+            dict(item)
+            for item in dependencies
+            if isinstance(item, Mapping)
+        ],
+        "parent_version_id": None,
+        "created_at": str(record.get("created_at", "")),
+        "status": status,
+        "manifest_path": str(path),
+        "run_status": status,
+    }
+
 
 def _register_training_run(
     *,
@@ -431,15 +737,37 @@ def _register_training_run(
     run_id: str,
     payload: Mapping[str, Any],
     training_result: Optional[Mapping[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
-    versions_engine = _load_versions_engine()
+) -> Dict[str, Any]:
+    """
+    Save a training-run record inside RUNTIME.
+    No external VERSIONS registry is used.
+    """
+
+    safe_run_id = _safe_run_id(run_id)
+
+    identity_data = _identity_values(identity)
+
+    payload_data = _json_safe(dict(payload))
+
+    if not isinstance(payload_data, Mapping):
+        raise TrainingValidationError(
+            "Training-run payload must be a JSON object."
+        )
+
+    result = (
+        training_result
+        if isinstance(training_result, Mapping)
+        else {}
+    )
+
     dependencies: List[Dict[str, str]] = []
-    result = training_result if isinstance(training_result, Mapping) else {}
+
     for artifact_type, section, version_field in (
         ("dataset", result.get("dataset"), "version_id"),
         ("scaler", result.get("scaler"), "version_id"),
         ("model", result.get("model"), "model_version_id"),
     ):
+
         if not isinstance(section, Mapping):
             continue
 
@@ -453,23 +781,53 @@ def _register_training_run(
                 }
             )
 
-    record = versions_engine.register_version(
-        TRAINING_RUN_ARTIFACT_TYPE,
-        run_id,
-        payload=_json_safe(dict(payload)),
-        identity=identity,
-        metadata={
-            "run_status": str(payload.get("run_status", "UNKNOWN")),
-            "model_target_schema": MODEL_TARGET_SCHEMA,
-            "model_version_id": (result.get("model") or {}).get("model_version_id")
-            if isinstance(result.get("model"), Mapping)
-            else None,
-        },
-        dependencies=dependencies,
+    payload_hash = hashlib.sha256(
+        _canonical_json_bytes(payload_data)
+    ).hexdigest()
+
+    model_section = result.get("model", {})
+
+    model_version_id = (
+        model_section.get("model_version_id")
+        if isinstance(model_section, Mapping)
+        else None
     )
-    return _record_to_dict(record)
 
+    record = {
+        "schema_version": MODULE_SCHEMA_VERSION,
+        "record_type": TRAINING_RUN_ARTIFACT_TYPE,
+        "run_id": safe_run_id,
+        "identity": identity_data,
+        "created_at": _utc_now(),
+        "run_status": str(
+            payload_data.get("run_status", "UNKNOWN")
+        ).upper(),
+        "target_schema": MODEL_TARGET_SCHEMA,
+        "model_version_id": (
+            str(model_version_id)
+            if model_version_id
+            else None
+        ),
+        "dependencies": dependencies,
+        "payload_sha256": payload_hash,
+        "payload": dict(payload_data),
+    }
 
+    path = _training_run_path(
+        identity_data,
+        safe_run_id,
+    )
+
+    _atomic_write_json(
+        path,
+        record,
+    )
+
+    return _training_run_summary(
+        record,
+        path,
+    )
+    
 # ============================================================================
 # TRAINING ORCHESTRATION
 # ============================================================================
@@ -555,8 +913,13 @@ def train_market(
             "identity": resolved_identity,
         }
 
-        if progress_callback is not None:
-            model_train_kwargs["progress_callback"] = progress_callback
+        model_train_kwargs["progress_callback"] = _build_progress_callback(
+            resolved_identity,
+            normalized_market,
+            run_id=resolved_run_id,
+            config=selected_config.to_dict(),
+            downstream_callback=progress_callback,
+        )
 
         result = model_engine.train_market(
             normalized_market,
@@ -656,7 +1019,7 @@ def train_market(
             )
         except Exception as error:
             result_data["orchestration"]["tracking_warning"] = (
-                "The training result was saved, but the version registry could not store its training-run manifest: "
+                "The training result was produced, but its RUNTIME training-run record could not be saved: "
                 + str(error)
             )
         return result_data
@@ -724,63 +1087,103 @@ def run_training(*args: Any, **kwargs: Any) -> Dict[str, Any]:
 # TRAINING RUN QUERIES
 # ============================================================================
 
+
 def list_training_runs(
     *,
     identity: Any,
     status: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """List immutable training-run manifests for one TradingBot."""
+    """
+    List verified training-run records stored in RUNTIME.
+    """
+
     identity_data = _identity_values(identity)
-    versions_engine = _load_versions_engine()
-    records = versions_engine.list_versions(
-        TRAINING_RUN_ARTIFACT_TYPE,
-        identity=identity_data,
-        status=status,
-    )
-    return [_record_to_dict(record) or {} for record in records]
 
+    directory = _training_runs_directory(identity_data)
 
-def get_training_run(run_id: str, *, identity: Any) -> Dict[str, Any]:
-    """Retrieve and verify one immutable training-run manifest and payload."""
-    resolved_run_id = _safe_run_id(run_id)
-    versions_engine = _load_versions_engine()
-    identity_data = _identity_values(identity)
-    record = versions_engine.get_version(
-        TRAINING_RUN_ARTIFACT_TYPE,
-        resolved_run_id,
-        identity=identity_data,
-    )
-    verification = versions_engine.verify_artifact(
-        TRAINING_RUN_ARTIFACT_TYPE,
-        resolved_run_id,
-        identity=identity_data,
-    )
-    if not verification.get("valid"):
-        raise TrainingError("Training-run artifact failed its integrity check.")
-    record_data = _record_to_dict(record) or {}
-    artifact_uri = record_data.get("artifact_uri")
-    if not artifact_uri:
-        raise TrainingError("Training-run manifest does not contain an artifact URI.")
-    try:
-        stored = json.loads(Path(str(artifact_uri)).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise TrainingError("Training-run payload cannot be read.") from error
-    payload = stored.get("artifact_payload") if isinstance(stored, Mapping) else None
-    if not isinstance(payload, Mapping):
-        raise TrainingError("Training-run payload is malformed.")
-    return {**record_data, "payload": dict(payload), "verification": verification}
+    if not directory.is_dir():
+        return []
 
-
-def verify_training_run(run_id: str, *, identity: Any) -> Dict[str, Any]:
-    """Verify the immutable payload for one training run."""
-    resolved_run_id = _safe_run_id(run_id)
-    versions_engine = _load_versions_engine()
-    return versions_engine.verify_artifact(
-        TRAINING_RUN_ARTIFACT_TYPE,
-        resolved_run_id,
-        identity=_identity_values(identity),
+    requested_status = (
+        str(status).strip().upper()
+        if status is not None
+        else None
     )
 
+    output: List[Dict[str, Any]] = []
+
+    for path in sorted(
+        directory.glob("*.json"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    ):
+
+        record, _payload, _verification = _read_training_run_record(
+            identity_data,
+            path.stem,
+        )
+
+        summary = _training_run_summary(
+            record,
+            path,
+        )
+
+        if (
+            requested_status is None
+            or summary["run_status"] == requested_status
+        ):
+            output.append(summary)
+
+    return output
+
+
+def get_training_run(
+    run_id: str,
+    *,
+    identity: Any,
+) -> Dict[str, Any]:
+    """
+    Retrieve a RUNTIME training-run record
+    and verify its payload integrity.
+    """
+
+    record, payload, verification = _read_training_run_record(
+        identity,
+        run_id,
+    )
+
+    path = _training_run_path(
+        identity,
+        run_id,
+    )
+
+    summary = _training_run_summary(
+        record,
+        path,
+    )
+
+    return {
+        **summary,
+        "payload": payload,
+        "verification": verification,
+    }
+
+
+def verify_training_run(
+    run_id: str,
+    *,
+    identity: Any,
+) -> Dict[str, Any]:
+    """
+    Verify SHA-256 integrity and identity of a RUNTIME training run.
+    """
+
+    _record, _payload, verification = _read_training_run_record(
+        identity,
+        run_id,
+    )
+
+    return verification
 
 # ============================================================================
 # PUBLIC EXPORTS

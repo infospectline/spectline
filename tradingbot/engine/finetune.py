@@ -12,6 +12,7 @@ import importlib
 import json
 import math
 import os
+import tempfile
 import threading
 import uuid
 from dataclasses import asdict, dataclass
@@ -754,9 +755,42 @@ def _train_candidate(
 # ============================================================================
 
 def _journal_path(identity: Any, market: str) -> Path:
-    root = Path(memory_engine.model_dir(market, identity=identity)).expanduser().resolve()
-    return root / "FINETUNE_RUNS" / "EVENTS.jsonl"
+    """
+    Return the isolated fine-tuning journal inside the exact
+    customer/market RUNTIME directory.
+    """
 
+    identity_data = _identity_dict(identity)
+    normalized_market = normalize_market(market)
+
+    if identity_data["market"] != normalized_market:
+        raise FinetuneValidationError(
+            "Fine-tuning market does not match the TradingBot identity."
+        )
+
+    runtime_getter = getattr(
+        memory_engine,
+        "get_runtime_dir",
+        None,
+    )
+
+    if not callable(runtime_getter):
+        raise FinetuneDependencyError(
+            "engine.memory.get_runtime_dir is unavailable."
+        )
+
+    runtime_root = Path(
+        runtime_getter(identity)
+    ).expanduser().resolve()
+
+    identity_hash = _identity_lock_key(identity_data)
+
+    return (
+        runtime_root
+        / "FINETUNE_RUNS"
+        / identity_hash
+        / "EVENTS.jsonl"
+    )
 
 def _append_event(
     identity: Any,
@@ -823,22 +857,144 @@ def _register_run_manifest(
     payload: Mapping[str, Any],
     dependencies: Sequence[Mapping[str, Any]],
 ) -> Dict[str, Any]:
-    registry = versions_engine.get_default_registry()
-    record = registry.register_version(
-        FINETUNE_RUN_ARTIFACT_TYPE,
-        run_id,
-        payload=_json_safe(dict(payload)),
-        identity=identity,
-        dependencies=list(dependencies),
-        metadata={
-            "run_status": str(payload.get("run_status", "UNKNOWN")),
-            "model_target_schema": MODEL_TARGET_SCHEMA,
-            "parent_model_version_id": payload.get("parent_model_version_id"),
-            "candidate_model_version_id": payload.get("candidate_model_version_id"),
-        },
-    )
-    return _record_dict(record)
+    """
+    Persist an immutable fine-tuning run manifest inside RUNTIME.
+    No separate VERSIONS entry is created for the fine-tuning run.
+    """
 
+    identity_data = _identity_dict(identity)
+
+    safe_run_id = _safe_identifier(
+        run_id,
+        "run_id",
+    )
+
+    payload_data = _json_safe(dict(payload))
+
+    if not isinstance(payload_data, Mapping):
+        raise FinetuneValidationError(
+            "Fine-tuning manifest payload must be a mapping."
+        )
+
+    dependency_data = _json_safe(list(dependencies))
+
+    if not isinstance(dependency_data, list):
+        raise FinetuneValidationError(
+            "Fine-tuning manifest dependencies are invalid."
+        )
+
+    payload_bytes = json.dumps(
+        payload_data,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    payload_hash = hashlib.sha256(
+        payload_bytes
+    ).hexdigest()
+
+    metadata = {
+        "run_status": str(
+            payload_data.get("run_status", "UNKNOWN")
+        ),
+        "model_target_schema": MODEL_TARGET_SCHEMA,
+        "parent_model_version_id": payload_data.get(
+            "parent_model_version_id"
+        ),
+        "candidate_model_version_id": payload_data.get(
+            "candidate_model_version_id"
+        ),
+    }
+
+    record = {
+        "schema_version": MODULE_SCHEMA_VERSION,
+        "record_type": FINETUNE_RUN_ARTIFACT_TYPE,
+        "run_id": safe_run_id,
+        "identity": identity_data,
+        "market": identity_data["market"],
+        "created_at": _utc_now(),
+        "metadata": metadata,
+        "dependencies": dependency_data,
+        "payload_sha256": payload_hash,
+        "payload": dict(payload_data),
+    }
+
+    encoded = json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+    directory = (
+        _journal_path(
+            identity,
+            identity_data["market"],
+        ).parent
+        / "RUNS"
+    )
+
+    directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    destination = directory / f"{safe_run_id}.json"
+
+    temporary_path: Optional[Path] = None
+
+    try:
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=f".{safe_run_id}.",
+            suffix=".tmp",
+            dir=directory,
+            delete=False,
+        ) as handle:
+
+            temporary_path = Path(handle.name)
+
+            handle.write(encoded)
+            handle.flush()
+
+            os.fsync(handle.fileno())
+
+        # Hard-link creation is atomic and does not overwrite
+        # an existing immutable run manifest.
+
+        os.link(
+            temporary_path,
+            destination,
+        )
+
+    except FileExistsError as error:
+
+        raise FinetuneValidationError(
+            f"Fine-tuning run manifest already exists: {safe_run_id}"
+        ) from error
+
+    finally:
+
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+    return {
+        "version_id": safe_run_id,
+        "run_id": safe_run_id,
+        "artifact_type": FINETUNE_RUN_ARTIFACT_TYPE,
+        "status": metadata["run_status"],
+        "identity": identity_data,
+        "artifact_uri": str(destination),
+        "artifact_sha256": hashlib.sha256(encoded).hexdigest(),
+        "payload_sha256": payload_hash,
+        "dependencies": dependency_data,
+        "metadata": metadata,
+        "storage": "RUNTIME",
+    }
 
 # ============================================================================
 # FINE-TUNING ORCHESTRATION
@@ -1064,25 +1220,72 @@ def finetune_model_version(
             return base_result
 
         candidate_version_id = _generated_id("model_finetune")
+
+        classification_threshold = float(
+            parent_checkpoint.get(
+                "classification_threshold",
+                parent_summary.get("classification_threshold", 0.50),
+            )
+        )
+
+        if (
+            not math.isfinite(classification_threshold)
+            or not 0.0 <= classification_threshold <= 1.0
+        ):
+            raise FinetuneIntegrityError(
+                "Parent model classification threshold is invalid."
+            )
+
         training_summary = {
             "model_target_schema": MODEL_TARGET_SCHEMA,
+
             "dataset_target": DATASET_TARGET_NAME,
+
             "dataset_version_id": new_dataset_version,
+
             "scaler_version_id": parent_scaler_version,
+
             "feature_schema_hash": feature_contract["feature_schema_hash"],
+
             "feature_names": feature_contract["feature_names"],
+
+            "feature_order": feature_contract["feature_names"],
+
             "input_features": feature_contract["feature_count"],
+
+            "input_size": feature_contract["feature_count"],
+
+            "classification_threshold": classification_threshold,
+
+            "inference_contract_version": 1,
+
             "parent_model_version_id": parent_version,
+
+            "model_version_id": candidate_version_id,
+
             "fine_tune_run_id": resolved_run_id,
+
             "fine_tune_config": selected_config.to_dict(),
+
             "fine_tune_summary": fine_tune_summary,
+
             "chronology": chronology,
-            "selection_metric": "INCREMENTAL_VALIDATION_LOG_LOSS",
+
+            # The candidate was selected using incremental validation log-loss.
+            # Keep the canonical inference selection metric explicit.
+            "selection_metric": "VALIDATION_LOG_LOSS",
+
+            "fine_tune_selection_metric": "INCREMENTAL_VALIDATION_LOG_LOSS",
+
             "validation_available": True,
+
             "test_metrics": None,
+
             "calibration_status": "NOT_CALIBRATED",
+
             "trained_at": _utc_now(),
         }
+        
         candidate_path = memory_engine.save_model(
             normalized_market,
             candidate_model,

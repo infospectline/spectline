@@ -6,8 +6,8 @@ from __future__ import annotations
 # IMPORTS
 # ============================================================================
 
+import gzip
 import hashlib
-import importlib
 import json
 import math
 import os
@@ -823,6 +823,337 @@ def _load_identity(market: str, identity: Any) -> Any:
         raise TestingValidationError("Resolved TradingBot identity does not match the supplied identity.")
     return resolved
 
+# ============================================================================
+# DIRECT RUNTIME DATASET AND MODEL LOADING
+# ============================================================================
+
+def _runtime_root(identity: Any) -> Path:
+    """Resolve the exact TradingBot RUNTIME directory."""
+
+    _module_dependency(memory_engine, "engine.memory")
+
+    getter = getattr(memory_engine, "get_runtime_dir", None)
+
+    if not callable(getter):
+        raise TestingDependencyError(
+            "engine.memory does not expose get_runtime_dir()."
+        )
+
+    try:
+        return Path(getter(identity)).expanduser().resolve()
+
+    except Exception as error:
+        raise TestingDependencyError(
+            "TradingBot RUNTIME directory could not be resolved."
+        ) from error
+
+
+def _load_runtime_dataset(
+    dataset_id: str,
+    *,
+    identity: Any,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Load a dataset directly from RUNTIME/AI_PREPARATION/DATASETS.
+
+    No external dataset version registry is required.
+    """
+
+    safe_id = _safe_identifier(dataset_id, "dataset_id")
+
+    runtime_root = _runtime_root(identity)
+
+    directory_value = getattr(
+        memory_engine,
+        "DATASET_STORAGE_DIRECTORY",
+        Path("AI_PREPARATION") / "DATASETS",
+    )
+
+    suffix = str(
+        getattr(
+            memory_engine,
+            "DEFAULT_DATASET_SUFFIX",
+            ".dataset.json.gz",
+        )
+    )
+
+    dataset_directory = runtime_root / Path(directory_value)
+
+    dataset_path = (
+        dataset_directory / f"{safe_id}{suffix}"
+    ).resolve()
+
+    try:
+        dataset_path.relative_to(dataset_directory.resolve())
+
+    except ValueError as error:
+        raise TestingValidationError(
+            "Dataset path escapes the TradingBot RUNTIME directory."
+        ) from error
+
+    if not dataset_path.is_file():
+        raise FileNotFoundError(
+            f"Runtime dataset {safe_id!r} was not found."
+        )
+
+    try:
+
+        with gzip.open(
+            dataset_path,
+            "rt",
+            encoding="utf-8",
+        ) as handle:
+            envelope = json.load(handle)
+
+    except (
+        OSError,
+        EOFError,
+        gzip.BadGzipFile,
+        json.JSONDecodeError,
+    ) as error:
+
+        raise TestingIntegrityError(
+            "Stored RUNTIME dataset is unreadable or corrupted."
+        ) from error
+
+    if not isinstance(envelope, Mapping):
+        raise TestingIntegrityError(
+            "Stored RUNTIME dataset envelope is malformed."
+        )
+
+    expected_schema = getattr(
+        memory_engine,
+        "STORAGE_SCHEMA_VERSION",
+        None,
+    )
+
+    if envelope.get("storage_schema_version") != expected_schema:
+        raise TestingSchemaError(
+            "Stored RUNTIME dataset uses an unsupported storage schema."
+        )
+
+    if str(envelope.get("dataset_id", "")) != safe_id:
+        raise TestingIntegrityError(
+            "Dataset identifier does not match its runtime filename."
+        )
+
+    expected_identity = _identity_dict(identity)
+
+    if envelope.get("identity") != expected_identity:
+        raise PermissionError(
+            "Stored RUNTIME dataset belongs to a different TradingBot."
+        )
+
+    encoded_dataset = envelope.get("dataset")
+
+    if not isinstance(encoded_dataset, Mapping):
+        raise TestingIntegrityError(
+            "Stored RUNTIME dataset payload is malformed."
+        )
+
+    actual_payload_hash = hashlib.sha256(
+        _canonical_json(encoded_dataset)
+    ).hexdigest()
+
+    expected_payload_hash = str(
+        envelope.get("payload_sha256", "")
+    )
+
+    if (
+        not expected_payload_hash
+        or actual_payload_hash != expected_payload_hash
+    ):
+        raise TestingIntegrityError(
+            "Stored RUNTIME dataset failed its SHA-256 payload check."
+        )
+
+    restore = getattr(
+        memory_engine,
+        "_restore_json_compatible",
+        None,
+    )
+
+    if not callable(restore):
+        raise TestingDependencyError(
+            "engine.memory dataset restoration helper is unavailable."
+        )
+
+    try:
+        dataset = restore(dict(encoded_dataset))
+
+    except Exception as error:
+        raise TestingIntegrityError(
+            "Stored RUNTIME dataset could not be restored."
+        ) from error
+
+    if not isinstance(dataset, Mapping):
+        raise TestingIntegrityError(
+            "Restored RUNTIME dataset is not a mapping."
+        )
+
+    restored = dict(dataset)
+
+    if _identity_dict(restored.get("identity")) != expected_identity:
+        raise PermissionError(
+            "Restored dataset identity does not match the requested TradingBot."
+        )
+
+    # Important:
+    # envelope.dataset_id is the registered storage ID.
+    # dataset.dataset_id is the original content ID.
+    # These are not necessarily identical.
+
+    file_digest = hashlib.sha256(
+        dataset_path.read_bytes()
+    ).hexdigest()
+
+    verification = {
+        "valid": True,
+        "storage": "RUNTIME",
+        "path": str(dataset_path),
+        "payload_sha256": actual_payload_hash,
+        "file_sha256": file_digest,
+    }
+
+    return restored, verification
+
+
+def _load_checkpoint_from_model_record(
+    market: str,
+    model_version_id: str,
+    *,
+    identity: Any,
+    model_record: Any,
+) -> Tuple[Any, Any, Dict[str, Any], Path]:
+    """
+    Load model weights and embedded scaler directly from the .pth checkpoint.
+    """
+
+    _module_dependency(memory_engine, "engine.memory")
+
+    artifact_uri = getattr(
+        model_record,
+        "artifact_uri",
+        None,
+    )
+
+    if not artifact_uri:
+        raise TestingIntegrityError(
+            "Model registry record has no checkpoint path."
+        )
+
+    model_path = Path(
+        str(artifact_uri)
+    ).expanduser().resolve()
+
+    model_root_getter = getattr(
+        memory_engine,
+        "model_dir",
+        None,
+    )
+
+    if not callable(model_root_getter):
+        raise TestingDependencyError(
+            "engine.memory does not expose model_dir()."
+        )
+
+    model_root = Path(
+        model_root_getter(
+            market,
+            identity=identity,
+        )
+    ).expanduser().resolve()
+
+    try:
+        model_path.relative_to(model_root)
+
+    except ValueError as error:
+        raise TestingIntegrityError(
+            "Model checkpoint is outside the TradingBot market model directory."
+        ) from error
+
+    if not model_path.is_file():
+        raise FileNotFoundError(
+            "Model checkpoint is missing from MODELS/<MARKET>."
+        )
+
+    loader = getattr(
+        memory_engine,
+        "_safe_torch_load",
+        None,
+    )
+
+    instantiate = getattr(
+        memory_engine,
+        "_instantiate_model",
+        None,
+    )
+
+    restore_scaler = getattr(
+        memory_engine,
+        "_restore_checkpoint_scaler",
+        None,
+    )
+
+    if not all(
+        callable(item)
+        for item in (loader, instantiate, restore_scaler)
+    ):
+        raise TestingDependencyError(
+            "engine.memory does not expose the checkpoint and embedded-scaler loaders."
+        )
+
+    try:
+
+        checkpoint = loader(model_path)
+
+        if not isinstance(checkpoint, Mapping):
+            raise TestingIntegrityError(
+                "Model checkpoint is not a mapping."
+            )
+
+        checkpoint = dict(checkpoint)
+
+        model = instantiate(checkpoint)
+
+        scaler = restore_scaler(checkpoint)
+
+    except TestingError:
+        raise
+
+    except Exception as error:
+        raise TestingIntegrityError(
+            "Model checkpoint or embedded scaler could not be restored."
+        ) from error
+
+    checkpoint["loaded_from"] = str(model_path)
+
+    model.eval()
+
+    return model, scaler, checkpoint, model_path
+
+
+def _file_sha256(path: Path) -> str:
+    """Calculate SHA-256 of the model checkpoint."""
+
+    digest = hashlib.sha256()
+
+    try:
+
+        with path.open("rb") as handle:
+
+            for chunk in iter(
+                lambda: handle.read(1024 * 1024),
+                b"",
+            ):
+                digest.update(chunk)
+
+    except OSError as error:
+        raise TestingIntegrityError(
+            "Could not calculate the model checkpoint SHA-256."
+        ) from error
+
+    return digest.hexdigest()
 
 def run_model_version_test(
     market: str,
@@ -835,98 +1166,280 @@ def run_model_version_test(
     persist: bool = True,
     run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Load one immutable model version and test it on its linked held-out dataset."""
-    for module, name in (
-        (memory_engine, "engine.memory"),
-        (versions_engine, "engine.versions"),
-    ):
-        _module_dependency(module, name)
-    normalized_market = str(market).strip().upper().replace("/", "_").replace("\\", "_")
+    """
+    Test a registered .pth model against its RUNTIME-held training dataset.
+
+    The model remains protected by its model registry integrity record.
+
+    Dataset bytes and the scaler embedded in the checkpoint
+    are verified locally. Separate dataset and scaler registry
+    artifacts are not required.
+    """
+
+    _module_dependency(memory_engine, "engine.memory")
+    _module_dependency(versions_engine, "engine.versions")
+
+    normalized_market = (
+        str(market)
+        .strip()
+        .upper()
+        .replace("/", "_")
+        .replace("\\", "_")
+    )
+
     if not normalized_market:
-        raise TestingValidationError("market cannot be empty.")
-    selected_model_version = _safe_identifier(model_version_id, "model_version_id")
-    resolved_identity = _load_identity(normalized_market, identity)
-    identity_values = _identity_dict(resolved_identity)
+        raise TestingValidationError(
+            "market cannot be empty."
+        )
+
+    selected_model_version = _safe_identifier(
+        model_version_id,
+        "model_version_id",
+    )
+
+    resolved_identity = _load_identity(
+        normalized_market,
+        identity,
+    )
+
+    identity_values = _identity_dict(
+        resolved_identity
+    )
+
     if identity_values["market"] != normalized_market:
-        raise TestingValidationError("Requested market does not match the supplied TradingBot identity.")
+        raise TestingValidationError(
+            "Requested market does not match the supplied TradingBot identity."
+        )
+
+    # ========================================================================
+    # VERIFY MODEL REGISTRY RECORD
+    # ========================================================================
+
+    # The registry is retained temporarily for model identity,
+    # model lifecycle status and trusted model SHA-256 verification.
 
     registry = versions_engine.get_default_registry()
-    model_record = registry.get_version("model", selected_model_version, identity=resolved_identity)
-    record_status = str(getattr(model_record, "status", "")).upper()
+
+    model_record = registry.get_version(
+        "model",
+        selected_model_version,
+        identity=resolved_identity,
+    )
+
+    record_status = str(
+        getattr(model_record, "status", "")
+    ).upper()
+
     if record_status in {"REJECTED", "RETIRED"}:
-        raise TestingValidationError(f"Model version in {record_status} state cannot be tested.")
-    metadata = getattr(model_record, "metadata", {})
-    if not isinstance(metadata, Mapping) or str(metadata.get("model_target_schema", "")).upper() not in {
+        raise TestingValidationError(
+            f"Model version in {record_status} state cannot be tested."
+        )
+
+    metadata = getattr(
+        model_record,
+        "metadata",
+        {},
+    )
+
+    if (
+        not isinstance(metadata, Mapping)
+        or str(metadata.get("model_target_schema", "")).upper()
+        not in {MODEL_TARGET_SCHEMA, "TP_BEFORE_SL"}
+    ):
+        raise TestingSchemaError(
+            "Model registry record does not identify a TP-before-SL binary model."
+        )
+
+    model_verification = registry.verify_artifact(
+        "model",
+        selected_model_version,
+        identity=resolved_identity,
+    )
+
+    if (
+        not isinstance(model_verification, Mapping)
+        or model_verification.get("valid") is not True
+    ):
+        raise TestingIntegrityError(
+            "Model artifact failed its registered integrity check."
+        )
+
+    # ========================================================================
+    # LOAD MODEL AND EMBEDDED SCALER FROM .PTH
+    # ========================================================================
+
+    model, scaler, checkpoint, model_path = (
+        _load_checkpoint_from_model_record(
+            normalized_market,
+            selected_model_version,
+            identity=resolved_identity,
+            model_record=model_record,
+        )
+    )
+
+    training_summary = checkpoint.get(
+        "training_summary",
+        {},
+    )
+
+    if not isinstance(training_summary, Mapping):
+        raise TestingSchemaError(
+            "Model training summary is malformed."
+        )
+
+    checkpoint_schema = (
+        training_summary.get("model_target_schema")
+        or checkpoint.get("model_target_schema")
+    )
+
+    if str(checkpoint_schema or "").upper() not in {
         MODEL_TARGET_SCHEMA,
         "TP_BEFORE_SL",
     }:
-        raise TestingSchemaError("Model registry record does not identify a TP-before-SL binary model.")
+        raise TestingSchemaError(
+            "Model checkpoint target schema is incompatible."
+        )
 
-    verification = registry.verify_artifact("model", selected_model_version, identity=resolved_identity)
-    if not verification.get("valid"):
-        raise TestingIntegrityError("Model artifact failed its registered integrity check.")
-
-    model, scaler, checkpoint = memory_engine.load_model(
-        normalized_market,
-        identity=resolved_identity,
-        version_id=selected_model_version,
-        require_approved=False,
-    )
-    training_summary = checkpoint.get("training_summary", {})
-    checkpoint_schema = training_summary.get("model_target_schema") if isinstance(training_summary, Mapping) else None
-    if str(checkpoint_schema or "").upper() != MODEL_TARGET_SCHEMA:
-        raise TestingSchemaError("Model checkpoint target schema is incompatible.")
     if checkpoint.get("identity") != identity_values:
-        raise TestingValidationError("Model checkpoint identity does not match the requested TradingBot.")
-    dataset_version_id = checkpoint.get("dataset_version_id")
+        raise TestingValidationError(
+            "Model checkpoint identity does not match the requested TradingBot."
+        )
+
+    if str(checkpoint.get("market", "")).upper() != normalized_market:
+        raise TestingSchemaError(
+            "Model checkpoint market does not match the requested market."
+        )
+
+    if str(checkpoint.get("model_version_id", "")) != selected_model_version:
+        raise TestingIntegrityError(
+            "Model checkpoint ID does not match its registry record."
+        )
+
+    # ========================================================================
+    # LOAD DATASET DIRECTLY FROM RUNTIME
+    # ========================================================================
+
+    dataset_version_id = str(
+        checkpoint.get("dataset_version_id") or ""
+    ).strip()
+
     if not dataset_version_id:
-        raise TestingSchemaError("Model checkpoint does not reference an immutable dataset version.")
-    scaler_version_id = checkpoint.get("scaler_version_id")
-    if not scaler_version_id:
-        raise TestingSchemaError("Model checkpoint does not reference an immutable scaler version.")
+        raise TestingSchemaError(
+            "Model checkpoint does not reference its RUNTIME training dataset."
+        )
 
-    dataset_verification = registry.verify_artifact(
-        "dataset",
-        str(dataset_version_id),
+    dataset, dataset_verification = _load_runtime_dataset(
+        dataset_version_id,
         identity=resolved_identity,
     )
-    scaler_verification = registry.verify_artifact(
-        "scaler",
-        str(scaler_version_id),
-        identity=resolved_identity,
-    )
-    if not dataset_verification.get("valid") or not scaler_verification.get("valid"):
-        raise TestingIntegrityError("Dataset or scaler dependency failed its registered integrity check.")
 
-    dataset = memory_engine.load_training_dataset(
-        str(dataset_version_id),
-        identity=resolved_identity,
-        require_approved=False,
-    )
     if _extract_dataset_identity(dataset) != identity_values:
-        raise TestingValidationError("Stored dataset belongs to another TradingBot identity.")
-    dataset_feature_schema = dataset.get("feature_schema", {})
+        raise TestingValidationError(
+            "Stored dataset belongs to another TradingBot identity."
+        )
+
+    dataset_feature_schema = dataset.get(
+        "feature_schema",
+        {},
+    )
+
     dataset_feature_hash = (
-        dataset_feature_schema.get("sha256") if isinstance(dataset_feature_schema, Mapping) else None
+        dataset_feature_schema.get("sha256")
+        if isinstance(dataset_feature_schema, Mapping)
+        else None
     ) or dataset.get("feature_schema_hash")
-    registered_model_feature_hash = metadata.get("feature_schema_hash")
-    summary_dataset_version = training_summary.get("dataset_version_id") if isinstance(training_summary, Mapping) else None
-    summary_scaler_version = training_summary.get("scaler_version_id") if isinstance(training_summary, Mapping) else None
-    if summary_dataset_version and str(summary_dataset_version) != str(dataset_version_id):
-        raise TestingIntegrityError("Model training summary references a different dataset version.")
-    if summary_scaler_version and str(summary_scaler_version) != str(scaler_version_id):
-        raise TestingIntegrityError("Model training summary references a different scaler version.")
-    if registered_model_feature_hash and str(registered_model_feature_hash) != str(dataset_feature_hash):
-        raise TestingSchemaError("Registered model feature schema hash does not match its linked dataset.")
-    summary_feature_hash = training_summary.get("feature_schema_hash") if isinstance(training_summary, Mapping) else None
-    if summary_feature_hash and str(summary_feature_hash) != str(dataset_feature_hash):
-        raise TestingSchemaError("Model training summary feature schema hash does not match its linked dataset.")
-    dataset_record = registry.get_version("dataset", str(dataset_version_id), identity=resolved_identity)
-    if str(getattr(dataset_record, "status", "")).upper() != "APPROVED":
-        raise TestingValidationError("The model's linked training dataset is not approved.")
-    scaler_record = registry.get_version("scaler", str(scaler_version_id), identity=resolved_identity)
-    if str(getattr(scaler_record, "status", "")).upper() != "APPROVED":
-        raise TestingValidationError("The model's linked scaler is not approved.")
+
+    model_feature_hash = (
+        checkpoint.get("feature_schema_hash")
+        or training_summary.get("feature_schema_hash")
+        or metadata.get("feature_schema_hash")
+    )
+
+    if (
+        model_feature_hash
+        and str(model_feature_hash) != str(dataset_feature_hash)
+    ):
+        raise TestingSchemaError(
+            "Model feature schema hash does not match its linked RUNTIME dataset."
+        )
+
+    summary_dataset_version = training_summary.get(
+        "dataset_version_id"
+    )
+
+    if (
+        summary_dataset_version
+        and str(summary_dataset_version) != dataset_version_id
+    ):
+        raise TestingIntegrityError(
+            "Model training summary references a different dataset."
+        )
+
+    dataset_feature_names = tuple(
+        str(item)
+        for item in dataset.get("feature_names", ())
+    )
+
+    model_feature_names = tuple(
+        str(item)
+        for item in (
+            checkpoint.get("feature_names")
+            or training_summary.get("feature_names")
+            or ()
+        )
+    )
+
+    if (
+        model_feature_names
+        and model_feature_names != dataset_feature_names
+    ):
+        raise TestingSchemaError(
+            "Model feature order does not match its linked RUNTIME dataset."
+        )
+
+    # ========================================================================
+    # VERIFY EMBEDDED SCALER
+    # ========================================================================
+
+    scaler_mean = np.asarray(
+        getattr(scaler, "mean", []),
+        dtype=np.float64,
+    ).reshape(-1)
+
+    scaler_std = np.asarray(
+        getattr(scaler, "std", []),
+        dtype=np.float64,
+    ).reshape(-1)
+
+    feature_width = int(
+        np.asarray(dataset.get("features")).shape[1]
+    )
+
+    if (
+        scaler_mean.size != feature_width
+        or scaler_std.size != feature_width
+        or not np.all(np.isfinite(scaler_mean))
+        or not np.all(np.isfinite(scaler_std))
+        or np.any(scaler_std <= 0)
+    ):
+        raise TestingSchemaError(
+            "Embedded scaler dimensions or statistics do not match the RUNTIME dataset."
+        )
+
+    embedded_scaler_payload = checkpoint.get("scaler")
+
+    if not isinstance(embedded_scaler_payload, Mapping):
+        raise TestingIntegrityError(
+            "Model checkpoint does not contain an embedded scaler payload."
+        )
+
+    scaler_digest = hashlib.sha256(
+        _canonical_json(embedded_scaler_payload)
+    ).hexdigest()
+
+    # ========================================================================
+    # RUN HISTORICAL TEST
+    # ========================================================================
 
     report = run_historical_test(
         model,
@@ -940,30 +1453,96 @@ def run_model_version_test(
         run_id=run_id,
         persist=False,
     )
+
+    # ========================================================================
+    # FINAL INTEGRITY CHECK
+    # ========================================================================
+
+    model_hash = _file_sha256(model_path)
+
+    registered_model_hash = getattr(
+        model_record,
+        "artifact_sha256",
+        None,
+    )
+
+    if (
+        registered_model_hash
+        and model_hash.lower() != str(registered_model_hash).lower()
+    ):
+        raise TestingIntegrityError(
+            "Model checkpoint changed after registry verification."
+        )
+
+    # ========================================================================
+    # REPORT METADATA
+    # ========================================================================
+
     report.update(
         {
             "market": normalized_market,
+
             "model_version_status": record_status,
-            "model_artifact_sha256": getattr(model_record, "artifact_sha256", None),
-            "dataset_version_id": str(dataset_version_id),
-            "dataset_artifact_sha256": getattr(dataset_record, "artifact_sha256", None),
-            "scaler_version_id": str(scaler_version_id),
-            "scaler_artifact_sha256": getattr(scaler_record, "artifact_sha256", None),
-            "training_selection_metric": training_summary.get("selection_metric") if isinstance(training_summary, Mapping) else None,
-            "training_validation_available": training_summary.get("validation_available") is True if isinstance(training_summary, Mapping) else False,
+
+            "model_artifact_sha256": (
+                getattr(model_record, "artifact_sha256", None)
+                or model_hash
+            ),
+
+            "dataset_version_id": dataset_version_id,
+
+            "dataset_artifact_sha256": (
+                dataset_verification["file_sha256"]
+            ),
+
+            "scaler_version_id": checkpoint.get(
+                "scaler_version_id"
+            ),
+
+            "scaler_artifact_sha256": scaler_digest,
+
+            "training_selection_metric": (
+                training_summary.get("selection_metric")
+            ),
+
+            "training_validation_available": (
+                training_summary.get("validation_available") is True
+            ),
+
+            "dataset_storage": "RUNTIME",
+
+            "scaler_storage": "EMBEDDED_PTH",
+
             "version_integrity": {
-                "model": verification,
+                "model": {
+                    **dict(model_verification),
+                    "file_sha256": model_hash,
+                    "path": str(model_path),
+                },
+
                 "dataset": dataset_verification,
-                "scaler": scaler_verification,
+
+                "scaler": {
+                    "valid": True,
+                    "embedded": True,
+                    "sha256": scaler_digest,
+                },
             },
         }
     )
-    if report["training_validation_available"] is not True:
-        raise TestingValidationError("Model training did not have a validation split; formal historical testing is blocked.")
-    if persist:
-        report["persistence"] = _persist_test_report(report, identity_values)
-    return report
 
+    if report["training_validation_available"] is not True:
+        raise TestingValidationError(
+            "Model training did not have a validation split; formal historical testing is blocked."
+        )
+
+    if persist:
+        report["persistence"] = _persist_test_report(
+            report,
+            identity_values,
+        )
+
+    return report
 
 def run_testing(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     """Compatibility alias for versioned historical model testing."""
@@ -990,22 +1569,54 @@ def _get_identity_lock(identity: Mapping[str, str]) -> threading.RLock:
 
 
 def _results_root(identity: Mapping[str, str]) -> Path:
+    """
+    Return the exact TradingBot RUNTIME directory for historical tests.
+    """
+
     _module_dependency(memory_engine, "engine.memory")
-    getter = getattr(memory_engine, "get_results_dir", None)
-    resolver = getattr(memory_engine, "_resolve_memory_identity", None)
+
+    getter = getattr(
+        memory_engine,
+        "get_runtime_dir",
+        None,
+    )
+
+    resolver = getattr(
+        memory_engine,
+        "_resolve_memory_identity",
+        None,
+    )
+
     if not callable(getter) or not callable(resolver):
-        raise TestingDependencyError("engine.memory does not expose the customer RESULTS identity resolver.")
+        raise TestingDependencyError(
+            "engine.memory does not expose the RUNTIME identity resolver."
+        )
+
     try:
-        resolved_identity = resolver(str(identity["market"]), identity=identity)
+
+        resolved_identity = resolver(
+            str(identity["market"]),
+            identity=identity,
+        )
+
         if _identity_dict(resolved_identity) != _identity_dict(identity):
-            raise TestingValidationError("Resolved RESULTS identity does not match the requested TradingBot.")
-        root = Path(getter(resolved_identity)).resolve()
+            raise TestingValidationError(
+                "Resolved RUNTIME identity does not match the requested TradingBot."
+            )
+
+        root = Path(
+            getter(resolved_identity)
+        ).expanduser().resolve()
+
     except TestingError:
         raise
-    except Exception as error:
-        raise TestingDependencyError("Customer RESULTS directory could not be resolved.") from error
-    return root
 
+    except Exception as error:
+        raise TestingDependencyError(
+            "TradingBot RUNTIME directory could not be resolved."
+        ) from error
+
+    return root
 
 def _atomic_create(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1117,9 +1728,21 @@ def list_testing_runs(*, identity: Any, limit: Optional[int] = None) -> List[Dic
                 raise TestingIntegrityError(f"Testing event log is malformed at line {line_number}.") from error
             if not isinstance(record, Mapping):
                 raise TestingIntegrityError(f"Testing event log contains an invalid record at line {line_number}.")
-            if record.get("identity") != normalized_identity:
-                raise TestingIntegrityError("Testing event log contains a record for another identity.")
+            record_identity = record.get("identity")
+
+            if not isinstance(record_identity, Mapping):
+                raise TestingIntegrityError(
+                    f"Testing event log contains an invalid identity at line {line_number}."
+                )
+
+            # PC TradingBots can share one market RUNTIME.
+            # Ignore records belonging to other TradingBots.
+
+            if dict(record_identity) != normalized_identity:
+                continue
+
             records.append(dict(record))
+            
     records.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
     return records[: int(limit)] if limit is not None else records
 

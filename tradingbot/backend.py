@@ -186,30 +186,139 @@ def _get_or_create_runtime(
     ensure_client_directories(identity)
     return runtime
 
-def _cleanup_runtime_directory(runtime: RuntimeContext) -> None:
-    """Remove temporary files after the model has been approved."""
+def _cleanup_runtime_directory(
+    runtime: RuntimeContext,
+    *,
+    expected_model_version_id: str,
+) -> Dict[str, Any]:
+    """Remove RUNTIME only after a signed .pth reload succeeds with RUNTIME absent.
 
-    runtime_dir = ensure_client_directories(
-        runtime.identity
-    ).runtime_root
+    PC and WEB runtime roots are market-scoped, not TradingBot-scoped. If another
+    registered TradingBot shares the same root, cleanup is deliberately deferred
+    so its in-progress or pending training/evaluation data is not destroyed.
+    """
+    if runtime.ai_model is None or runtime.ai_scaler is None:
+        return {"success": False, "skipped": True, "reason": "No active model and scaler are loaded."}
+
+    paths = ensure_client_directories(runtime.identity)
+    raw_models_root = Path(paths.models_root).expanduser()
+    raw_runtime_root = Path(paths.runtime_root).expanduser()
+    if raw_runtime_root.is_symlink():
+        return {"success": False, "skipped": True, "reason": "RUNTIME is a symbolic link."}
+
+    models_root = raw_models_root.resolve()
+    runtime_dir = raw_runtime_root.resolve()
+    if runtime_dir.name != "RUNTIME" or runtime_dir.parent != models_root:
+        return {"success": False, "skipped": True, "reason": "Resolved RUNTIME path is not the expected MODELS/<MARKET>/RUNTIME directory."}
+
+    try:
+        loaded_model = _verify_approved_model_metadata(
+            runtime.ai_checkpoint,
+            runtime.identity,
+            expected_model_version_id=expected_model_version_id,
+            expected_models_root=models_root,
+        )
+    except Exception as error:
+        return {"success": False, "skipped": True, "reason": f"The active .pth approval could not be re-verified: {error}"}
+
+    if str(runtime.ai_model_version or "") != str(expected_model_version_id):
+        return {"success": False, "skipped": True, "reason": "The active in-memory model does not match the approved model version."}
+
+    # One RUNTIME directory is shared by every identity that maps to the same
+    # customer/market (WEB) or market (PC). Never erase it while another bot
+    # context is registered against that same path.
+    for other_runtime in RUNTIME_REGISTRY.list_runtimes():
+        if other_runtime.identity.key == runtime.identity.key:
+            continue
+        try:
+            other_paths = ensure_client_directories(other_runtime.identity)
+            other_runtime_root = Path(other_paths.runtime_root).expanduser().resolve()
+        except Exception:
+            return {"success": False, "skipped": True, "reason": "Could not establish that other TradingBot runtime storage is separate."}
+        if other_runtime_root == runtime_dir:
+            return {
+                "success": False,
+                "skipped": True,
+                "reason": "RUNTIME is shared with another registered TradingBot. Cleanup was deferred to protect its temporary data.",
+            }
+
+    for task_name in ("training", "evaluation", "historical_test", "testing", "manual_analysis"):
+        task = runtime.get_task(task_name)
+        if task is not None and not task.done():
+            return {"success": False, "skipped": True, "reason": f"Task {task_name!r} is still active."}
 
     if not runtime_dir.exists():
-        return
+        return {"success": True, "already_clean": True, "model_version_id": expected_model_version_id}
 
-    for item in runtime_dir.iterdir():
+    identity_digest = hashlib.sha256(
+        "|".join(runtime.identity.key).encode("utf-8")
+    ).hexdigest()[:16]
+    backup_dir = runtime_dir.with_name(f".RUNTIME.cleanup-{identity_digest}")
+    if backup_dir.exists():
+        return {"success": False, "skipped": True, "reason": "A previous RUNTIME cleanup recovery directory already exists."}
+
+    try:
+        # Hide the runtime directory first. A subsequent model load must succeed
+        # while the conventional RUNTIME path does not exist.
+        os.replace(runtime_dir, backup_dir)
+
+        reloaded_model, reloaded_scaler, reloaded_metadata = _load_approved_model_without_runtime(
+            runtime,
+            expected_model_version_id,
+            models_root,
+        )
+
+        if not isinstance(runtime.ai_market_candles, dict) or not runtime.ai_market_candles:
+            raise RuntimeError("Market candles are unavailable to restore the active runtime after the .pth reload.")
+
+        runtime.set_ai_artifacts(
+            reloaded_model,
+            reloaded_scaler,
+            reloaded_metadata,
+            runtime.ai_market_candles,
+            model_version=reloaded_metadata.get("model_version_id"),
+            scaler_version=reloaded_metadata.get("scaler_version_id"),
+            dataset_version=reloaded_metadata.get("dataset_version_id"),
+        )
+
+        # Only now, after the .pth has loaded with RUNTIME absent, permanently
+        # remove the hidden temporary directory.
+        shutil.rmtree(backup_dir)
+
+        return {
+            "success": True,
+            "already_clean": False,
+            "model_version_id": expected_model_version_id,
+            "model_path": str(loaded_model["model_path"]),
+            "runtime_independent_reload_verified": True,
+            "removed": True,
+        }
+
+    except Exception as error:
+        # Restore all temporary files if the runtime-independent reload or
+        # deletion failed. Never leave the application half-cleaned.
         try:
-            if item.is_dir() and not item.is_symlink():
-                shutil.rmtree(item)
-            else:
-                item.unlink(missing_ok=True)
+            if backup_dir.exists() and not runtime_dir.exists():
+                os.replace(backup_dir, runtime_dir)
+        except OSError as restore_error:
+            LOGGER.exception(
+                "[RUNTIME] Failed to restore %s after cleanup error: %s",
+                backup_dir,
+                restore_error,
+            )
+        LOGGER.exception(
+            "[RUNTIME] Cleanup aborted for %s: %s",
+            runtime.identity.key,
+            error,
+        )
+        return {
+            "success": False,
+            "skipped": False,
+            "reason": str(error),
+            "runtime_restored": runtime_dir.exists(),
+            "recovery_directory": str(backup_dir) if backup_dir.exists() else None,
+        }
 
-        except OSError as error:
-            LOGGER.warning(
-                "[RUNTIME] Could not remove %s for %s: %s",
-                item,
-                runtime.identity.key,
-                error,
-            )    
 
 def _learning_archive_lock(
     runtime: RuntimeContext,
@@ -283,7 +392,131 @@ def _verify_checkpoint_identity(
         )
 
 
-def load_ai_runtime(runtime: RuntimeContext) -> bool:
+def _verify_approved_model_metadata(
+    model_metadata: Dict[str, Any],
+    identity: ClientIdentity,
+    *,
+    expected_model_version_id: Optional[str] = None,
+    expected_models_root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Verify that metadata describes one signed, self-contained approved .pth."""
+    if not isinstance(model_metadata, dict):
+        raise RuntimeError("The inference loader returned invalid model metadata.")
+
+    _verify_checkpoint_identity(model_metadata, identity)
+
+    if str(model_metadata.get("model_status", "")).upper() != "APPROVED":
+        raise RuntimeError("Only a signed APPROVED model can be activated.")
+
+    if str(model_metadata.get("market", "")).upper() != identity.market:
+        raise RuntimeError("The approved model market does not match this TradingBot.")
+
+    model_version_id = str(model_metadata.get("model_version_id", "")).strip()
+    if not model_version_id:
+        raise RuntimeError("The approved .pth does not contain a model_version_id.")
+    if expected_model_version_id is not None and model_version_id != str(expected_model_version_id):
+        raise RuntimeError("The loaded .pth is not the model version selected for approval.")
+
+    approval = model_metadata.get("approval")
+    if not isinstance(approval, dict):
+        raise RuntimeError("The .pth does not expose its embedded approval certificate.")
+    if approval.get("approval_signature_verified") is not True:
+        raise RuntimeError("The embedded approval signature has not been verified.")
+    if str(approval.get("evaluated_split", "")).lower() != "test":
+        raise RuntimeError("The embedded approval is not based on the independent test split.")
+    evaluation_hash = str(approval.get("evaluation_sha256", "")).lower()
+    if len(evaluation_hash) != 64 or any(ch not in "0123456789abcdef" for ch in evaluation_hash):
+        raise RuntimeError("The embedded evaluation report hash is missing or invalid.")
+    if not str(approval.get("evaluation_version_id", "")).strip():
+        raise RuntimeError("The embedded approval certificate has no evaluation identifier.")
+
+    if expected_models_root is not None:
+        models_root = Path(expected_models_root).expanduser().resolve()
+    else:
+        paths = ensure_client_directories(identity)
+        models_root = Path(paths.models_root).expanduser().resolve()
+
+    raw_model_path = model_metadata.get("model_path") or model_metadata.get("loaded_from")
+    if not raw_model_path:
+        raise RuntimeError("The approved model metadata has no .pth path.")
+
+    raw_path = Path(str(raw_model_path)).expanduser()
+    if raw_path.is_symlink():
+        raise RuntimeError("Symbolic-link model paths are not accepted for production inference.")
+    model_path = raw_path.resolve()
+
+    if model_path.parent != models_root or model_path.suffix.lower() != ".pth":
+        raise RuntimeError("The approved model must be a .pth file directly inside MODELS/<MARKET>.")
+    if not model_path.is_file():
+        raise FileNotFoundError(f"Approved model file is missing: {model_path}")
+
+    expected_file_hash = str(model_metadata.get("model_file_sha256", "")).lower()
+    if len(expected_file_hash) != 64 or any(ch not in "0123456789abcdef" for ch in expected_file_hash):
+        raise RuntimeError("The inference loader did not provide a valid .pth SHA-256 digest.")
+
+    digest = hashlib.sha256()
+    with model_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual_file_hash = digest.hexdigest()
+    if actual_file_hash != expected_file_hash:
+        raise RuntimeError("The approved .pth file changed after inference verification.")
+
+    feature_names = model_metadata.get("feature_names")
+    if not isinstance(feature_names, (list, tuple)) or not feature_names:
+        raise RuntimeError("The approved .pth has no explicit feature order.")
+    normalized_features = [str(item).strip() for item in feature_names]
+    if any(not item for item in normalized_features) or len(set(normalized_features)) != len(normalized_features):
+        raise RuntimeError("The approved .pth feature order is invalid.")
+    expected_schema_hash = hashlib.sha256("\n".join(normalized_features).encode("utf-8")).hexdigest()
+    supplied_schema_hash = str(model_metadata.get("feature_schema_hash", "")).lower()
+    if supplied_schema_hash != expected_schema_hash:
+        raise RuntimeError("The approved .pth feature schema hash does not match its feature order.")
+
+    return {
+        "model_version_id": model_version_id,
+        "model_path": model_path,
+        "model_file_sha256": actual_file_hash,
+        "feature_names": normalized_features,
+        "feature_schema_hash": expected_schema_hash,
+        "approval": copy.deepcopy(approval),
+    }
+
+
+def _load_approved_model_without_runtime(
+    runtime: RuntimeContext,
+    expected_model_version_id: str,
+    models_root: Path,
+) -> Tuple[Any, Any, Dict[str, Any]]:
+    """Reload the exact approved .pth while its RUNTIME directory is absent."""
+    if ai is None or not callable(getattr(ai, "load_model", None)):
+        raise AIIntegrationPending("ai.py does not expose load_model().")
+
+    identity_kwargs = _identity_kwargs_for_ai(ai.load_model, runtime.identity)
+    try:
+        parameters = inspect.signature(ai.load_model).parameters
+    except (TypeError, ValueError) as error:
+        raise AIIntegrationPending("Cannot inspect ai.load_model() signature.") from error
+    if "model_version_id" not in parameters:
+        raise AIIntegrationPending("ai.load_model() must support explicit model_version_id selection.")
+    identity_kwargs["model_version_id"] = str(expected_model_version_id)
+
+    model, scaler, metadata = ai.load_model(runtime.market, **identity_kwargs)
+    if model is None or scaler is None:
+        raise RuntimeError("The approved .pth did not restore both model and embedded scaler.")
+    _verify_approved_model_metadata(
+        metadata,
+        runtime.identity,
+        expected_model_version_id=expected_model_version_id,
+        expected_models_root=models_root,
+    )
+    return model, scaler, metadata
+
+
+def load_ai_runtime(
+    runtime: RuntimeContext,
+    model_version_id: Optional[str] = None,
+) -> bool:
     """Load a verified approved model without discarding a working prior model."""
     if ai is None:
         runtime.ai_error = "The ai.py module could not be imported."
@@ -296,16 +529,27 @@ def load_ai_runtime(runtime: RuntimeContext) -> bool:
 
     try:
         identity_kwargs = _identity_kwargs_for_ai(ai.load_model, runtime.identity)
+        if model_version_id is not None:
+            try:
+                load_parameters = inspect.signature(ai.load_model).parameters
+            except (TypeError, ValueError) as error:
+                raise AIIntegrationPending("Cannot inspect ai.load_model() signature.") from error
+            if "model_version_id" not in load_parameters:
+                raise AIIntegrationPending(
+                    "ai.load_model() must support explicit model_version_id selection."
+                )
+            identity_kwargs["model_version_id"] = str(model_version_id)
+
         model, scaler, model_metadata = ai.load_model(
             runtime.market,
             **identity_kwargs,
         )
-        if not isinstance(model_metadata, dict):
-            raise RuntimeError("The inference loader returned invalid model metadata.")
-        _verify_checkpoint_identity(model_metadata, runtime.identity)
+        verified_model = _verify_approved_model_metadata(
+            model_metadata,
+            runtime.identity,
+            expected_model_version_id=model_version_id,
+        )
 
-        if str(model_metadata.get("model_status", "")).upper() != "APPROVED":
-            raise RuntimeError("Only an approved immutable model can be loaded for production inference.")
         if str(model_metadata.get("model_target_schema", "")).upper() not in {
             "TP_BEFORE_SL_BINARY",
             "TP_BEFORE_SL",
@@ -352,7 +596,10 @@ def load_ai_runtime(runtime: RuntimeContext) -> bool:
             "trained_at": model_metadata.get("trained_at"),
             "approval": copy.deepcopy(model_metadata.get("approval", {})),
             "calibration_status": model_metadata.get("calibration_status", "NOT_CALIBRATED"),
-            "model_path": model_metadata.get("loaded_from"),
+            "model_path": str(verified_model["model_path"]),
+            "model_file_sha256": verified_model["model_file_sha256"],
+            "feature_names": list(verified_model["feature_names"]),
+            "feature_schema_hash": verified_model["feature_schema_hash"],
         }
         for timeframe_session in runtime.timeframe_sessions.values():
             timeframe_session.model_available = True
@@ -1280,6 +1527,21 @@ async def training_loop(runtime: RuntimeContext) -> None:
         if str(model_section.get("status", "")).upper() != "DRAFT":
             raise RuntimeError("A newly trained model must remain in DRAFT state.")
 
+        # Final candidates must be standalone .pth files directly in the market folder.
+        candidate_identity = model_section.get("identity")
+        if candidate_identity != runtime.identity.as_dict():
+            raise RuntimeError("The trained candidate belongs to a different TradingBot identity.")
+        model_paths = ensure_client_directories(runtime.identity)
+        candidate_path_value = model_section.get("model_path")
+        if not candidate_path_value:
+            raise RuntimeError("Training completed without returning the final .pth path.")
+        candidate_path = Path(str(candidate_path_value)).expanduser().resolve()
+        expected_models_root = Path(model_paths.models_root).expanduser().resolve()
+        if candidate_path.parent != expected_models_root or candidate_path.suffix.lower() != ".pth":
+            raise RuntimeError("The final candidate must be a .pth file directly inside MODELS/<MARKET>.")
+        if not candidate_path.is_file():
+            raise FileNotFoundError(f"The final candidate .pth does not exist: {candidate_path}")
+
         if not isinstance(training_section, dict) or str(
             training_section.get("model_target_schema", "")
         ).upper() != "TP_BEFORE_SL_BINARY":
@@ -1366,6 +1628,21 @@ async def evaluation_loop(
         report_model_id = str(report.get("model_version_id", ""))
         if report_model_id != selected_version:
             raise RuntimeError("Evaluation report references a different model version.")
+        if report.get("identity") != runtime.identity.as_dict():
+            raise RuntimeError("Evaluation report belongs to a different TradingBot identity.")
+        evaluation_artifact = report.get("evaluation_artifact")
+        if (
+            not isinstance(evaluation_artifact, dict)
+            or evaluation_artifact.get("storage") != "RUNTIME"
+            or evaluation_artifact.get("verified") is not True
+        ):
+            raise RuntimeError("Evaluation report was not persisted and verified in RUNTIME.")
+        evaluation_hash = str(evaluation_artifact.get("sha256", "")).lower()
+        if len(evaluation_hash) != 64 or any(ch not in "0123456789abcdef" for ch in evaluation_hash):
+            raise RuntimeError("Evaluation report has an invalid SHA-256 digest.")
+        report_model_hash = str(report.get("model_artifact_sha256", "")).lower()
+        if len(report_model_hash) != 64 or any(ch not in "0123456789abcdef" for ch in report_model_hash):
+            raise RuntimeError("Evaluation report has no valid model artifact SHA-256 digest.")
         session.__dict__["_spectline_last_evaluation_report"] = copy.deepcopy(report)
         session.last_evaluation_info = _compact_metrics_report(report)
         session.last_evaluation_info["model_version_id"] = selected_version
@@ -1532,6 +1809,22 @@ async def historical_testing_loop(
             raise RuntimeError("Historical testing returned an invalid report.")
         if str(report.get("model_version_id", "")) != selected_version:
             raise RuntimeError("Historical test report references a different model version.")
+        if report.get("identity") != runtime.identity.as_dict():
+            raise RuntimeError("Historical test report belongs to a different TradingBot identity.")
+        if report.get("split") != "test" or report.get("testing_mode") != "FROZEN_MODEL_CHRONOLOGICAL_FORWARD_TEST":
+            raise RuntimeError("Historical test report is not an independent chronological test.")
+        persistence = report.get("persistence", {})
+        if not isinstance(persistence, dict) or persistence.get("persisted") is not True:
+            raise RuntimeError("Historical test report was not persisted.")
+        persisted_report_path = Path(str(persistence.get("report_path", ""))).expanduser().resolve()
+        runtime_root = Path(ensure_client_directories(runtime.identity).runtime_root).expanduser().resolve()
+        expected_test_root = (runtime_root / "HISTORICAL_TESTS").resolve()
+        try:
+            persisted_report_path.relative_to(expected_test_root)
+        except ValueError as error:
+            raise RuntimeError("Historical test report is outside RUNTIME/HISTORICAL_TESTS.") from error
+        if not persisted_report_path.is_file():
+            raise FileNotFoundError("Persisted historical test report is missing.")
         session.__dict__["_spectline_last_testing_report"] = copy.deepcopy(report)
         session.last_historical_test_info = _compact_metrics_report(report)
         session.last_historical_test_info["model_version_id"] = selected_version
@@ -1567,7 +1860,7 @@ def approve_model_for_runtime(
     runtime: RuntimeContext,
     model_version_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Approve a DRAFT model only after its matching test-split evaluation and historical test."""
+    """Approve one tested DRAFT and activate that exact signed .pth file."""
     if ai is None or not callable(getattr(ai, "approve_evaluated_model", None)):
         raise AIIntegrationPending("ai.py does not expose approve_evaluated_model().")
 
@@ -1583,14 +1876,34 @@ def approve_model_for_runtime(
         raise RuntimeError("The saved evaluation belongs to a different model version.")
     if str(testing_report.get("model_version_id", "")) != selected_version:
         raise RuntimeError("The saved historical test belongs to a different model version.")
-    if str(testing_report.get("model_target_schema", "")).upper() != "TP_BEFORE_SL_BINARY":
+    if evaluation_report.get("identity") != runtime.identity.as_dict():
+        raise RuntimeError("The evaluation report belongs to a different TradingBot identity.")
+    if testing_report.get("identity") != runtime.identity.as_dict():
+        raise RuntimeError("The historical test report belongs to a different TradingBot identity.")
+    if str(testing_report.get("model_target_schema", "")).upper() not in {"TP_BEFORE_SL_BINARY", "TP_BEFORE_SL"}:
         raise RuntimeError("The historical test report does not use the TP-before-SL target schema.")
     if testing_report.get("split") != "test":
         raise RuntimeError("Historical model testing must use the independent test split.")
     if testing_report.get("testing_mode") != "FROZEN_MODEL_CHRONOLOGICAL_FORWARD_TEST":
         raise RuntimeError("The saved report is not a frozen chronological model test.")
-    if testing_report.get("identity") != runtime.identity.as_dict():
-        raise RuntimeError("The historical test report belongs to a different TradingBot identity.")
+
+    evaluation_artifact = evaluation_report.get("evaluation_artifact", {})
+    if (
+        not isinstance(evaluation_artifact, dict)
+        or evaluation_artifact.get("storage") != "RUNTIME"
+        or evaluation_artifact.get("verified") is not True
+    ):
+        raise RuntimeError("A verified RUNTIME evaluation report is required for approval.")
+
+    evaluation_gate = evaluation_report.get("approval_gate", {})
+    if (
+        not isinstance(evaluation_gate, dict)
+        or evaluation_gate.get("evaluated_split") != "test"
+        or evaluation_gate.get("passed") is not True
+        or evaluation_gate.get("approval_eligible") is not True
+    ):
+        raise RuntimeError("The independent held-out evaluation gate did not pass.")
+
     testing_integrity = testing_report.get("integrity", {})
     if not isinstance(testing_integrity, dict) or any(
         testing_integrity.get(flag) is not True
@@ -1608,7 +1921,12 @@ def approve_model_for_runtime(
         or version_integrity[name].get("valid") is not True
         for name in ("model", "dataset", "scaler")
     ):
-        raise RuntimeError("The historical test did not verify every immutable artifact dependency.")
+        raise RuntimeError("The historical test did not verify every required test dependency.")
+
+    evaluation_model_hash = str(evaluation_report.get("model_artifact_sha256", "")).lower()
+    testing_model_hash = str(testing_report.get("model_artifact_sha256", "")).lower()
+    if not evaluation_model_hash or evaluation_model_hash != testing_model_hash:
+        raise RuntimeError("Evaluation and historical testing did not use the same immutable .pth file.")
 
     testing_run_id = str(testing_report.get("testing_run_id") or "").strip()
     report_loader = getattr(ai, "load_test_report", None)
@@ -1627,28 +1945,46 @@ def approve_model_for_runtime(
     if verified_testing_report.get("identity") != runtime.identity.as_dict():
         raise RuntimeError("The persisted historical test report identity does not match this TradingBot.")
 
-    gate = evaluation_report.get("approval_gate", {})
-    if not isinstance(gate, dict) or gate.get("evaluated_split") != "test":
-        raise RuntimeError("Model approval requires an independent held-out test evaluation.")
-    if gate.get("passed") is not True or gate.get("approval_eligible") is not True:
-        raise RuntimeError("The held-out evaluation gate did not pass. The model remains DRAFT.")
-
-    approval = ai.approve_evaluated_model(
+    approval_result = ai.approve_evaluated_model(
         selected_version,
         evaluation_report,
         identity=runtime.identity,
     )
-    if not load_ai_runtime(runtime):
+
+    # Pin activation to the exact candidate just approved, not merely the
+    # latest approved model for this customer and market.
+    if not load_ai_runtime(runtime, model_version_id=selected_version):
         raise RuntimeError(
             "The model was approved but could not be loaded for production inference: "
             + str(runtime.ai_error or "unknown model loading error")
         )
+    if str(runtime.ai_model_version or "") != selected_version:
+        raise RuntimeError("A different model version was activated after approval.")
+
+    loaded_metadata = runtime.ai_checkpoint
+    verified_model = _verify_approved_model_metadata(
+        loaded_metadata,
+        runtime.identity,
+        expected_model_version_id=selected_version,
+    )
+
     _invalidate_strategy_cache(runtime)
     return {
         "model_version_id": selected_version,
-        "approval": approval.to_dict() if callable(getattr(approval, "to_dict", None)) else approval,
+        "approval": copy.deepcopy(loaded_metadata.get("approval", {})),
+        "approval_operation": (
+            approval_result.to_dict()
+            if callable(getattr(approval_result, "to_dict", None))
+            else approval_result
+        ),
         "active_model_version": runtime.ai_model_version,
-        "model_status": runtime.ai_status,
+        # ai_status is an in-memory loading state (usually "loaded"), not the
+        # lifecycle status stored and signed in the .pth file.
+        "model_status": str(loaded_metadata.get("model_status", "")).upper(),
+        "runtime_status": runtime.ai_status,
+        "model_path": str(verified_model["model_path"]),
+        "model_file_sha256": verified_model["model_file_sha256"],
+        "runtime_load_verified": True,
     }
 
 
@@ -1995,7 +2331,12 @@ async def _handle_action(
             isinstance(result, dict)
             and str(result.get("model_status", "")).upper() == "APPROVED"
         ):
-            _cleanup_runtime_directory(runtime)
+            cleanup_result = await asyncio.to_thread(
+                _cleanup_runtime_directory,
+                runtime,
+                expected_model_version_id=str(result.get("model_version_id", "")),
+            )
+            result["runtime_cleanup"] = cleanup_result
 
         response = snapshot(runtime)
 

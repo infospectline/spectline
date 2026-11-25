@@ -7,12 +7,16 @@ from __future__ import annotations
 # ============================================================================
 
 import hashlib
-import importlib
 import json
 import math
+import os
+import re
+import tempfile
 import uuid
+
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -31,18 +35,19 @@ try:
     from . import dataset as dataset_engine
     from . import memory as memory_engine
     from . import scaling as scaling_engine
-    from . import versions as versions_engine
+
 except ImportError:
+
     try:
         from engine import dataset as dataset_engine
         from engine import memory as memory_engine
         from engine import scaling as scaling_engine
-        from engine import versions as versions_engine
+
     except ImportError:
+
         dataset_engine = None
         memory_engine = None
         scaling_engine = None
-        versions_engine = None
 
 
 # ============================================================================
@@ -56,6 +61,8 @@ EVALUATION_ARTIFACT_TYPE = "evaluation"
 DEFAULT_CLASSIFICATION_THRESHOLD = 0.50
 DEFAULT_CALIBRATION_BINS = 10
 DEFAULT_BOOTSTRAP_SAMPLES = 0
+EVALUATION_STORAGE_DIRECTORY = "EVALUATIONS"
+EVALUATION_RECORD_TYPE = "MODEL_EVALUATION"
 
 
 # ============================================================================
@@ -138,6 +145,358 @@ def _utc_now() -> str:
 def _generated_id(prefix: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"{prefix}_{timestamp}_{uuid.uuid4().hex[:10]}"
+
+# ============================================================================
+# RUNTIME EVALUATION STORAGE
+# ============================================================================
+
+def _safe_evaluation_id(value: Any) -> str:
+    """Validate an evaluation identifier before using it in a path."""
+
+    selected = str(value).strip()
+
+    if (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", selected)
+        or selected in {".", ".."}
+    ):
+        raise EvaluationValidationError(
+            "Invalid evaluation identifier."
+        )
+
+    return selected
+
+
+def _evaluation_directory(identity: Any) -> Path:
+    """
+    Resolve the exact customer/market RUNTIME evaluation directory.
+    """
+
+    if memory_engine is None:
+        raise EvaluationDependencyError(
+            "engine.memory is unavailable."
+        )
+
+    runtime_resolver = getattr(
+        memory_engine,
+        "get_runtime_dir",
+        None,
+    )
+
+    if not callable(runtime_resolver):
+        raise EvaluationDependencyError(
+            "The central RUNTIME path resolver is unavailable."
+        )
+
+    runtime_root = Path(
+        runtime_resolver(identity)
+    ).expanduser().resolve()
+
+    return runtime_root / EVALUATION_STORAGE_DIRECTORY
+
+
+def _evaluation_record_path(
+    identity: Any,
+    evaluation_id: str,
+) -> Path:
+
+    safe_id = _safe_evaluation_id(evaluation_id)
+
+    return (
+        _evaluation_directory(identity)
+        / f"{safe_id}.json"
+    )
+
+
+def _evaluation_json_safe(value: Any) -> Any:
+    """
+    Convert evaluation data into deterministic JSON-compatible values.
+    """
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+
+    if isinstance(value, np.generic):
+        return _evaluation_json_safe(value.item())
+
+    if isinstance(value, Path):
+        return str(value)
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _evaluation_json_safe(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [
+            _evaluation_json_safe(item)
+            for item in value
+        ]
+
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise EvaluationValidationError(
+                "Evaluation report contains a non-finite number."
+            )
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    raise EvaluationValidationError(
+        f"Unsupported evaluation report value: {type(value).__name__}"
+    )
+
+
+def _canonical_evaluation_json(value: Any) -> bytes:
+    return json.dumps(
+        _evaluation_json_safe(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _persist_evaluation_report(
+    report: Mapping[str, Any],
+    *,
+    identity: Any,
+) -> Dict[str, Any]:
+    """
+    Persist one immutable evaluation report inside RUNTIME.
+
+    The report is stored with its TradingBot identity and SHA-256 digest.
+    """
+
+    if not isinstance(report, Mapping):
+        raise EvaluationValidationError(
+            "Evaluation report must be a mapping."
+        )
+
+    evaluation_id = _safe_evaluation_id(
+        report.get("evaluation_id")
+    )
+
+    identity_data = _identity_dict(identity)
+
+    report_payload = _evaluation_json_safe(
+        dict(report)
+    )
+
+    report_bytes = _canonical_evaluation_json(
+        report_payload
+    )
+
+    report_hash = hashlib.sha256(
+        report_bytes
+    ).hexdigest()
+
+    record = {
+        "schema_version": MODULE_SCHEMA_VERSION,
+        "record_type": EVALUATION_RECORD_TYPE,
+        "evaluation_id": evaluation_id,
+        "identity": identity_data,
+        "created_at": _utc_now(),
+        "model_version_id": str(
+            report.get("model_version_id") or ""
+        ),
+        "payload_sha256": report_hash,
+        "report": report_payload,
+    }
+
+    encoded_record = _canonical_evaluation_json(
+        record
+    )
+
+    path = _evaluation_record_path(
+        identity,
+        evaluation_id,
+    )
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if path.exists():
+        raise EvaluationValidationError(
+            f"Evaluation record already exists: {evaluation_id}"
+        )
+
+    temporary_path: Optional[Path] = None
+
+    try:
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=f".{evaluation_id}.",
+            suffix=".tmp",
+            dir=path.parent,
+            delete=False,
+        ) as temporary_file:
+
+            temporary_path = Path(
+                temporary_file.name
+            )
+
+            temporary_file.write(encoded_record)
+            temporary_file.flush()
+
+            os.fsync(temporary_file.fileno())
+
+        if path.exists():
+            raise EvaluationValidationError(
+                f"Evaluation record already exists: {evaluation_id}"
+            )
+
+        os.replace(
+            temporary_path,
+            path,
+        )
+
+        temporary_path = None
+
+    finally:
+
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+    return {
+        "evaluation_id": evaluation_id,
+        "storage": "RUNTIME",
+        "path": str(path),
+        "sha256": report_hash,
+        "verified": True,
+    }
+
+
+def _load_evaluation_report(
+    evaluation_id: str,
+    *,
+    identity: Any,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Load and verify one persisted RUNTIME evaluation report.
+    """
+
+    safe_id = _safe_evaluation_id(evaluation_id)
+
+    path = _evaluation_record_path(
+        identity,
+        safe_id,
+    )
+
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Evaluation report {safe_id!r} does not exist in RUNTIME."
+        )
+
+    try:
+
+        record = json.loads(
+            path.read_text(encoding="utf-8")
+        )
+
+    except (OSError, json.JSONDecodeError) as error:
+
+        raise EvaluationSchemaError(
+            "Persisted evaluation report is unreadable."
+        ) from error
+
+    if not isinstance(record, Mapping):
+        raise EvaluationSchemaError(
+            "Persisted evaluation record is malformed."
+        )
+
+    if record.get("schema_version") != MODULE_SCHEMA_VERSION:
+        raise EvaluationSchemaError(
+            "Unsupported evaluation record schema."
+        )
+
+    if record.get("record_type") != EVALUATION_RECORD_TYPE:
+        raise EvaluationSchemaError(
+            "Invalid evaluation record type."
+        )
+
+    if str(record.get("evaluation_id")) != safe_id:
+        raise EvaluationSchemaError(
+            "Evaluation identifier does not match its filename."
+        )
+
+    expected_identity = _identity_dict(identity)
+
+    if record.get("identity") != expected_identity:
+        raise PermissionError(
+            "Evaluation report belongs to a different TradingBot."
+        )
+
+    report = record.get("report")
+
+    if not isinstance(report, Mapping):
+        raise EvaluationSchemaError(
+            "Persisted evaluation payload is malformed."
+        )
+
+    actual_hash = hashlib.sha256(
+        _canonical_evaluation_json(report)
+    ).hexdigest()
+
+    expected_hash = str(
+        record.get("payload_sha256") or ""
+    )
+
+    if not expected_hash or actual_hash != expected_hash:
+        raise EvaluationSchemaError(
+            "Evaluation report failed its SHA-256 integrity check."
+        )
+
+    if str(record.get("model_version_id")) != str(
+        report.get("model_version_id")
+    ):
+        raise EvaluationSchemaError(
+            "Evaluation record references an inconsistent model version."
+        )
+
+    artifact_info = {
+        "evaluation_id": safe_id,
+        "storage": "RUNTIME",
+        "path": str(path),
+        "sha256": actual_hash,
+        "verified": True,
+    }
+
+    return dict(report), artifact_info
+
+
+def _sha256_file(path: Any) -> str:
+    """Calculate the SHA-256 digest of an existing model file."""
+
+    selected_path = Path(path).expanduser().resolve()
+
+    if not selected_path.is_file():
+        raise EvaluationSchemaError(
+            "The evaluated model checkpoint is unavailable."
+        )
+
+    digest = hashlib.sha256()
+
+    try:
+
+        with selected_path.open("rb") as file_handle:
+
+            for chunk in iter(
+                lambda: file_handle.read(1024 * 1024),
+                b"",
+            ):
+                digest.update(chunk)
+
+    except OSError as error:
+
+        raise EvaluationSchemaError(
+            "The model checkpoint could not be verified."
+        ) from error
+
+    return digest.hexdigest()
 
 
 def _finite_float(value: Any, name: str) -> float:
@@ -779,47 +1138,153 @@ def evaluate_model_version(
     approve_if_passed: bool = False,
     evaluation_version_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Evaluate an immutable model version and optionally approve it after a passing test gate."""
-    if memory_engine is None or versions_engine is None:
-        raise EvaluationDependencyError("engine.memory and engine.versions are required for versioned evaluation.")
-    if not str(model_version_id).strip():
-        raise EvaluationValidationError("model_version_id cannot be empty.")
-    selected_split = _normalise_split_name(split)
-    if approve_if_passed and selected_split != "test":
-        raise EvaluationValidationError("A model can only be approved from the held-out test split.")
+    """
+    Evaluate a customer-isolated model and persist the evaluation
+    report directly inside its RUNTIME directory.
+    """
 
-    resolved_identity = _load_identity(str(market), identity)
-    registry = versions_engine.get_default_registry()
-    model_record = registry.get_version("model", str(model_version_id), identity=resolved_identity)
-    if str(model_record.metadata.get("model_target_schema", "")).upper() not in {
-        MODEL_TARGET_SCHEMA,
-        "TP_BEFORE_SL",
-    }:
-        raise EvaluationSchemaError("Requested model version is not a TP-before-SL binary model.")
+    if memory_engine is None:
+        raise EvaluationDependencyError(
+            "engine.memory is required for model evaluation."
+        )
+
+    selected_model_id = str(model_version_id).strip()
+
+    if not selected_model_id:
+        raise EvaluationValidationError(
+            "model_version_id cannot be empty."
+        )
+
+    selected_split = _normalise_split_name(split)
+
+    if approve_if_passed and selected_split != "test":
+        raise EvaluationValidationError(
+            "A model can only be approved from the held-out test split."
+        )
+
+    resolved_identity = _load_identity(
+        str(market),
+        identity,
+    )
+
+    expected_identity = _identity_dict(
+        resolved_identity
+    )
+
+    # ========================================================================
+    # LOAD AND VERIFY THE MODEL CHECKPOINT
+    # ========================================================================
 
     model, scaler, checkpoint = memory_engine.load_model(
         str(market),
         identity=resolved_identity,
-        version_id=str(model_version_id),
+        version_id=selected_model_id,
         require_approved=False,
     )
-    training_summary = checkpoint.get("training_summary", {})
+
+    if not isinstance(checkpoint, Mapping):
+        raise EvaluationSchemaError(
+            "Loaded model checkpoint is malformed."
+        )
+
+    checkpoint_identity = checkpoint.get("identity")
+
+    if checkpoint_identity != expected_identity:
+        raise PermissionError(
+            "Model checkpoint belongs to a different TradingBot."
+        )
+
+    if str(checkpoint.get("market", "")).upper() != expected_identity["market"]:
+        raise EvaluationSchemaError(
+            "Model checkpoint market does not match its identity."
+        )
+
+    checkpoint_model_id = str(
+        checkpoint.get("model_version_id") or ""
+    )
+
+    if checkpoint_model_id != selected_model_id:
+        raise EvaluationSchemaError(
+            "Loaded checkpoint does not match the requested model version."
+        )
+
+    loaded_path = checkpoint.get("loaded_from")
+
+    if not loaded_path:
+        raise EvaluationSchemaError(
+            "Loaded checkpoint has no verified storage path."
+        )
+
+    model_artifact_hash = _sha256_file(
+        loaded_path
+    )
+
+    # ========================================================================
+    # VERIFY TRAINING METADATA
+    # ========================================================================
+
+    training_summary = checkpoint.get(
+        "training_summary",
+        {},
+    )
+
+    if not isinstance(training_summary, Mapping):
+        raise EvaluationSchemaError(
+            "Model training summary is malformed."
+        )
+
     checkpoint_schema = (
         training_summary.get("model_target_schema")
-        if isinstance(training_summary, Mapping)
-        else None
+        or checkpoint.get("model_target_schema")
     )
-    if str(checkpoint_schema or "").upper() != MODEL_TARGET_SCHEMA:
-        raise EvaluationSchemaError("Model checkpoint training summary has an incompatible target schema.")
-    dataset_version_id = checkpoint.get("dataset_version_id")
+
+    if str(checkpoint_schema or "").upper() not in {
+        MODEL_TARGET_SCHEMA,
+        "TP_BEFORE_SL",
+    }:
+        raise EvaluationSchemaError(
+            "Requested model is not a TP-before-SL binary model."
+        )
+
+    dataset_version_id = checkpoint.get(
+        "dataset_version_id"
+    )
+
     if not dataset_version_id:
-        raise EvaluationSchemaError("Model checkpoint does not reference its immutable training dataset.")
+        raise EvaluationSchemaError(
+            "Model checkpoint does not reference its immutable training dataset."
+        )
+
+    validation_available = (
+        training_summary.get("validation_available") is True
+    )
+
+    # ========================================================================
+    # LOAD THE TRAINING DATASET
+    # ========================================================================
 
     dataset = memory_engine.load_training_dataset(
         str(dataset_version_id),
         identity=resolved_identity,
         require_approved=False,
     )
+
+    if not isinstance(dataset, Mapping):
+        raise EvaluationSchemaError(
+            "Stored training dataset is malformed."
+        )
+
+    dataset_identity = dataset.get("identity")
+
+    if _identity_dict(dataset_identity) != expected_identity:
+        raise PermissionError(
+            "Training dataset belongs to a different TradingBot."
+        )
+
+    # ========================================================================
+    # RUN INDEPENDENT EVALUATION
+    # ========================================================================
+
     report = evaluate_model(
         model,
         scaler,
@@ -829,79 +1294,162 @@ def evaluate_model_version(
         calibration_bins=calibration_bins,
         policy=policy,
         identity=resolved_identity,
-        model_version_id=str(model_version_id),
+        model_version_id=selected_model_id,
     )
+
     selected_policy = policy or EvaluationPolicy()
-    versioned_gate = _approval_gate(report["metrics"], selected_policy, split=selected_split, versioned_model=True)
-    validation_available = training_summary.get("validation_available") is True
+
+    versioned_gate = _approval_gate(
+        report["metrics"],
+        selected_policy,
+        split=selected_split,
+        versioned_model=True,
+    )
+
     if not validation_available:
-        versioned_gate["blocking_reasons"].append("MODEL_TRAINING_DID_NOT_USE_VALIDATION_SPLIT")
+        versioned_gate["blocking_reasons"].append(
+            "MODEL_TRAINING_DID_NOT_USE_VALIDATION_SPLIT"
+        )
+
         versioned_gate["passed"] = False
         versioned_gate["approval_eligible"] = False
+
     report["approval_gate"] = versioned_gate
+
+    version_record = checkpoint.get(
+        "version_record"
+    )
+
+    if isinstance(version_record, Mapping):
+        model_status = str(
+            version_record.get("status", "DRAFT")
+        )
+    else:
+        model_status = str(
+            checkpoint.get("model_version_status", "DRAFT")
+        )
+
+    # ========================================================================
+    # COMPLETE EVALUATION METADATA
+    # ========================================================================
+
+    selected_evaluation_id = _safe_evaluation_id(
+        evaluation_version_id or _generated_id("evaluation")
+    )
+
     report.update(
         {
-            "evaluation_id": str(evaluation_version_id or _generated_id("evaluation")),
+            "evaluation_id": selected_evaluation_id,
+
             "created_at": _utc_now(),
-            "market": str(market).strip().upper().replace("/", "_"),
-            "model_version_status_before_evaluation": model_record.status,
+
+            "market": expected_identity["market"],
+
+            "identity": expected_identity,
+
+            "model_version_id": selected_model_id,
+
+            "model_version_status_before_evaluation": model_status,
+
+            "model_artifact_sha256": model_artifact_hash,
+
             "dataset_version_id": str(dataset_version_id),
-            "scaler_version_id": checkpoint.get("scaler_version_id"),
-            "model_artifact_sha256": model_record.artifact_sha256,
+
+            "scaler_version_id": checkpoint.get(
+                "scaler_version_id"
+            ),
+
             "training_validation_available": validation_available,
+
+            "evaluation_storage": "RUNTIME",
         }
     )
 
-    evaluation_record = registry.register_version(
-        EVALUATION_ARTIFACT_TYPE,
-        report["evaluation_id"],
-        payload=report,
+    # ========================================================================
+    # SAVE EVALUATION REPORT INTO RUNTIME
+    # ========================================================================
+
+    evaluation_artifact = _persist_evaluation_report(
+        report,
         identity=resolved_identity,
-        metadata={
-            "model_version_id": str(model_version_id),
-            "dataset_version_id": str(dataset_version_id),
-            "split": selected_split,
-            "passed": bool(report["approval_gate"]["passed"]),
-            "approval_eligible": bool(report["approval_gate"]["approval_eligible"]),
-            "model_target_schema": MODEL_TARGET_SCHEMA,
-        },
-        dependencies=[{"artifact_type": "model", "version_id": str(model_version_id)}],
     )
-    report["evaluation_artifact"] = evaluation_record.to_dict()
+
+    report["evaluation_artifact"] = evaluation_artifact
+
+    # ========================================================================
+    # APPROVAL GATE
+    # ========================================================================
 
     approval_result = None
+
     if approve_if_passed:
+
         gate = report["approval_gate"]
-        if gate.get("approval_eligible") is True and gate.get("passed") is True:
+
+        if (
+            gate.get("approval_eligible") is True
+            and gate.get("passed") is True
+        ):
+
             approval_result = memory_engine.approve_model_version(
-                str(model_version_id),
+                selected_model_id,
                 identity=resolved_identity,
                 validation_metadata={
                     "passed": True,
                     "evaluation_passed": True,
-                    "evaluation_version_id": report["evaluation_id"],
-                    "evaluation_artifact_sha256": evaluation_record.artifact_sha256,
+
+                    "evaluation_version_id": selected_evaluation_id,
+
+                    "evaluation_artifact_sha256": (
+                        evaluation_artifact["sha256"]
+                    ),
+
+                    "model_artifact_sha256": model_artifact_hash,
+
                     "evaluated_split": selected_split,
+
                     "model_target_schema": MODEL_TARGET_SCHEMA,
+
                     "metrics": report["metrics"],
+
                     "policy": gate["policy"],
                 },
-                reason="Model passed the independent held-out test evaluation gate.",
+                reason=(
+                    "Model passed the independent held-out test evaluation gate."
+                ),
             )
+
         else:
+
             report["approval_blocked"] = True
-            report["approval_blocking_reasons"] = list(gate.get("blocking_reasons", []))
+
+            report["approval_blocking_reasons"] = list(
+                gate.get("blocking_reasons", [])
+            )
+
+    # ========================================================================
+    # FINAL EVALUATION RESULT
+    # ========================================================================
 
     if approval_result is not None:
-        report["model_approval"] = approval_result.to_dict() if callable(getattr(approval_result, "to_dict", None)) else approval_result
+
+        report["model_approval"] = (
+            approval_result.to_dict()
+            if callable(getattr(approval_result, "to_dict", None))
+            else approval_result
+        )
+
     else:
+
         report["model_approval"] = {
             "approved": False,
-            "status": model_record.status,
-            "reason": "Approval was not requested or the evaluation gate did not pass.",
+            "status": model_status,
+            "reason": (
+                "Approval was not requested or the evaluation gate did not pass."
+            ),
         }
-    return report
 
+    return report
 
 def approve_evaluated_model(
     model_version_id: str,
@@ -910,50 +1458,184 @@ def approve_evaluated_model(
     identity: Any,
     reason: str = "Model passed the independent held-out test evaluation gate.",
 ) -> Any:
-    """Approve a model only from a successful held-out test evaluation report."""
+    """
+    Approve a model only after verifying its persisted RUNTIME evaluation,
+    exact TradingBot identity and unchanged model checkpoint.
+    """
+
     if memory_engine is None:
-        raise EvaluationDependencyError("engine.memory is unavailable.")
+        raise EvaluationDependencyError(
+            "engine.memory is unavailable."
+        )
+
     if not isinstance(evaluation_report, Mapping):
-        raise EvaluationValidationError("evaluation_report must be a mapping.")
-    gate = evaluation_report.get("approval_gate")
+        raise EvaluationValidationError(
+            "evaluation_report must be a mapping."
+        )
+
+    selected_model_id = str(
+        model_version_id
+    ).strip()
+
+    if not selected_model_id:
+        raise EvaluationValidationError(
+            "model_version_id cannot be empty."
+        )
+
+    resolved_identity = _load_identity(
+        str(_identity_dict(identity)["market"]),
+        identity,
+    )
+
+    expected_identity = _identity_dict(
+        resolved_identity
+    )
+
+    evaluation_id = _safe_evaluation_id(
+        evaluation_report.get("evaluation_id")
+    )
+
+    # ========================================================================
+    # LOAD AND VERIFY THE PERSISTED EVALUATION
+    # ========================================================================
+
+    stored_report, artifact_info = _load_evaluation_report(
+        evaluation_id,
+        identity=resolved_identity,
+    )
+
+    if str(stored_report.get("model_version_id", "")) != selected_model_id:
+        raise EvaluationSchemaError(
+            "Persisted evaluation references a different model version."
+        )
+
+    if str(stored_report.get("model_target_schema", "")).upper() not in {
+        MODEL_TARGET_SCHEMA,
+        "TP_BEFORE_SL",
+    }:
+        raise EvaluationSchemaError(
+            "Persisted evaluation target schema is incompatible."
+        )
+
+    if stored_report.get("identity") != expected_identity:
+        raise PermissionError(
+            "Persisted evaluation belongs to a different TradingBot."
+        )
+
+    # ========================================================================
+    # PREVENT APPROVAL USING A MODIFIED IN-MEMORY REPORT
+    # ========================================================================
+
+    supplied_report = dict(evaluation_report)
+
+    # These fields are added after the immutable evaluation report is saved.
+    supplied_report.pop("evaluation_artifact", None)
+    supplied_report.pop("model_approval", None)
+    supplied_report.pop("approval_blocked", None)
+    supplied_report.pop("approval_blocking_reasons", None)
+
+    if (
+        _canonical_evaluation_json(supplied_report)
+        != _canonical_evaluation_json(stored_report)
+    ):
+        raise EvaluationSchemaError(
+            "The supplied evaluation report differs from its persisted RUNTIME record."
+        )
+
+    # ========================================================================
+    # VERIFY THE HELD-OUT TEST GATE
+    # ========================================================================
+
+    gate = stored_report.get(
+        "approval_gate"
+    )
+
     if not isinstance(gate, Mapping):
-        raise EvaluationValidationError("Evaluation report has no approval gate.")
-    if gate.get("evaluated_split") != "test" or gate.get("passed") is not True or gate.get("approval_eligible") is not True:
-        raise EvaluationValidationError("Model approval is blocked because the held-out test gate did not pass.")
-    if str(evaluation_report.get("model_target_schema", "")).upper() != MODEL_TARGET_SCHEMA:
-        raise EvaluationSchemaError("Evaluation report target schema is incompatible.")
-    if str(evaluation_report.get("model_version_id", "")) != str(model_version_id):
-        raise EvaluationSchemaError("Evaluation report does not match the requested model version.")
-    evaluation_id = str(evaluation_report.get("evaluation_id") or "").strip()
-    if not evaluation_id:
-        raise EvaluationSchemaError("Evaluation report is not a persisted versioned model evaluation.")
-    if versions_engine is None:
-        raise EvaluationDependencyError("engine.versions is unavailable.")
-    registry = versions_engine.get_default_registry()
-    evaluation_record = registry.get_version("evaluation", evaluation_id, identity=identity)
-    if str(evaluation_record.metadata.get("model_version_id", "")) != str(model_version_id):
-        raise EvaluationSchemaError("Persisted evaluation artifact references a different model version.")
-    if evaluation_record.metadata.get("passed") is not True:
-        raise EvaluationValidationError("Persisted evaluation artifact does not record a passing gate.")
-    if evaluation_record.metadata.get("split") != "test":
-        raise EvaluationValidationError("Persisted evaluation artifact was not evaluated on the held-out test split.")
-    registry.verify_artifact("evaluation", evaluation_id, identity=identity)
+        raise EvaluationValidationError(
+            "Persisted evaluation has no valid approval gate."
+        )
+
+    if (
+        gate.get("evaluated_split") != "test"
+        or gate.get("passed") is not True
+        or gate.get("approval_eligible") is not True
+    ):
+        raise EvaluationValidationError(
+            "Model approval is blocked because the held-out test gate did not pass."
+        )
+
+    if str(stored_report.get("split")) != "test":
+        raise EvaluationValidationError(
+            "Model approval requires a held-out test evaluation."
+        )
+
+    # ========================================================================
+    # VERIFY THE CURRENT MODEL CHECKPOINT
+    # ========================================================================
+
+    _model, _scaler, checkpoint = memory_engine.load_model(
+        expected_identity["market"],
+        identity=resolved_identity,
+        version_id=selected_model_id,
+        require_approved=False,
+    )
+
+    if checkpoint.get("identity") != expected_identity:
+        raise PermissionError(
+            "Model checkpoint belongs to a different TradingBot."
+        )
+
+    if str(checkpoint.get("model_version_id", "")) != selected_model_id:
+        raise EvaluationSchemaError(
+            "Loaded checkpoint does not match the evaluation model version."
+        )
+
+    current_model_hash = _sha256_file(
+        checkpoint.get("loaded_from")
+    )
+
+    expected_model_hash = str(
+        stored_report.get("model_artifact_sha256") or ""
+    )
+
+    if (
+        not expected_model_hash
+        or current_model_hash != expected_model_hash
+    ):
+        raise EvaluationSchemaError(
+            "Model checkpoint changed after its evaluation."
+        )
+
+    # ========================================================================
+    # APPROVE MODEL THROUGH THE CURRENT MEMORY API
+    # ========================================================================
+
     return memory_engine.approve_model_version(
-        str(model_version_id),
-        identity=identity,
+        selected_model_id,
+        identity=resolved_identity,
         validation_metadata={
             "passed": True,
             "evaluation_passed": True,
-            "evaluation_version_id": evaluation_report.get("evaluation_id"),
+
+            "evaluation_version_id": evaluation_id,
+
+            "evaluation_artifact_sha256": artifact_info["sha256"],
+
+            "model_artifact_sha256": current_model_hash,
+
             "evaluated_split": "test",
+
             "model_target_schema": MODEL_TARGET_SCHEMA,
-            "metrics": evaluation_report.get("metrics"),
+
+            "metrics": stored_report.get("metrics"),
+
             "policy": gate.get("policy"),
+
         },
         reason=reason,
     )
 
-
+    
 # ============================================================================
 # PUBLIC API
 # ============================================================================

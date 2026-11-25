@@ -7,13 +7,18 @@ from __future__ import annotations
 # ============================================================================
 
 import hashlib
+import hmac
 import json
 import math
+import os
+import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+import torch
 
 
 # ============================================================================
@@ -27,7 +32,6 @@ try:
     from . import model as model_engine
     from . import scaling as scaling_engine
     from . import storage as storage_engine
-    from . import versions as versions_engine
 except ImportError:
     try:
         from engine import data as data_engine
@@ -36,7 +40,6 @@ except ImportError:
         from engine import model as model_engine
         from engine import scaling as scaling_engine
         from engine import storage as storage_engine
-        from engine import versions as versions_engine
     except ImportError:
         data_engine = None
         dataset_engine = None
@@ -44,7 +47,6 @@ except ImportError:
         model_engine = None
         scaling_engine = None
         storage_engine = None
-        versions_engine = None
 
 
 # ============================================================================
@@ -244,106 +246,263 @@ def _canonical_hash(payload: Mapping[str, Any]) -> str:
 
 
 # ============================================================================
-# DEPENDENCY AND MODEL VERSION VALIDATION
+# DEPENDENCY AND SELF-CONTAINED MODEL VALIDATION
 # ============================================================================
 
 def _required_modules() -> None:
     missing = [
-        name
-        for name, module in (
+        name for name, module in (
             ("engine.data", data_engine),
             ("engine.dataset", dataset_engine),
             ("engine.memory", memory_engine),
             ("engine.model", model_engine),
             ("engine.scaling", scaling_engine),
             ("engine.storage", storage_engine),
-            ("engine.versions", versions_engine),
-        )
-        if module is None
+        ) if module is None
     ]
     if missing:
-        raise InferenceDependencyError("Required inference modules are unavailable: " + ", ".join(missing))
-
-
-def _registry() -> Any:
-    _required_modules()
-    getter = getattr(versions_engine, "get_default_registry", None)
-    if not callable(getter):
-        raise InferenceDependencyError("engine.versions does not expose get_default_registry().")
-    return getter()
-
-
-def _approval_evidence(
-    registry: Any,
-    version_record: Any,
-    identity: Any,
-) -> Dict[str, Any]:
-    scope_key = getattr(version_record, "scope_key", None)
-    version_id = str(getattr(version_record, "version_id", ""))
-    iterator = getattr(registry, "_status_events", None)
-    if not scope_key or not callable(iterator):
-        raise InferenceModelError("Model approval history is unavailable; refusing production inference.")
-
-    matching_events = [
-        dict(event)
-        for event in iterator(str(scope_key), "model")
-        if str(event.get("version_id", "")) == version_id
-    ]
-    validation_event = next(
-        (
-            event
-            for event in matching_events
-            if str(event.get("to_status", "")).upper() == "VALIDATED"
-        ),
-        None,
-    )
-    approval_event = next(
-        (
-            event
-            for event in matching_events
-            if str(event.get("to_status", "")).upper() == "APPROVED"
-        ),
-        None,
-    )
-    if validation_event is None or approval_event is None:
-        raise InferenceModelError("Model has no complete validation and approval event history.")
-
-    validation_metadata = validation_event.get("validation_metadata", {})
-    if not isinstance(validation_metadata, Mapping):
-        raise InferenceModelError("Model approval event has malformed evaluation metadata.")
-    evaluation_id = str(validation_metadata.get("evaluation_version_id", "")).strip()
-    passed = validation_metadata.get("passed") is True or validation_metadata.get("evaluation_passed") is True
-    evaluated_split = str(validation_metadata.get("evaluated_split", "")).strip().lower()
-    target_schema = str(validation_metadata.get("model_target_schema", "")).strip().upper()
-    if not passed or evaluated_split != "test" or target_schema not in {MODEL_TARGET_SCHEMA, "TP_BEFORE_SL"} or not evaluation_id:
-        raise InferenceModelError(
-            "Model approval is missing a successful independent held-out test evaluation record."
+        raise InferenceDependencyError(
+            "Required inference modules are unavailable: " + ", ".join(missing)
         )
 
-    try:
-        evaluation_record = registry.get_version("evaluation", evaluation_id, identity=identity)
-        registry.verify_artifact("evaluation", evaluation_id, identity=identity)
-    except Exception as error:
-        raise InferenceModelError("The model's held-out evaluation artifact is missing or invalid.") from error
-    if str(evaluation_record.metadata.get("model_version_id", "")) != version_id:
-        raise InferenceModelError("The held-out evaluation artifact references another model version.")
-    if evaluation_record.metadata.get("passed") is not True:
-        raise InferenceModelError("The persisted evaluation artifact does not contain a passing result.")
-    if str(evaluation_record.metadata.get("split", "")).lower() != "test":
-        raise InferenceModelError("The persisted evaluation artifact is not based on the test split.")
 
-    approval_time = _parse_timestamp(approval_event.get("event_timestamp"))
-    validation_time = _parse_timestamp(validation_event.get("event_timestamp"))
-    if approval_time is None or validation_time is None or approval_time < validation_time:
-        raise InferenceModelError("Model approval timestamps are missing or inconsistent.")
+def _model_state_sha256(checkpoint: Mapping[str, Any]) -> str:
+    """Hash neural-network tensor values in a stable, ordered format."""
+    state = checkpoint.get("model_state")
+    if not isinstance(state, Mapping) or not state:
+        raise InferenceModelError("Model checkpoint has no valid model_state.")
+    digest = hashlib.sha256()
+    for name in sorted(state):
+        tensor = state[name]
+        if not torch.is_tensor(tensor):
+            raise InferenceModelError(f"Model state entry {name!r} is not a tensor.")
+        tensor = tensor.detach().cpu().contiguous()
+        try:
+            raw = tensor.reshape(-1).view(torch.uint8).numpy().tobytes()
+        except Exception as error:
+            raise InferenceModelError(f"Could not hash model state tensor {name!r}.") from error
+        header = json.dumps(
+            {"name": str(name), "dtype": str(tensor.dtype), "shape": list(tensor.shape)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        digest.update(len(header).to_bytes(8, "big"))
+        digest.update(header)
+        digest.update(len(raw).to_bytes(8, "big"))
+        digest.update(raw)
+    return digest.hexdigest()
+
+
+def _checkpoint_contract(
+    checkpoint: Mapping[str, Any],
+    model: Any,
+    scaler: Any,
+) -> Dict[str, Any]:
+    """Validate the model architecture, ordered feature contract and embedded scaler."""
+    summary = checkpoint.get("training_summary", {})
+    inference_meta = checkpoint.get("inference_metadata", {})
+    architecture = checkpoint.get("model_architecture", {})
+    if not isinstance(summary, Mapping) or not isinstance(inference_meta, Mapping) or not isinstance(architecture, Mapping):
+        raise InferenceModelError("Model training or inference metadata is malformed.")
+
+    target = str(
+        inference_meta.get("model_target_schema")
+        or checkpoint.get("model_target_schema")
+        or summary.get("model_target_schema")
+        or ""
+    ).strip().upper()
+    if target not in {MODEL_TARGET_SCHEMA, "TP_BEFORE_SL"}:
+        raise InferenceModelError("The model does not use the TP-before-SL binary target schema.")
+    if summary.get("validation_available") is not True:
+        raise InferenceModelError("The model was not trained with a chronological validation split.")
+    if str(summary.get("selection_metric", "")).upper() != "VALIDATION_LOG_LOSS":
+        raise InferenceModelError("The model was not selected using validation log loss.")
+
+    raw_names = inference_meta.get("feature_names") or checkpoint.get("feature_names") or summary.get("feature_names")
+    if not isinstance(raw_names, Sequence) or isinstance(raw_names, (str, bytes)) or not raw_names:
+        raise InferenceModelError("The .pth checkpoint has no ordered feature schema.")
+    feature_names = tuple(str(item).strip() for item in raw_names)
+    if any(not name for name in feature_names) or len(set(feature_names)) != len(feature_names):
+        raise InferenceModelError("Model feature names are empty or duplicated.")
+
+    schema_hash = str(
+        inference_meta.get("feature_schema_hash")
+        or checkpoint.get("feature_schema_hash")
+        or summary.get("feature_schema_hash")
+        or ""
+    ).strip()
+    if not schema_hash or _feature_schema_hash(feature_names) != schema_hash:
+        raise InferenceModelError("Model feature names do not match the stored feature schema hash.")
+
+    input_size = int(inference_meta.get("input_size") or architecture.get("input_size") or checkpoint.get("input_size", 0))
+    if input_size <= 0 or int(getattr(model, "input_size", -1)) != input_size or input_size != len(feature_names):
+        raise InferenceModelError("Model input width does not match its feature schema.")
+    if architecture.get("input_size") is not None and int(architecture["input_size"]) != input_size:
+        raise InferenceModelError("Nested model architecture has a conflicting input width.")
+    if architecture.get("hidden_sizes") is not None and list(architecture["hidden_sizes"]) != list(checkpoint.get("hidden_sizes", ())):
+        raise InferenceModelError("Nested model architecture has conflicting hidden sizes.")
+
+    if checkpoint.get("model_class_module") and checkpoint["model_class_module"] != type(model).__module__:
+        raise InferenceModelError("Model class module does not match the checkpoint.")
+    if checkpoint.get("model_class_name") and checkpoint["model_class_name"] != type(model).__name__:
+        raise InferenceModelError("Model class name does not match the checkpoint.")
+
+    scaler_names = tuple(str(item) for item in (getattr(scaler, "feature_names", ()) or ()))
+    if scaler_names != feature_names:
+        raise InferenceModelError("Embedded scaler feature order does not match the model.")
+    if int(getattr(scaler, "feature_count", -1)) != input_size:
+        raise InferenceModelError("Embedded scaler width does not match the model.")
+    if str(getattr(scaler, "fit_scope", "")).upper() != "TRAIN_SPLIT_ONLY":
+        raise InferenceModelError("Embedded scaler was not fitted exclusively on training rows.")
+    if int(getattr(scaler, "fit_sample_count", 0)) <= 0:
+        raise InferenceModelError("Embedded scaler has no valid training sample count.")
+    if str(getattr(scaler, "feature_schema_hash", "")) != schema_hash:
+        raise InferenceModelError("Embedded scaler feature schema hash does not match the model.")
+
+    mean = np.asarray(getattr(scaler, "mean", []), dtype=np.float64).reshape(-1)
+    std = np.asarray(getattr(scaler, "std", []), dtype=np.float64).reshape(-1)
+    if mean.size != input_size or std.size != input_size or not np.all(np.isfinite(mean)) or not np.all(np.isfinite(std)) or np.any(std <= 0.0):
+        raise InferenceModelError("Embedded scaler statistics are invalid.")
+
+    trained_at = checkpoint.get("trained_at") or summary.get("trained_at")
+    trained_timestamp = _parse_timestamp(trained_at)
+    if trained_timestamp is None:
+        raise InferenceModelError("Model checkpoint has no valid training timestamp.")
+
+    threshold_value = inference_meta.get("classification_threshold")
+    if threshold_value is None:
+        threshold_value = checkpoint.get("classification_threshold", summary.get("classification_threshold", DEFAULT_CLASSIFICATION_THRESHOLD))
+    threshold = _finite_float(threshold_value, "classification_threshold")
+    if threshold is None or not 0.0 <= threshold <= 1.0:
+        raise InferenceModelError("Model classification threshold is invalid.")
+
     return {
-        "evaluation_version_id": evaluation_id,
-        "evaluated_split": "test",
-        "validation_time": validation_time,
-        "approval_time": approval_time,
-        "validation_event_id": validation_event.get("event_id"),
-        "approval_event_id": approval_event.get("event_id"),
+        "summary": summary,
+        "inference_metadata": inference_meta,
+        "target_schema": target,
+        "feature_names": feature_names,
+        "feature_schema_hash": schema_hash,
+        "input_size": input_size,
+        "trained_at": trained_at,
+        "trained_timestamp": trained_timestamp,
+        "classification_threshold": threshold,
     }
+
+
+def _approval_signature_payload(
+    checkpoint: Mapping[str, Any],
+    approval: Mapping[str, Any],
+    identity_data: Mapping[str, str],
+    contract: Mapping[str, Any],
+    state_hash: str,
+) -> Dict[str, Any]:
+    unsigned_approval = {str(k): v for k, v in approval.items() if str(k) != "signature"}
+    return {
+        "approval": unsigned_approval,
+        "model": {
+            "identity": dict(identity_data),
+            "market": str(checkpoint.get("market", "")).upper(),
+            "model_version_id": str(checkpoint.get("model_version_id", "")),
+            "model_state_sha256": state_hash,
+            "feature_names": list(contract["feature_names"]),
+            "feature_schema_hash": str(contract["feature_schema_hash"]),
+            "model_target_schema": str(contract["target_schema"]),
+            "input_size": int(contract["input_size"]),
+            "model_class_module": str(checkpoint.get("model_class_module", "")),
+            "model_class_name": str(checkpoint.get("model_class_name", "")),
+            "hidden_sizes": list(checkpoint.get("hidden_sizes", ())),
+            "trained_at": str(contract["trained_at"]),
+            "classification_threshold": float(contract["classification_threshold"]),
+            "scaler_sha256": _canonical_hash(checkpoint.get("scaler", {})),
+            "inference_metadata": dict(checkpoint.get("inference_metadata", {})) if isinstance(checkpoint.get("inference_metadata"), Mapping) else {},
+            "model_architecture": dict(checkpoint.get("model_architecture", {})) if isinstance(checkpoint.get("model_architecture"), Mapping) else {},
+            "timeframes": list(checkpoint.get("timeframes", ())),
+            "lookback_by_timeframe": dict(checkpoint.get("lookback_by_timeframe", {})) if isinstance(checkpoint.get("lookback_by_timeframe"), Mapping) else {},
+            "format_version": checkpoint.get("format_version"),
+        },
+    }
+
+
+def _verify_embedded_approval(
+    checkpoint: Mapping[str, Any],
+    identity_data: Mapping[str, str],
+    contract: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Verify a signed held-out-test approval certificate stored inside .pth."""
+    approval = checkpoint.get("approval")
+    if not isinstance(approval, Mapping):
+        raise InferenceModelError(
+            "The .pth has no embedded approval certificate. The model must be re-approved and packaged before production inference."
+        )
+    if int(approval.get("schema_version", 0)) != 1 or str(approval.get("status", "")).upper() != "APPROVED":
+        raise InferenceModelError("The embedded model approval certificate is invalid or not approved.")
+
+    model_id = str(checkpoint.get("model_version_id", "")).strip()
+    if not model_id or str(approval.get("model_version_id", "")) != model_id:
+        raise InferenceModelError("Approval certificate references another model version.")
+
+    evaluation = approval.get("evaluation")
+    if not isinstance(evaluation, Mapping):
+        raise InferenceModelError("Approval certificate has no evaluation evidence.")
+    if evaluation.get("passed") is not True or str(evaluation.get("evaluated_split", "")).lower() != "test":
+        raise InferenceModelError("Model approval requires a passing independent held-out test evaluation.")
+    if str(evaluation.get("model_target_schema", "")).upper() not in {MODEL_TARGET_SCHEMA, "TP_BEFORE_SL"}:
+        raise InferenceModelError("Approval evaluation has an incompatible target schema.")
+    if not str(evaluation.get("evaluation_id", "")).strip():
+        raise InferenceModelError("Approval certificate has no evaluation ID.")
+    report_hash = str(evaluation.get("report_sha256", "")).lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", report_hash):
+        raise InferenceModelError("Approval evaluation SHA-256 is missing or invalid.")
+    if not isinstance(evaluation.get("metrics"), Mapping) or not isinstance(evaluation.get("policy"), Mapping):
+        raise InferenceModelError("Approval certificate is missing evaluation metrics or policy.")
+
+    approved_at = approval.get("approved_at") or approval.get("approval_time")
+    approval_timestamp = _parse_timestamp(approved_at)
+    if approval_timestamp is None or approval_timestamp < int(contract["trained_timestamp"]):
+        raise InferenceModelError("Approval timestamp is invalid or predates model training.")
+
+    actual_state_hash = _model_state_sha256(checkpoint)
+    if str(approval.get("model_state_sha256", "")).lower() != actual_state_hash:
+        raise InferenceModelError("Model weights do not match the embedded approval certificate.")
+
+    key = os.environ.get("SPECTLINE_MODEL_APPROVAL_KEY", "")
+    if len(key.encode("utf-8")) < 32:
+        raise InferenceDependencyError("SPECTLINE_MODEL_APPROVAL_KEY must contain at least 32 bytes.")
+    signature = str(approval.get("signature", "")).lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", signature):
+        raise InferenceModelError("Embedded approval signature is missing or malformed.")
+
+    signed = _approval_signature_payload(checkpoint, approval, identity_data, contract, actual_state_hash)
+    message = _canonical_hash(signed).encode("ascii")
+    expected = hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise InferenceModelError("Embedded approval signature verification failed.")
+
+    return {
+        "approval_time": approved_at,
+        "evaluation_version_id": str(evaluation["evaluation_id"]),
+        "evaluation_sha256": report_hash,
+        "evaluated_split": "test",
+        "approval_signature_verified": True,
+        "model_state_sha256": actual_state_hash,
+    }
+
+
+def _model_file_candidates(model_root: Path, market: str) -> list[Path]:
+    """List only final market.pth / market_N.pth files, excluding RUNTIME."""
+    stem = str(market).strip().lower()
+    result: list[Path] = []
+    for path in model_root.iterdir():
+        if not path.is_file() or path.suffix.lower() != ".pth":
+            continue
+        candidate_stem = path.stem.lower()
+        if candidate_stem == stem:
+            result.append(path)
+        elif candidate_stem.startswith(stem + "_"):
+            suffix = candidate_stem[len(stem) + 1:]
+            if suffix.isdigit() and int(suffix) >= 1:
+                result.append(path)
+    return sorted(result, key=lambda item: item.name.lower())
 
 
 def load_approved_model(
@@ -352,163 +511,122 @@ def load_approved_model(
     identity: Any,
     model_version_id: Optional[str] = None,
 ) -> Tuple[Any, Any, Dict[str, Any]]:
-    """Load one approved version and verify all model, dataset and scaler dependencies."""
+    """Load the selected approved .pth directly, without VERSIONS or training RUNTIME."""
     _required_modules()
     resolved = _resolve_identity(market, identity=identity)
     identity_data = _identity_payload(resolved)
     normalized_market = identity_data["market"]
 
+    directory_getter = getattr(memory_engine, "model_dir", None)
+    checkpoint_loader = getattr(memory_engine, "_safe_torch_load", None)
+    model_factory = getattr(memory_engine, "_instantiate_model", None)
+    if not all(callable(fn) for fn in (directory_getter, checkpoint_loader, model_factory)):
+        raise InferenceDependencyError("engine.memory is missing its direct .pth loading helpers.")
     try:
-        model, _memory_scaler, checkpoint = memory_engine.load_model(
-            normalized_market,
-            identity=resolved,
-            version_id=model_version_id,
-            require_approved=True,
-        )
+        model_root = Path(directory_getter(normalized_market, identity=resolved)).expanduser().resolve()
     except Exception as error:
-        raise InferenceModelError(
-            "Could not load an approved model for this TradingBot."
-        ) from error
+        raise InferenceDependencyError("Could not resolve MODELS/<MARKET>.") from error
+    if not model_root.is_dir():
+        raise InferenceModelError(f"Model directory does not exist for {normalized_market}.")
 
+    candidates = _model_file_candidates(model_root, normalized_market)
+    if not candidates:
+        raise InferenceModelError(f"No final .pth models were found for {normalized_market}.")
+
+    requested_id = str(model_version_id).strip() if model_version_id is not None else None
+    approved: list[Tuple[int, Path, Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = []
+    matched_id = False
+
+    for path in candidates:
+        resolved_path = path.resolve()
+        if resolved_path.parent != model_root:
+            raise InferenceModelError("Model file resolves outside its market directory.")
+        try:
+            checkpoint = checkpoint_loader(resolved_path)
+        except Exception as error:
+            raise InferenceModelError(f"Could not safely read {path.name}.") from error
+        if not isinstance(checkpoint, Mapping):
+            raise InferenceModelError(f"Model checkpoint {path.name} is malformed.")
+        checkpoint = dict(checkpoint)
+        try:
+            candidate_identity = _identity_payload(checkpoint.get("identity"))
+        except Exception as error:
+            raise InferenceModelError(f"Model checkpoint {path.name} has an invalid identity.") from error
+        if candidate_identity != identity_data:
+            continue
+        if str(checkpoint.get("market", "")).upper() != normalized_market:
+            raise InferenceModelError(f"Model checkpoint {path.name} has a conflicting market.")
+        candidate_id = str(checkpoint.get("model_version_id", "")).strip()
+        if not candidate_id:
+            raise InferenceModelError(f"Model checkpoint {path.name} has no model_version_id.")
+        if requested_id is not None and candidate_id != requested_id:
+            continue
+        if requested_id is not None:
+            matched_id = True
+
+        certificate = checkpoint.get("approval")
+        status = str(certificate.get("status", "")).upper() if isinstance(certificate, Mapping) else ""
+        if status != "APPROVED":
+            if requested_id is not None:
+                raise InferenceModelError(f"Model {requested_id} is not approved inside its .pth file.")
+            continue
+
+        try:
+            model = model_factory(checkpoint)
+            scaler = scaling_engine.scaler_from_checkpoint(checkpoint)
+        except Exception as error:
+            raise InferenceModelError(f"Could not restore model or embedded scaler from {path.name}.") from error
+        contract = _checkpoint_contract(checkpoint, model, scaler)
+        approval_info = _verify_embedded_approval(checkpoint, identity_data, contract)
+        approved_at = _parse_timestamp(approval_info["approval_time"])
+        if approved_at is None:
+            raise InferenceModelError("Approved model has no valid approval timestamp.")
+        approved.append((approved_at, resolved_path, checkpoint, contract, approval_info))
+
+    if requested_id is not None and not matched_id:
+        raise InferenceModelError(f"Model version {requested_id!r} was not found for this TradingBot.")
+    if not approved:
+        raise InferenceModelError("No approved, signed .pth model is available for this TradingBot.")
+    if requested_id is not None and len(approved) != 1:
+        raise InferenceModelError("Requested model_version_id is not unique in MODELS/<MARKET>.")
+
+    approved.sort(key=lambda item: (item[0], item[1].name.lower()), reverse=True)
+    _, selected_path, checkpoint, contract, approval_info = approved[0]
     try:
+        model = model_factory(checkpoint)
         scaler = scaling_engine.scaler_from_checkpoint(checkpoint)
+        model.eval()
     except Exception as error:
-        raise InferenceModelError(
-            "The scaler embedded in the model checkpoint is invalid."
-        ) from error
+        raise InferenceModelError("Approved .pth model could not be restored for inference.") from error
 
-    version_payload = checkpoint.get("version_record")
-    if not isinstance(version_payload, Mapping):
-        raise InferenceModelError(
-            "The loaded checkpoint is not backed by an immutable approved model version."
-        )
-    if str(version_payload.get("status", "")).upper() != "APPROVED":
-        raise InferenceModelError("The loaded model version is not approved.")
-        
-    if str(version_payload.get("artifact_type", "")).lower() != "model":
-        raise InferenceModelError("The loaded version record is not a model artifact.")
-
-    if _identity_payload(version_payload.get("identity")) != identity_data:
-        raise PermissionError("The approved model belongs to another TradingBot identity.")
-
-    loaded_version_id = str(checkpoint.get("model_version_id", "")).strip()
-    if not loaded_version_id:
-        raise InferenceModelError("The loaded checkpoint has no immutable model version ID.")
-
-    if model_version_id is not None and loaded_version_id != str(model_version_id):
-        raise InferenceModelError("The loaded model version does not match the requested version.")
-
-    summary = checkpoint.get("training_summary", {})
-    if not isinstance(summary, Mapping):
-        raise InferenceModelError("Model training summary is missing or malformed.")
-    target_schema = str(summary.get("model_target_schema", "")).strip().upper()
-
-    if target_schema != MODEL_TARGET_SCHEMA:
-        raise InferenceModelError("The loaded model does not use the TP-before-SL binary target schema.")
-
-    if summary.get("validation_available") is not True:
-        raise InferenceModelError("The model was not trained with a usable chronological validation split.")
-
-    if str(summary.get("selection_metric", "")).upper() != "VALIDATION_LOG_LOSS":
-        raise InferenceModelError("The model was not selected using validation log loss.")
-
-    dataset_version_id = str(checkpoint.get("dataset_version_id") or summary.get("dataset_version_id") or "").strip()
-    scaler_version_id = str(checkpoint.get("scaler_version_id") or summary.get("scaler_version_id") or "").strip()
-
-    if not dataset_version_id or not scaler_version_id:
-        raise InferenceModelError("The model checkpoint does not reference an immutable dataset and scaler.")
-
-    registry = _registry()
-    try:
-        model_record = registry.get_version("model", loaded_version_id, identity=resolved)
-        dataset_record = registry.get_version("dataset", dataset_version_id, identity=resolved)
-        scaler_record = registry.get_version("scaler", scaler_version_id, identity=resolved)
-        registry.verify_artifact("model", loaded_version_id, identity=resolved)
-        registry.verify_artifact("dataset", dataset_version_id, identity=resolved)
-        registry.verify_artifact("scaler", scaler_version_id, identity=resolved)
-    except Exception as error:
-        raise InferenceModelError("One or more immutable model dependencies failed verification.") from error
-
-    if model_record.status != "APPROVED":
-        raise InferenceModelError("Model version is not approved in the version registry.")
-
-    if dataset_record.status != "APPROVED" or scaler_record.status != "APPROVED":
-        raise InferenceModelError("Model dataset and scaler dependencies must both be approved.")
-
-    if str(model_record.metadata.get("model_target_schema", "")).upper() != MODEL_TARGET_SCHEMA:
-        raise InferenceModelError("Model registry metadata contains an incompatible target schema.")
-
-    if int(getattr(model, "input_size", -1)) <= 0:
-        raise InferenceModelError("Loaded model has an invalid input width.")
-
-    feature_names = summary.get("feature_names")
-
-    if not isinstance(feature_names, Sequence) or isinstance(feature_names, (str, bytes)) or not feature_names:
-        raise InferenceModelError("Model checkpoint does not contain its ordered feature schema.")
-    normalized_feature_names = tuple(str(item) for item in feature_names)
-    calculated_schema_hash = _feature_schema_hash(normalized_feature_names)
-    expected_schema_hash = str(summary.get("feature_schema_hash", "")).strip()
-
-    if not expected_schema_hash or calculated_schema_hash != expected_schema_hash:
-        raise InferenceModelError("Model feature names do not match the stored feature schema hash.")
-
-    if len(normalized_feature_names) != int(model.input_size):
-        raise InferenceModelError("Model input width does not match its stored feature names.")
-
-    if scaler is None or int(getattr(scaler, "feature_count", -1)) != len(normalized_feature_names):
-
-        raise InferenceModelError("Scaler width does not match the model feature schema.")
-    scaler_names = tuple(str(item) for item in (getattr(scaler, "feature_names", ()) or ()))
-
-    if scaler_names != normalized_feature_names:
-        raise InferenceModelError("Scaler feature order does not match the model feature order.")
-
-    if str(getattr(scaler, "fit_scope", "")).upper() != "TRAIN_SPLIT_ONLY":
-        raise InferenceModelError("Scaler was not fitted exclusively on the training split.")
-
-    if str(getattr(scaler, "feature_schema_hash", "")) != expected_schema_hash:
-        raise InferenceModelError("Scaler feature schema hash does not match the model.")
-
-    if int(getattr(scaler, "fit_sample_count", 0)) <= 0:
-        raise InferenceModelError("Scaler has no valid training fit sample count.")
-
-    metadata_schema_hash = str(model_record.metadata.get("feature_schema_hash", "")).strip()
-    if metadata_schema_hash and metadata_schema_hash != expected_schema_hash:
-        raise InferenceModelError("Model version metadata has a conflicting feature schema hash.")
-
-    dependencies = [dict(item) for item in model_record.dependencies]
-    dependency_pairs = {
-        (str(item.get("artifact_type", "")).lower(), str(item.get("version_id", "")))
-        for item in dependencies
-    }
-    if ("dataset", dataset_version_id) not in dependency_pairs:
-        raise InferenceModelError("Model version manifest does not declare its dataset dependency.")
-
-    if ("scaler", scaler_version_id) not in dependency_pairs:
-        raise InferenceModelError("Model version manifest does not declare its scaler dependency.")
-
-    approval = _approval_evidence(registry, model_record, resolved)
-    trained_at = _parse_timestamp(checkpoint.get("trained_at") or summary.get("trained_at"))
-    if trained_at is None:
-        raise InferenceModelError("Model checkpoint does not contain a valid training timestamp.")
-
+    summary = contract["summary"]
+    inference_meta = contract["inference_metadata"]
+    trained_at = contract["trained_at"]
     metadata = {
         "identity": identity_data,
         "market": normalized_market,
-        "model_version_id": loaded_version_id,
-        "dataset_version_id": dataset_version_id,
-        "scaler_version_id": scaler_version_id,
-        "model_target_schema": target_schema,
-        "feature_names": normalized_feature_names,
-        "feature_schema_hash": expected_schema_hash,
+        "model_version_id": str(checkpoint["model_version_id"]),
+        # IDs below are provenance labels only; no external artifacts are loaded.
+        "dataset_version_id": checkpoint.get("dataset_version_id") or summary.get("dataset_version_id"),
+        "scaler_version_id": checkpoint.get("scaler_version_id") or summary.get("scaler_version_id"),
+        "model_target_schema": contract["target_schema"],
+        "feature_names": contract["feature_names"],
+        "feature_schema_hash": contract["feature_schema_hash"],
         "trained_at": trained_at,
-        "model_status": model_record.status,
-        "model_created_at": _parse_timestamp(model_record.created_at),
-        "approval": approval,
-        "calibration_status": str(summary.get("calibration_status", "NOT_CALIBRATED")).upper(),
-        "classification_threshold": float(summary.get("classification_threshold", DEFAULT_CLASSIFICATION_THRESHOLD)),
+        "model_status": "APPROVED",
+        "model_created_at": contract["trained_timestamp"],
+        "model_path": str(selected_path),
+        "model_file_sha256": hashlib.sha256(selected_path.read_bytes()).hexdigest(),
+        "approval": approval_info,
+        "calibration_status": str(inference_meta.get("calibration_status") or summary.get("calibration_status", "NOT_CALIBRATED")).upper(),
+        "classification_threshold": contract["classification_threshold"],
     }
     return model, scaler, metadata
+
+
+# ============================================================================
+# POINT-IN-TIME FEATURE PREPARATION
+# ============================================================================
 
 
 # ============================================================================

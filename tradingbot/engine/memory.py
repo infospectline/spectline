@@ -1008,6 +1008,113 @@ def _checkpoint_dependencies(training_summary: Mapping[str, Any], identity: Clie
             dependencies.append(item)
     return dependencies
 
+def _checkpoint_feature_metadata(
+    scaler_payload: Mapping[str, Any],
+    training_summary: Mapping[str, Any],
+    input_size: int,
+    metadata: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Build and validate the complete feature contract embedded in a .pth model.
+    """
+
+    def read_feature_names(
+        source: Mapping[str, Any],
+        source_name: str,
+    ) -> Tuple[str, ...]:
+
+        raw_names = source.get("feature_names")
+
+        if raw_names is None:
+            return ()
+
+        if not isinstance(raw_names, Sequence) or isinstance(raw_names, (str, bytes)):
+            raise MemoryValidationError(
+                f"{source_name} feature_names must be a sequence."
+            )
+
+        names = tuple(str(item).strip() for item in raw_names)
+
+        if not names:
+            return ()
+
+        if len(names) != input_size:
+            raise MemoryValidationError(
+                f"{source_name} feature count does not match model input_size."
+            )
+
+        if any(not name for name in names):
+            raise MemoryValidationError(
+                f"{source_name} contains an empty feature name."
+            )
+
+        if len(names) != len(set(names)):
+            raise MemoryValidationError(
+                f"{source_name} contains duplicate feature names."
+            )
+
+        return names
+
+    if metadata is not None and not isinstance(metadata, Mapping):
+        raise TypeError("metadata must be a mapping.")
+
+    metadata_payload = metadata or {}
+
+    scaler_names = read_feature_names(
+        scaler_payload,
+        "Scaler",
+    )
+
+    summary_names = read_feature_names(
+        training_summary,
+        "Training summary",
+    )
+
+    if scaler_names and summary_names and scaler_names != summary_names:
+        raise MemoryIntegrityError(
+            "Scaler feature order does not match training summary feature order."
+        )
+
+    feature_names = scaler_names or summary_names
+
+    if not feature_names:
+        raise MemoryValidationError(
+            "Cannot create a standalone model without an explicit feature order."
+        )
+
+    schema_hashes = []
+
+    for source in (
+        scaler_payload,
+        training_summary,
+        metadata_payload,
+    ):
+
+        value = source.get("feature_schema_hash")
+
+        if value is not None and str(value).strip():
+            schema_hashes.append(str(value).strip())
+
+    unique_hashes = set(schema_hashes)
+
+    if len(unique_hashes) > 1:
+        raise MemoryIntegrityError(
+            "Scaler, training summary and model metadata contain different feature schema hashes."
+        )
+
+    feature_schema_hash = (
+        next(iter(unique_hashes))
+        if unique_hashes
+        else hashlib.sha256(
+            "\n".join(feature_names).encode("utf-8")
+        ).hexdigest()
+    )
+
+    return {
+        "feature_names": list(feature_names),
+        "feature_order": list(feature_names),
+        "feature_schema_hash": feature_schema_hash,
+    }
 
 def _safe_torch_load(path: Path) -> Dict[str, Any]:
     try:
@@ -1058,6 +1165,63 @@ def save_model(
     if not isinstance(summary_payload, dict):
         raise MemoryValidationError("training_summary must serialize to a dictionary.")
 
+    # ========================================================================
+    # STANDALONE MODEL INFERENCE METADATA
+    # ========================================================================
+
+    feature_metadata = _checkpoint_feature_metadata(
+        scaler_payload,
+        summary_payload,
+        input_size,
+        metadata,
+    )
+
+    raw_threshold = summary_payload.get(
+        "classification_threshold",
+        0.50,
+    )
+
+    if raw_threshold is None:
+        raw_threshold = 0.50
+
+    if isinstance(raw_threshold, bool):
+        raise MemoryValidationError(
+            "classification_threshold must be a numeric value."
+        )
+
+    try:
+        classification_threshold = float(raw_threshold)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise MemoryValidationError(
+            "classification_threshold must be a numeric value."
+        ) from error
+
+    if (
+        not math.isfinite(classification_threshold)
+        or not 0.0 <= classification_threshold <= 1.0
+    ):
+        raise MemoryValidationError(
+            "classification_threshold must be between 0 and 1."
+        )
+
+    model_class_metadata = _model_class_metadata(model)
+
+    model_target_schema = summary_payload.get(
+        "model_target_schema"
+    )
+
+    inference_metadata = {
+        "schema_version": 1,
+        "model_target_schema": model_target_schema,
+        "classification_threshold": classification_threshold,
+        "input_size": input_size,
+        "hidden_sizes": list(hidden_sizes),
+        **model_class_metadata,
+        **feature_metadata,
+        "timeframes": list(SUPPORTED_TIMEFRAMES),
+        "lookback_by_timeframe": dict(LOOKBACK_BY_TIMEFRAME),
+    }
+
     resolved_dataset_version = dataset_version_id or next(
         (
             summary_payload.get(key)
@@ -1096,22 +1260,84 @@ def save_model(
         summary_payload["dataset_version_id"] = str(resolved_dataset_version)
 
     checkpoint = {
+        # ====================================================================
+        # CUSTOMER AND MARKET IDENTITY
+        # ====================================================================
+
         "identity": _identity_dict(resolved),
         "market": resolved.market,
+
+        # ====================================================================
+        # NEURAL NETWORK
+        # ====================================================================
+
         "model_state": model.state_dict(),
         "input_size": input_size,
         "hidden_sizes": hidden_sizes,
-        **_model_class_metadata(model),
-        "timeframes": list(SUPPORTED_TIMEFRAMES),
-        "lookback_by_timeframe": dict(LOOKBACK_BY_TIMEFRAME),
+        **model_class_metadata,
+
+        "model_architecture": {
+            **model_class_metadata,
+            "input_size": input_size,
+            "hidden_sizes": list(hidden_sizes),
+        },
+
+        # ====================================================================
+        # COMPLETE INFERENCE FEATURE CONTRACT
+        # ====================================================================
+
+        **feature_metadata,
+
+        "classification_threshold": classification_threshold,
+        "model_target_schema": model_target_schema,
+
+        "inference_metadata_version": 1,
+        "inference_metadata": inference_metadata,
+
+        # ====================================================================
+        # EMBEDDED SCALER
+        # ====================================================================
+
         "scaler": scaler_payload,
         "scaler_format": scaler_format,
-        "scaler_version_id": str(resolved_scaler_version) if resolved_scaler_version else None,
-        "dataset_version_id": str(resolved_dataset_version) if resolved_dataset_version else None,
+        "scaler_embedded": True,
+
         "feature_mean": scaler_payload.get("mean"),
         "feature_std": scaler_payload.get("std"),
+
+        # ====================================================================
+        # TRAINING REFERENCES
+        # These are retained for audit and evaluation.
+        # They are not needed to restore the embedded scaler.
+        # ====================================================================
+
+        "scaler_version_id": (
+            str(resolved_scaler_version)
+            if resolved_scaler_version
+            else None
+        ),
+
+        "dataset_version_id": (
+            str(resolved_dataset_version)
+            if resolved_dataset_version
+            else None
+        ),
+
+        # ====================================================================
+        # TRAINING INFORMATION
+        # ====================================================================
+
+        "timeframes": list(SUPPORTED_TIMEFRAMES),
+        "lookback_by_timeframe": dict(LOOKBACK_BY_TIMEFRAME),
+
         "training_summary": summary_payload,
+
         "trained_at": datetime.now(timezone.utc).isoformat(),
+
+        # ====================================================================
+        # MODEL VERSION
+        # ====================================================================
+
         "format_version": MODEL_FORMAT_VERSION,
         "model_version_id": model_version_id,
     }
@@ -1327,26 +1553,150 @@ def load_model(
         )
     if str(checkpoint.get("market", "")).strip().upper() != resolved.market:
         raise MemoryIntegrityError("Model checkpoint market does not match its identity.")
-    model = _instantiate_model(checkpoint)
-    scaler = _restore_checkpoint_scaler(checkpoint)
-    scaler_version = checkpoint.get("scaler_version_id")
-    if scaler_version:
-        registered_scaler = load_scaler_artifact(
-            str(scaler_version),
-            identity=resolved,
-            require_approved=bool(require_approved),
+
+        # ========================================================================
+        # RESTORE NEURAL NETWORK DIRECTLY FROM .PTH
+        # ========================================================================
+
+        model = _instantiate_model(checkpoint)
+
+        # ========================================================================
+        # RESTORE EMBEDDED SCALER
+        # No external scaler artifact is required for inference.
+        # ========================================================================
+
+        scaler = _restore_checkpoint_scaler(checkpoint)
+
+        scaler_mean = np.asarray(
+            scaler.mean,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        scaler_std = np.asarray(
+            scaler.std,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        expected_input_size = int(checkpoint.get("input_size", 0))
+
+        if expected_input_size <= 0:
+            raise MemoryIntegrityError(
+                "Stored model input_size is invalid."
+            )
+
+        if (
+            scaler_mean.size != expected_input_size
+            or scaler_std.size != expected_input_size
+        ):
+            raise MemoryIntegrityError(
+                "Embedded scaler dimensions do not match model input_size."
+            )
+
+        if not np.all(np.isfinite(scaler_mean)):
+            raise MemoryIntegrityError(
+                "Embedded scaler mean contains invalid values."
+            )
+
+        if (
+            not np.all(np.isfinite(scaler_std))
+            or np.any(scaler_std <= 0)
+        ):
+            raise MemoryIntegrityError(
+                "Embedded scaler standard deviations are invalid."
+            )
+
+        # ========================================================================
+        # VERIFY FEATURE ORDER
+        # ========================================================================
+
+        training_summary = checkpoint.get(
+            "training_summary",
+            {},
         )
-        embedded_mean = np.asarray(scaler.mean, dtype=np.float64).reshape(-1)
-        embedded_std = np.asarray(scaler.std, dtype=np.float64).reshape(-1)
-        registered_mean = np.asarray(registered_scaler.mean, dtype=np.float64).reshape(-1)
-        registered_std = np.asarray(registered_scaler.std, dtype=np.float64).reshape(-1)
-        if not np.array_equal(embedded_mean, registered_mean) or not np.array_equal(embedded_std, registered_std):
-            raise MemoryIntegrityError("Embedded checkpoint scaler does not match its registered scaler version.")
-        scaler = registered_scaler
-    if np.asarray(scaler.mean).size != int(checkpoint["input_size"]):
-        raise MemoryIntegrityError("Stored scaler width does not match the model input size.")
+
+        if not isinstance(training_summary, Mapping):
+            training_summary = {}
+
+        feature_names = (
+            checkpoint.get("feature_names")
+            or training_summary.get("feature_names")
+            or []
+        )
+
+        if feature_names:
+
+            if (
+                not isinstance(feature_names, Sequence)
+                or isinstance(feature_names, (str, bytes))
+            ):
+                raise MemoryIntegrityError(
+                    "Stored feature_names metadata is invalid."
+                )
+
+            feature_names = tuple(
+                str(item).strip()
+                for item in feature_names
+            )
+
+            if (
+                len(feature_names) != expected_input_size
+                or any(not item for item in feature_names)
+                or len(set(feature_names)) != len(feature_names)
+            ):
+                raise MemoryIntegrityError(
+                    "Stored feature order does not match model input_size."
+                )
+
+            scaler_feature_names = tuple(
+                getattr(scaler, "feature_names", ()) or ()
+            )
+
+            if (
+                scaler_feature_names
+                and scaler_feature_names != feature_names
+            ):
+                raise MemoryIntegrityError(
+                    "Embedded scaler feature order does not match model feature order."
+                )
+
+        # ========================================================================
+        # VERIFY FEATURE SCHEMA HASH
+        # ========================================================================
+
+        checkpoint_schema_hash = (
+            checkpoint.get("feature_schema_hash")
+            or training_summary.get("feature_schema_hash")
+        )
+
+        scaler_schema_hash = getattr(
+            scaler,
+            "feature_schema_hash",
+            None,
+        )
+
+        if (
+            checkpoint_schema_hash
+            and scaler_schema_hash
+            and str(checkpoint_schema_hash) != str(scaler_schema_hash)
+        ):
+            raise MemoryIntegrityError(
+                "Embedded scaler feature schema hash does not match the model."
+            )
+
     checkpoint = dict(checkpoint)
     checkpoint["loaded_from"] = str(selected_path)
+
+    checkpoint["scaler_embedded"] = True
+
+    if feature_names:
+        checkpoint["feature_names"] = list(feature_names)
+        checkpoint["feature_order"] = list(feature_names)
+
+    if checkpoint_schema_hash:
+        checkpoint["feature_schema_hash"] = str(
+            checkpoint_schema_hash
+        )
+
     if version_record is not None:
         checkpoint["version_record"] = version_record.to_dict()
         checkpoint["model_version_id"] = version_record.version_id
