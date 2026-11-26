@@ -103,49 +103,6 @@ export default function Launcher({
         </div>
       </div>
 
-      <style>{`
-        .launcher__figure_wrap {
-          animation: none !important;
-          transform: none !important;
-          width: min(300px, 72vw);
-          margin: 0 auto 28px;
-        }
-
-        .launcher-ai-logo {
-          display: block;
-          width: 100%;
-          height: auto;
-          overflow: visible;
-        }
-
-        .launcher-ai-logo__shape {
-          fill: #3E3E3F;
-          fill-rule: evenodd;
-          clip-rule: evenodd;
-          opacity: 0.98;
-        }
-
-        .launcher-ai-logo__reveal {
-          fill: none;
-          stroke: #3E3E3F;
-          stroke-linecap: round;
-          stroke-linejoin: round;
-          stroke-dasharray: 1000;
-          stroke-dashoffset: 1000;
-        }
-
-        .launcher-ai-logo__reveal--outer {
-          stroke-width: 58;
-        }
-
-        .launcher-ai-logo__reveal--front {
-          stroke-width: 58;
-        }
-
-        .launcher-ai-logo__reveal--details {
-          stroke-width: 70;
-        }
-      `}</style>
     </div>
   );
 }
