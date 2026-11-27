@@ -91,30 +91,42 @@
     }
   },
   "hero": {
-    "brand": "Spectline",
-    "desc": "AI tradingbot poháňaný umelou inteligenciou, navrhnutý tak, aby sa učil na základe vlastnej histórie obchodov.",
-    "primaryCta": "Objavte viac",
-    "secondaryCta": "Ako to funguje",
-    "card": "Trénujte na vlastných dátach. Integrovateľný s MT4 a MT5 za pár minút."
+    "left": {
+      "brand": "Spectline",
+      "description": "Numerický AI model pre algoritmické obchodovanie na finančných trhoch.",
+      "tagline": "Vaša obchodná logika preložená do váh neurónovej siete.",
+      "cta": "Objavte viac"
+    },
+    "right": {
+      "title": "CORE",
+      "tagline": "Vaša obchodná logika preložená do váh neurónovej siete.",
+      "description": "Od histórie obchodov až po validovaný .pth model na jednom mieste.",
+      "cta": "Ako to funguje"
+    }
   },
   "process": {
     "title": "Ako to funguje",
-    "subtitle": "Vaša obchodná história. AI strojové učenie. Plynulá integrácia.",
+    "subtitle": "Od vlastných obchodných dát až po nasadenie AI modelu.",
     "steps": [
       {
         "n": 1,
-        "title": "Poskytnite obchodné dáta",
-        "text": "Nahrajte databázu obchodov, z ktorej sa má AI učiť."
+        "title": "DATASET",
+        "text": "Zadávajte vlastné manuálne obchody a vytvorte dataset pre tréning AI."
       },
       {
         "n": 2,
-        "title": "Naučte obchodnú stratégiu",
-        "text": "Bot analyzuje históriu obchodov a hľadá obchodné vzorce."
+        "title": "TRÉNING",
+        "text": "Natrénujte AI model na vytvorenom datasete, aby sa naučil vaše obchodné vzorce."
       },
       {
         "n": 3,
-        "title": "Pripojte svoju platformu",
-        "text": "Použite naučenú stratégiu s MetaTrader 4 alebo MetaTrader 5."
+        "title": "TESTING",
+        "text": "Otestujte natrénovaný model a vyhodnoťte jeho obchodnú výkonnosť."
+      },
+      {
+        "n": 4,
+        "title": "EXPORT",
+        "text": "Keď ste spokojní s výsledkami, exportujte model a pripojte ho k MetaTrader 5."
       }
     ]
   },

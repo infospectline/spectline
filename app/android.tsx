@@ -125,7 +125,25 @@ function RadialMenu({
         style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
       >
         <div className="relative h-0 w-0">
-          <div className="radial-menu__center absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 h-3 w-3 rounded-full border" />
+          <div className="radial-menu__center absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2">
+
+          <Image
+            src="/images/logo_black.png"
+            alt=""
+            width={80}
+            height={80}
+            className="radial-menu__logo radial-menu__logo--black"
+          />
+
+          <Image
+            src="/images/logo_white.png"
+            alt=""
+            width={80}
+            height={80}
+            className="radial-menu__logo radial-menu__logo--white"
+          />
+
+        </div>
 
           {items.map((it, idx) => {
             const a = (idx / items.length) * Math.PI * 2 - Math.PI / 2;
@@ -291,9 +309,9 @@ export default function AndroidBasic({
       "[role='button']",
 
       ".rounded-2xl",
-      ".first_section__panel",
+      ".first_section__left",
+      ".first_section__right",
       ".first_section__card",
-      ".first_section__card_wrap",
     ].join(",");
 
     if (t.closest(blockedRadialSelector)) return;
@@ -2139,16 +2157,93 @@ export default function AndroidBasic({
           }}
           aria-hidden={heroOpacity < 0.05}
         >
+                          
           <div className="first_section__grid">
-            <div className="first_section__left">
-              <h1 className="first_section__brand">{copy.hero.brand}</h1>
 
-              <div className="first_section__panel bg-white/5 border border-white/10 backdrop-blur-md rounded-2xl p-6">
-                <p className="first_section__desc">
-                  {copy.hero.desc}
+            {/* DESKTOP - LEFT SIDE */}
+
+            <div className="first_section__left">
+
+              <h1 className="first_section__item first_section__item--left-brand first_section__brand">
+                {copy.hero.left.brand}
+              </h1>
+
+              <p className="first_section__item first_section__item--left-desc first_section__desc">
+                {copy.hero.left.description}
+              </p>
+
+              <p className="first_section__item first_section__item--left-tagline first_section__tagline">
+                {copy.hero.left.tagline}
+              </p>
+
+              <div className="first_section__item first_section__item--left-cta first_section__actions">
+                <a
+                  href="#services"
+                  className="first_section__btn first_section__btn--primary"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    scrollToSection("services");
+                  }}
+                >
+                  {copy.hero.left.cta}
+                </a>
+              </div>
+
+            </div>
+
+
+            {/* DESKTOP - RIGHT SIDE */}
+
+            <div className="first_section__right">
+
+              <h2 className="first_section__item first_section__item--right-title first_section__heading">
+                {copy.hero.right.title}
+              </h2>
+
+              <p className="first_section__item first_section__item--right-tagline first_section__tagline">
+                {copy.hero.right.tagline}
+              </p>
+
+              <p className="first_section__item first_section__item--right-desc first_section__desc">
+                {copy.hero.right.description}
+              </p>
+
+              <div className="first_section__item first_section__item--right-cta first_section__actions">
+                <a
+                  href="#process"
+                  className="first_section__btn first_section__btn--ghost"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    scrollToSection("process");
+                  }}
+                >
+                  {copy.hero.right.cta}
+                </a>
+              </div>
+
+            </div>
+
+
+            {/* MOBILE - ONE GLASS PANEL */}
+
+            <div className="first_section__mobile-content">
+
+              <h1 className="first_section__mobile-title">
+                {copy.hero.left.brand}
+              </h1>
+
+              <div className="first_section__mobile-panel">
+
+                <p className="first_section__mobile-desc">
+                  {copy.hero.left.description}
                 </p>
 
-                <div className="first_section__actions">
+                <p className="first_section__mobile-desc first_section__mobile-desc--secondary">
+                  {copy.hero.right.description}
+                </p>
+
+                <div className="first_section__mobile-actions">
+
                   <a
                     href="#services"
                     className="first_section__btn first_section__btn--primary"
@@ -2157,7 +2252,7 @@ export default function AndroidBasic({
                       scrollToSection("services");
                     }}
                   >
-                    {copy.hero.primaryCta}
+                    {copy.hero.left.cta}
                   </a>
 
                   <a
@@ -2168,20 +2263,17 @@ export default function AndroidBasic({
                       scrollToSection("process");
                     }}
                   >
-                    {copy.hero.secondaryCta}
+                    {copy.hero.right.cta}
                   </a>
+
                 </div>
+
               </div>
+
             </div>
 
-            <div className="first_section__right">
-              <div className="first_section__card_wrap">
-                <div className="first_section__card">
-                  {copy.hero.card}
-                </div>
-              </div>
-            </div>
           </div>
+
         </section>
 
         <section

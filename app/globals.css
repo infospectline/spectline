@@ -107,16 +107,28 @@ div:has(> [id="home"]) [data-layer="services"] .services-contact-btn:hover {
 -------------------------------------------------- */
 
 .radial-menu__center {
-  background-color: color-mix(
-    in srgb,
-    rgba(62, 62, 63, 0.22),
-    rgba(199, 199, 199, 0.28) calc(var(--invert-factor, 0) * 100%)
-  );
-  border-color: color-mix(
-    in srgb,
-    rgba(62, 62, 63, 0.18),
-    rgba(199, 199, 199, 0.22) calc(var(--invert-factor, 0) * 100%)
-  );
+  width: 80px;
+  height: 80px;
+  pointer-events: none;
+}
+
+.radial-menu__logo {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  object-fit: contain;
+  transition: opacity 250ms ease;
+}
+
+.radial-menu__logo--black {
+  opacity: calc(1 - var(--invert-factor, 0));
+}
+
+.radial-menu__logo--white {
+  opacity: var(--invert-factor, 0);
 }
 
 .radial-menu__button {
@@ -388,25 +400,10 @@ body {
   to   { opacity: 1; transform: translateX(0); }
 }
 
+
 /* --------------------------------------------------
    HERO SECTION
 -------------------------------------------------- */
-
-.first_section__grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 32px;
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 0;
-  justify-items: center;
-  text-align: center;
-}
-
-.first_section__left,
-.first_section__right {
-  width: 100%;
-}
 
 .first_section {
   position: fixed;
@@ -418,8 +415,7 @@ body {
 
 .first_section__canvas_wrap {
   position: fixed;
-  left: 0;
-  top: 0;
+  inset: 0 auto auto 0;
   width: 100vw;
   height: var(--spectline-viewport-height, 100svh);
   z-index: 0;
@@ -440,148 +436,568 @@ body {
   transform: translateX(0);
 }
 
-.first_section__brand {
-  margin: 0 0 10px;
-  font-size: clamp(56px, 4vw, 72px);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  opacity: 0.92;
-  text-align: center;
+
+/* --------------------------------------------------
+   TEXT LAYOUT AROUND THE CHARACTER
+-------------------------------------------------- */
+
+.first_section__grid {
+  position: relative;
+
+  width: min(100%, 1480px);
+  height: min(84vh, 680px);
+  min-height: 520px;
+
+  margin-inline: auto;
 }
 
-.first_section__panel {
-  margin-top: 10px;
-  padding: 22px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+.first_section__left,
+.first_section__right {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+
+  width: 50%;
+  height: 100%;
+
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+
+  pointer-events: none;
+}
+
+.first_section__left {
+  left: 0;
+}
+
+.first_section__right {
+  right: 0;
+}
+
+
+/* --------------------------------------------------
+   COMMON TEXT POSITIONING
+-------------------------------------------------- */
+
+.first_section__item {
+  position: absolute;
+
+  width: clamp(180px, 13.2vw, 220px);
+
+  margin: 0;
+
+  text-align: center;
+  text-wrap: balance;
+
+  font-weight: 400;
+
+  transform: translate(-50%, -50%);
+
+  pointer-events: auto;
+}
+
+
+/* --------------------------------------------------
+   LEFT SIDE POSITIONS
+-------------------------------------------------- */
+
+/* 1. SPECTLINE - upper inner position */
+
+.first_section__item--left-brand {
+  left: 71%;
+  top: 15%;
+}
+
+/* 2. MAIN DESCRIPTION - outer position */
+
+.first_section__item--left-desc {
+  left: 51%;
+  top: 38%;
+}
+
+/* 3. TAGLINE - outer lower position */
+
+.first_section__item--left-tagline {
+  left: 51%;
+  top: 61%;
+}
+
+/* 4. BUTTON - lower inner position */
+
+.first_section__item--left-cta {
+  left: 71%;
+  top: 84%;
+}
+
+
+/* --------------------------------------------------
+   RIGHT SIDE POSITIONS
+-------------------------------------------------- */
+
+/* 1. NEURAL TRADING - upper inner position */
+
+.first_section__item--right-title {
+  left: 29%;
+  top: 15%;
+}
+
+/* 2. TAGLINE - outer position */
+
+.first_section__item--right-tagline {
+  left: 49%;
+  top: 38%;
+}
+
+/* 3. MAIN DESCRIPTION - outer lower position */
+
+.first_section__item--right-desc {
+  left: 49%;
+  top: 61%;
+}
+
+/* 4. BUTTON - lower inner position */
+
+.first_section__item--right-cta {
+  left: 29%;
+  top: 84%;
+}
+
+
+/* --------------------------------------------------
+   HEADINGS - NO BOLD
+-------------------------------------------------- */
+
+.first_section__brand {
+  font-size: clamp(29px, 2.25vw, 38px);
+  line-height: 1.2;
+
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+
+  font-weight: 400;
+  opacity: 0.97;
+}
+
+.first_section__heading {
+  font-size: clamp(27px, 2.05vw, 35px);
+  line-height: 1.18;
+
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+
+  font-weight: 400;
+  opacity: 0.97;
+}
+
+
+/* --------------------------------------------------
+   DESCRIPTIONS - LARGER TEXT
+-------------------------------------------------- */
+
+
+/* --------------------------------------------------
+   LIGHT TYPOGRAPHY - NO BOLD
+-------------------------------------------------- */
+
+.first_section__item,
+.first_section__item * {
+  font-weight: 400;
+  font-synthesis: none;
+}
+
+.first_section__brand,
+.first_section__heading {
+  font-size: clamp(29px, 2.25vw, 38px);
+  line-height: 1.2;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-weight: 400;
 }
 
 .first_section__desc {
-  margin: 0;
-  line-height: 1.6;
-  opacity: 0.9;
-  font-size: 16px;
-  max-width: 56ch;
-  text-wrap: balance;
+  font-size: clamp(17px, 1.32vw, 21px);
+  line-height: 1.48;
+  font-weight: 300;
+  font-synthesis: none;
+  opacity: 0.95;
 }
 
+.first_section__tagline {
+  font-size: clamp(15px, 1.08vw, 18px);
+  line-height: 1.5;
+  font-weight: 300;
+  font-synthesis: none;
+  opacity: 0.78;
+}
+
+/* Explicitly remove bold from both main descriptions */
+
+.first_section__item--left-desc,
+.first_section__item--right-desc {
+  font-weight: 300;
+}
+
+/* --------------------------------------------------
+   BUTTONS
+-------------------------------------------------- */
+
 .first_section__actions {
-  margin-top: 22px;
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  width: 100%;
   justify-content: center;
+  align-items: center;
+
+  width: clamp(180px, 13.2vw, 220px);
+
+  margin: 0;
 }
 
 .first_section__btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 18px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #19191A;
+
+  width: 100%;
+  min-height: 46px;
+
+  padding: 11px 15px;
+
+  border-radius: 12px;
+  border: 1px solid rgba(25, 25, 26, 0.2);
+
+  background: rgba(255, 255, 255, 0.12);
+
+  color: color-mix(
+    in srgb,
+    #19191A,
+    #F4F4F4 calc(var(--invert-factor, 0) * 100%)
+  );
+
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+
+  text-align: center;
   text-decoration: none;
+
   cursor: pointer;
-  transition: transform 220ms ease, background-color 220ms ease, border-color 220ms ease, color 220ms ease;
-  will-change: transform;
+
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+
+  transition:
+    transform 220ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease;
 }
 
 .first_section__btn:hover {
-  transform: scale(1.03);
+  transform: translateY(-2px);
 }
 
 .first_section__btn--primary {
-  background: rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(25, 25, 26, 0.05);
 }
 
 .first_section__btn--ghost {
   background: transparent;
 }
 
-div:has(> [id="home"]) .first_section__btn.first_section__btn--primary:hover {
+
+/* --------------------------------------------------
+   ORIGINAL BLUE AND GREEN BUTTON HOVER
+-------------------------------------------------- */
+
+div:has(> [id="home"])
+.first_section__btn.first_section__btn--primary:hover {
   background-color: rgba(59, 130, 246, 0.34);
   border-color: rgba(147, 197, 253, 0.38);
   color: rgba(244, 244, 244, 0.96);
+
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 8px 26px rgba(59, 130, 246, 0.12);
 }
 
-div:has(> [id="home"]) .first_section__btn.first_section__btn--ghost:hover {
+div:has(> [id="home"])
+.first_section__btn.first_section__btn--ghost:hover {
   background-color: rgba(34, 197, 94, 0.34);
   border-color: rgba(134, 239, 172, 0.38);
   color: rgba(244, 244, 244, 0.96);
+
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 8px 26px rgba(34, 197, 94, 0.12);
 }
 
-.first_section--mobile {
-  width: 100%;
-  height: var(--spectline-viewport-height, 100svh);
-  padding: 0;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  text-align: center;
+
+
+/* --------------------------------------------------
+   ORIGINAL BLUE AND GREEN BUTTON HOVER
+-------------------------------------------------- */
+
+div:has(> [id="home"])
+.first_section__btn.first_section__btn--primary:hover {
+  background-color: rgba(59, 130, 246, 0.34);
+  border-color: rgba(147, 197, 253, 0.38);
+  color: rgba(244, 244, 244, 0.96);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 26px rgba(59, 130, 246, 0.12);
 }
 
-@media (max-width: 900px) {
+div:has(> [id="home"])
+.first_section__btn.first_section__btn--ghost:hover {
+  background-color: rgba(34, 197, 94, 0.34);
+  border-color: rgba(134, 239, 172, 0.38);
+  color: rgba(244, 244, 244, 0.96);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 26px rgba(34, 197, 94, 0.12);
+}
+
+
+/* --------------------------------------------------
+   MEDIUM DESKTOP SCREENS
+-------------------------------------------------- */
+
+@media (min-width: 901px) and (max-width: 1200px) {
+
   .first_section__grid {
-    padding-inline: 20px;
+    width: 100%;
+    height: min(80vh, 620px);
+  }
+
+  .first_section__item {
+    width: clamp(160px, 18vw, 190px);
+  }
+
+  .first_section__item--left-brand {
+    left: 69%;
+  }
+
+  .first_section__item--left-desc,
+  .first_section__item--left-tagline {
+    left: 50%;
+  }
+
+  .first_section__item--right-title {
+    left: 31%;
+  }
+
+  .first_section__item--right-tagline,
+  .first_section__item--right-desc {
+    left: 50%;
+  }
+
+  .first_section__brand {
+    font-size: clamp(25px, 2.8vw, 32px);
+  }
+
+  .first_section__heading {
+    font-size: clamp(23px, 2.5vw, 30px);
+  }
+
+  .first_section__desc {
+    font-size: clamp(15px, 1.7vw, 18px);
+  }
+
+  .first_section__tagline {
+    font-size: 15px;
+  }
+
+  .first_section__actions {
+    width: clamp(160px, 18vw, 190px);
   }
 }
 
-.first_section--mobile .first_section__btn--primary {
-  width: 100%;
+
+/* --------------------------------------------------
+   MOBILE VERSION
+-------------------------------------------------- */
+
+/* --------------------------------------------------
+   MOBILE - SINGLE GLASS PANEL
+-------------------------------------------------- */
+
+.first_section__mobile-content {
+  display: none;
 }
 
-.first_section--mobile .first_section__btn--ghost {
-  flex: 1 1 calc(50% - 6px);
-  min-width: 150px;
+@media (max-width: 900px) {
+
+  .first_section--mobile {
+    width: 100%;
+    height: var(--spectline-viewport-height, 100svh);
+
+    padding: 60px 0 70px;
+
+    display: grid;
+    place-items: center;
+    align-content: center;
+  }
+
+  /* Hide desktop text positions */
+
+  .first_section--mobile .first_section__left,
+  .first_section--mobile .first_section__right {
+    display: none;
+  }
+
+  /* Mobile content wrapper */
+
+  .first_section--mobile .first_section__grid {
+    position: relative;
+
+    display: block;
+
+    width: min(calc(100% - 32px), 460px);
+    max-width: 460px;
+
+    height: auto;
+    min-height: 0;
+
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  .first_section--mobile .first_section__mobile-content {
+    display: flex;
+
+    width: 100%;
+
+    flex-direction: column;
+    align-items: center;
+
+    gap: 14px;
+
+    pointer-events: auto;
+  }
+
+  /* Heading OUTSIDE the glass panel */
+
+  .first_section--mobile .first_section__mobile-title {
+    position: relative;
+
+    margin: 0;
+
+    width: 100%;
+
+    font-size: clamp(40px, 10vw, 50px);
+    line-height: 1.2;
+
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+
+    font-weight: 400;
+
+    text-align: center;
+
+    color: color-mix(
+      in srgb,
+      #19191A,
+      #F4F4F4 calc(var(--invert-factor, 0) * 100%)
+    );
+  }
+
+  /* ONE ORIGINAL BLUR GLASS PANEL */
+
+  .first_section--mobile .first_section__mobile-panel {
+    position: relative;
+
+    width: 100%;
+
+    padding: 22px 20px;
+
+    border-radius: 22px;
+
+    background: rgba(255, 255, 255, 0.06);
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.06);
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    gap: 15px;
+
+    color: #19191A;
+  }
+
+  /* Mobile descriptions */
+
+  .first_section--mobile .first_section__mobile-desc {
+    width: 100%;
+    max-width: 38ch;
+
+    margin: 0;
+
+    font-size: 15px;
+    line-height: 1.5;
+
+    font-weight: 300;
+    font-synthesis: none;
+
+    text-align: center;
+  }
+
+  .first_section--mobile .first_section__mobile-desc--secondary {
+    opacity: 0.78;
+  }
+
+  /* Two buttons inside the same panel */
+
+  .first_section--mobile .first_section__mobile-actions {
+    display: flex;
+
+    width: 100%;
+
+    align-items: center;
+    justify-content: center;
+
+    flex-wrap: wrap;
+
+    gap: 10px;
+
+    margin-top: 5px;
+  }
+
+  .first_section--mobile .first_section__mobile-actions .first_section__btn {
+    flex: 1 1 140px;
+
+    min-height: 44px;
+
+    padding: 11px 12px;
+
+    font-size: 13px;
+    font-weight: 400;
+
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* Keep both buttons accessible */
+
+  .first_section--mobile .first_section__btn--primary,
+  .first_section--mobile .first_section__btn--ghost {
+    width: auto;
+  }
 }
 
-.first_section__card_wrap {
-  max-width: 900px;
-  width: 100%;
-  margin: 0;
-  display: flex;
-  justify-content: center;
-}
 
-.first_section--mobile .first_section__card_wrap {
-  margin: 0 auto;
-}
+/* --------------------------------------------------
+   END HERO SECTION
+-------------------------------------------------- */
 
-.first_section__card {
-  display: block;
-  width: 100%;
-  max-width: 560px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: #19191A;
-  text-decoration: none;
-  font-size: 14px;
-  line-height: 1.5;
-  transition: transform 220ms ease;
-  will-change: transform;
-}
-
-.first_section__card:hover {
-  transform: scale(1.03);
-}
 
 /* --------------------------------------------------
    LAUNCHER SCREEN

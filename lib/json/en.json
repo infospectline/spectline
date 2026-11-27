@@ -91,30 +91,42 @@
     }
   },
   "hero": {
-    "brand": "Spectline",
-    "desc": "An AI-driven trading bot designed to learn and evolve from your custom trade history.",
-    "primaryCta": "Explore more",
-    "secondaryCta": "How it works",
-    "card": "Train on your trading data. Integratable with MT4 and MT5 in minutes."
-  },
+    "left": {
+      "brand": "Spectline",
+      "description": "A numerical AI model for algorithmic trading in financial markets.",
+      "tagline": "Your trading logic translated into neural network weights.",
+      "cta": "Explore more"
+    },
+    "right": {
+      "title": "CORE",
+      "tagline": "Your trading logic translated into neural network weights.",
+      "description": "From trade history to a validated .pth model, all in one place.",
+      "cta": "How it works"
+    }
+  }, 
   "process": {
-    "title": "How it works",
-    "subtitle": "Your Trading History. AI-Powered Learning. Seamless Integration.",
+    "title": "How It Works",
+    "subtitle": "From your own trade data to a deployable AI model.",
     "steps": [
       {
         "n": 1,
-        "title": "Provide your trade data",
-        "text": "Upload the trade database you want the AI to learn from."
+        "title": "DATASET",
+        "text": "Enter your own manual trades to build a dataset for AI training."
       },
       {
         "n": 2,
-        "title": "Learn your strategy",
-        "text": "The bot analyses your trade history to identify trading patterns."
+        "title": "TRAINING",
+        "text": "Train the AI model on your dataset so it can learn your trading patterns."
       },
       {
         "n": 3,
-        "title": "Connect your platform",
-        "text": "Use the learned strategy with MetaTrader 4 or MetaTrader 5."
+        "title": "TESTING",
+        "text": "Test the trained model and evaluate its trading performance."
+      },
+      {
+        "n": 4,
+        "title": "EXPORT",
+        "text": "When you are satisfied with the results, export the model and connect it to MetaTrader 5."
       }
     ]
   },
