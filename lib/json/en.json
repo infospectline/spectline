@@ -6,7 +6,7 @@
   "nav": {
     "home": "Home",
     "process": "How it works",
-    "services": "Features",
+    "services": "Core ENGINE",
     "portfolio": "AI Tradingbot",
     "reviews": "Key benefits",
     "contact": "Contact",
@@ -111,41 +111,47 @@
       {
         "n": 1,
         "title": "DATASET",
-        "text": "Enter your own manual trades to build a dataset for AI training."
+        "text": "Entering manual trades and creating a dataset for AI training."
       },
       {
         "n": 2,
         "title": "TRAINING",
-        "text": "Train the AI model on your dataset so it can learn your trading patterns."
+        "text": "Training the AI model on the dataset from which it learns your trading mindset."
       },
       {
         "n": 3,
         "title": "TESTING",
-        "text": "Test the trained model and evaluate its trading performance."
+        "text": "Testing the trained model and subsequently verifying its quality and performance."
       },
       {
         "n": 4,
-        "title": "EXPORT",
-        "text": "When you are satisfied with the results, export the model and connect it to MetaTrader 5."
+        "title": "EXPORTING",
+        "text": "After testing, the model is exported and subsequently implemented into MetaTrader 5."
       }
     ]
   },
   "services": {
-    "title": "Features",
-    "subtitle": "Everything you need to transform your trading history into an automated AI strategy.",
-    "order": "Learn More",
+    "core": "CORE",
+    "engine": "ENGINE",
+    "portfolioButton": "GALLERY",
+    "askButton": "ASK A QUESTION",
+
     "plans": [
       {
-        "name": "AI Trading Bot & MT4/MT5",
-        "price": "All-in-One Solution",
-        "desc": "An intelligent trading bot that learns from real SETUPS and connects to a trading platform.",
-        "details": [
-          "Trade database for machine learning.",
-          "Machine learning and pattern analysis.",
-          "Seamless integration with MT4/MT5.",
-          "Automated trading by an autonomous trading bot.",
-          "Performance tracking and passive income."
-        ]
+        "name": "DATASET",
+        "desc": "The process begins with entering manual trades and marking key market situations on charts. Every entry, exit, and market context is automatically recorded and stored in a clear, structured format. This gradually builds a structured dataset ready for AI training."
+      },
+      {
+        "name": "TRAINING",
+        "desc": "The model is trained using the created dataset, in which AI analyses patterns in trading decisions. The system learns to recognise specific market conditions in which a position is entered or held. The result is a model that faithfully captures the selected trading approach and strategy logic."
+      },
+      {
+        "name": "TESTING",
+        "desc": "Testing is the process of evaluating the trained model on historical data outside the training sample. Its success rate, stability, and behaviour across different market phases are assessed in detail. This stage verifies the model's reliability before it is deployed in live operation."
+      },
+      {
+        "name": "EXPORT",
+        "desc": "After testing is complete, the final model is exported to a compatible format (.pth). The model is then ready for direct implementation in MetaTrader 4/5 as a fully functional trading tool. In real time, it can monitor market developments and evaluate trading opportunities according to its learned rules."
       }
     ]
   },

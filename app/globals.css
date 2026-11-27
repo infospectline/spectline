@@ -660,9 +660,9 @@ body {
   justify-content: center;
 
   width: 100%;
-  min-height: 46px;
-
-  padding: 11px 15px;
+  height: 54px;
+  min-height: 54px;
+  padding: 0 15px;
 
   border-radius: 12px;
   border: 1px solid rgba(25, 25, 26, 0.2);

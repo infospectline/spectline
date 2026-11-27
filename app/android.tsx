@@ -199,6 +199,21 @@ export default function AndroidBasic({
   const servicesPlans = copy.services.plans;
   const reviews = copy.reviews.items;
 
+  const datasetPlan = servicesPlans[0];
+  const trainingPlan = servicesPlans[1];
+  const testingPlan = servicesPlans[2];
+  const exportPlan = servicesPlans[3];
+
+  const desktopLeftPlans = [
+    { plan: datasetPlan, index: 0 },
+    { plan: testingPlan, index: 2 },
+  ].filter((item): item is { plan: NonNullable<typeof datasetPlan>; index: number } => Boolean(item.plan));
+
+  const desktopRightPlans = [
+    { plan: trainingPlan, index: 1 },
+    { plan: exportPlan, index: 3 },
+  ].filter((item): item is { plan: NonNullable<typeof trainingPlan>; index: number } => Boolean(item.plan));
+
   const radialItems = useMemo<readonly RadialItem[]>(() => {
     return RADIAL_ITEM_CONFIG.map((it) => {
       if (it.kind === "section") {
@@ -650,25 +665,20 @@ export default function AndroidBasic({
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
-    const mqPortrait = window.matchMedia("(orientation: portrait)");
 
     const apply = () => {
       const smallW = mq.matches;
-      const portrait = mqPortrait.matches;
-      const smallH = window.innerHeight < 740;
 
       setIsservicesAccordion(smallW);
-      setIsservicesSlider(smallW && portrait && smallH);
+      setIsservicesSlider(smallW);
     };
 
     apply();
     mq.addEventListener?.("change", apply);
-    mqPortrait.addEventListener?.("change", apply);
     window.addEventListener("resize", apply);
 
     return () => {
       mq.removeEventListener?.("change", apply);
-      mqPortrait.removeEventListener?.("change", apply);
       window.removeEventListener("resize", apply);
     };
   }, []);
@@ -2393,16 +2403,7 @@ export default function AndroidBasic({
           }}
           aria-hidden={servicesOpacity < 0.05}
         >
-          <div className="w-full max-w-[1200px]">
-            <div className="text-center mb-8">
-              <h2 className="text-[#19191A] text-3xl md:text-5xl tracking-[0.12em] uppercase opacity-95">
-                {copy.services.title}
-              </h2>
-              <p className="text-[#F4F4F4]/70 mt-3 max-w-[60ch] mx-auto">
-                {copy.services.subtitle}
-              </p>
-            </div>
-
+          <div className="w-full max-w-[1480px]">
             {isservicesAccordion ? (
               isservicesSlider ? (
                 (() => {
@@ -2449,33 +2450,11 @@ export default function AndroidBasic({
                         }}
                       >
                         <div className="p-4">
-                          <div className="text-[#F4F4F4] font-semibold text-lg">{servicesSliderPlan.name}</div>
-                          <div className="text-[#F4F4F4]/90 mt-1">{servicesSliderPlan.price}</div>
-
+                          <div className="w-full text-center text-[#F4F4F4] font-semibold text-lg">
+                            {servicesSliderPlan.name}
+                          </div>
                           <div className="text-[#F4F4F4]/80 leading-relaxed mt-3">{servicesSliderPlan.desc}</div>
 
-                          <ul className="mt-4 space-y-2 text-[#F4F4F4]/85">
-                            {servicesSliderPlan.details.map((d) => (
-                              <li key={d} className="flex gap-3 items-start">
-                                <span className="opacity-70">•</span>
-                                <span>{d}</span>
-                              </li>
-                            ))}
-                          </ul>
-
-                          <div className="pt-4">
-                            <button
-                              type="button"
-                              onClick={() => scrollToSection("contact")}
-                              className={[
-                                "services-contact-btn", "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition cursor-pointer",
-                                "border-[#F4F4F4]/20 bg-[#19191A]/55 text-[#F4F4F4]",
-                                "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/45",
-                              ].join(" ")}
-                            >
-                              {copy.services.order}
-                            </button>
-                          </div>
                         </div>
                       </div>
 
@@ -2508,10 +2487,7 @@ export default function AndroidBasic({
                           onClick={() => setOpenPlan(open ? null : i)}
                           className="w-full flex items-center justify-between gap-4 p-4 text-left"
                         >
-                          <div>
-                            <div className="text-[#F4F4F4] font-semibold text-lg">{p.name}</div>
-                            <div className="text-[#F4F4F4]/90 mt-1">{p.price}</div>
-                          </div>
+                          <div className="text-[#F4F4F4] font-semibold text-lg">{p.name}</div>
                           <span
                             className={[
                               "text-[#F4F4F4]/70 transition-transform",
@@ -2526,29 +2502,6 @@ export default function AndroidBasic({
                           <div className="px-4 pb-4">
                             <div className="text-[#F4F4F4]/80 leading-relaxed">{p.desc}</div>
 
-                            <ul className="mt-4 space-y-2 text-[#F4F4F4]/85">
-                              {p.details.map((d) => (
-                                <li key={d} className="flex gap-3 items-start">
-                                  <span className="opacity-70">•</span>
-                                  <span>{d}</span>
-                                </li>
-                              ))}
-                            </ul>
-
-                            <div className="pt-4">
-                              <button
-                                type="button"
-                                onClick={() => scrollToSection("contact")}
-                                className={[
-                                  "services-contact-btn",
-                                  "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition cursor-pointer",
-                                  "border-[#F4F4F4]/20 bg-[#19191A]/55 text-[#F4F4F4]",
-                                  "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/45",
-                                ].join(" ")}
-                              >
-                                {copy.services.order}
-                              </button>
-                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -2557,66 +2510,147 @@ export default function AndroidBasic({
                 </div>
               )
             ) : (
+              
+            <div className="relative w-full max-w-[1640px] h-[min(80vh,740px)] min-h-[560px] mx-auto grid grid-cols-[minmax(360px,1.25fr)_minmax(180px,0.5fr)_minmax(360px,1.25fr)] grid-rows-[auto_auto_auto_auto] items-center content-between gap-x-4">
+
+              {/* CORE */}
+              <h2 className="col-start-1 row-start-1 justify-self-end mr-8 w-[220px] text-right text-[#F4F4F4] text-2xl xl:text-3xl tracking-[0.14em] uppercase font-normal opacity-95">
+                {copy.services.core}
+              </h2>
+
+              {/* ENGINE */}
+              <h2 className="col-start-3 row-start-1 justify-self-start ml-8 w-[220px] text-left text-[#F4F4F4] text-2xl xl:text-3xl tracking-[0.14em] uppercase font-normal opacity-95">
+                {copy.services.engine}
+              </h2>
+
+              {/* LEFT CARDS */}
+              {desktopLeftPlans.map(({ plan, index }) => {
+                const active = hoveredPlan !== null
+                  ? index === hoveredPlan
+                  : index === displayedActivePlan;
+
+                const isBottomLeft = index === 2;
+
+                return (
+                  <div
+                    key={plan.name}
+                    onMouseEnter={() => {
+                      setHoveredPlan(index);
+                      setActivePlan(index);
+                    }}
+                    onMouseLeave={() => setHoveredPlan(null)}
+                    onClick={() => setActivePlan(index)}
+                    style={
+                      isBottomLeft
+                        ? {
+                            marginLeft:
+                              "max(0px, calc((100% - 32px - min(100%, 460px)) / 2))",
+                          }
+                        : undefined
+                    }
+                    className={[
+                      "w-full max-w-[460px] flex flex-col rounded-2xl border px-5 py-3.5 xl:px-6 xl:py-4 transition duration-200 text-[#F4F4F4] cursor-pointer",
+                      "border-[#F4F4F4]/15 bg-[#19191A]/80 backdrop-blur-md",
+                      "hover:scale-[1.02] hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/60",
+                      active ? "scale-[1.03] border-[#F4F4F4]/40 bg-[#19191A]/55" : "",
+                      isBottomLeft
+                        ? "col-start-1 row-start-3 justify-self-start"
+                        : "col-start-1 row-start-2 justify-self-start",
+                    ].join(" ")}
+                  >
+                    <div className="text-[#F4F4F4] font-semibold text-sm xl:text-base tracking-[0.06em] uppercase">
+                      {plan.name}
+                    </div>
+
+                    <div className="text-[#F4F4F4]/80 mt-1 text-xs xl:text-sm leading-snug">
+                      {plan.desc}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* RIGHT CARDS */}
+              {desktopRightPlans.map(({ plan, index }) => {
+                const active = hoveredPlan !== null
+                  ? index === hoveredPlan
+                  : index === displayedActivePlan;
+
+                const isBottomRight = index === 3;
+
+                return (
+                  <div
+                    key={plan.name}
+                    onMouseEnter={() => {
+                      setHoveredPlan(index);
+                      setActivePlan(index);
+                    }}
+                    onMouseLeave={() => setHoveredPlan(null)}
+                    onClick={() => setActivePlan(index)}
+                    style={
+                      isBottomRight
+                        ? {
+                            marginLeft:
+                              "max(0px, calc((100% - min(100%, 460px) + 32px) / 2))",
+                          }
+                        : undefined
+                    }
+                    className={[
+                      "w-full max-w-[460px] flex flex-col rounded-2xl border px-5 py-3.5 xl:px-6 xl:py-4 transition duration-200 text-[#F4F4F4] cursor-pointer",
+                      "border-[#F4F4F4]/15 bg-[#19191A]/80 backdrop-blur-md",
+                      "hover:scale-[1.02] hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/60",
+                      active ? "scale-[1.03] border-[#F4F4F4]/40 bg-[#19191A]/55" : "",
+                      isBottomRight
+                        ? "col-start-3 row-start-3 justify-self-start"
+                        : "col-start-3 row-start-2 justify-self-end",
+                    ].join(" ")}
+                  >
+                    <div className="text-[#F4F4F4] font-semibold text-sm xl:text-base tracking-[0.06em] uppercase">
+                      {plan.name}
+                    </div>
+
+                    <div className="text-[#F4F4F4]/80 mt-1 text-xs xl:text-sm leading-snug">
+                      {plan.desc}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* CENTER AXIS */}
               <div
+                aria-hidden
+                className="col-start-2 row-start-1 row-span-4 pointer-events-none"
+              />
+
+              {/* PORTFOLIO BUTTON */}
+              <button
+                type="button"
+                onClick={() => scrollToSection("portfolio")}
                 className={[
-                  "grid gap-6 items-stretch",
-                  servicesPlans.length === 1
-                    ? "md:grid-cols-1 max-w-[430px] mx-auto"
-                    : servicesPlans.length === 2
-                    ? "md:grid-cols-2 max-w-[900px] mx-auto"
-                    : "md:grid-cols-3",
+                  "services-contact-btn col-start-1 row-start-4 justify-self-end mr-8 w-[220px]",
+                  "inline-flex h-[54px] items-center justify-center rounded-xl border px-5 py-0 text-sm font-semibold tracking-[0.1em] uppercase transition cursor-pointer",
+                  "border-[#F4F4F4]/20 bg-[#19191A]/75 backdrop-blur-md text-[#F4F4F4]",
+                  "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/55",
                 ].join(" ")}
               >
-                {servicesPlans.map((p, i) => {
-                  const active = hoveredPlan !== null ? i === hoveredPlan : i === displayedActivePlan;
+                {copy.services.portfolioButton}
+              </button>
 
-                  return (
-                    <div
-                      key={p.name}
-                      onMouseEnter={() => {
-                        setHoveredPlan(i);
-                        setActivePlan(i);
-                      }}
-                      onMouseLeave={() => setHoveredPlan(null)}
-                      className={[
-                        "h-full flex flex-col rounded-2xl border p-5 transition duration-200 text-[#F4F4F4]",
-                        "border-[#F4F4F4]/15 bg-[#19191A]/80 backdrop-blur-md",
-                        "hover:scale-[1.02] hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/60 hover:backdrop-blur-md",
-                        active ? "scale-[1.03] border-[#F4F4F4]/40 bg-[#19191A]/55 backdrop-blur-md" : "",
-                      ].join(" ")}
-                    >
-                      <div className="text-[#F4F4F4] font-semibold text-lg">{p.name}</div>
-                      <div className="text-[#F4F4F4] mt-1 text-lg opacity-95">{p.price}</div>
-                      <div className="text-[#F4F4F4]/80 mt-3 leading-relaxed">{p.desc}</div>
+              {/* CONTACT BUTTON */}
+              <button
+                type="button"
+                onClick={() => scrollToSection("contact")}
+                className={[
+                  "services-contact-btn col-start-3 row-start-4 justify-self-start ml-8 w-[220px]",
+                  "inline-flex h-[54px] items-center justify-center rounded-xl border px-5 py-0 text-sm font-semibold tracking-[0.1em] uppercase transition cursor-pointer",
+                  "border-[#F4F4F4]/20 bg-[#19191A]/75 backdrop-blur-md text-[#F4F4F4]",
+                  "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/55",
+                ].join(" ")}
+              >
+                {copy.services.askButton}
+              </button>
 
-                      <ul className="mt-4 space-y-2 text-[#F4F4F4]/85">
-                        {p.details.map((d) => (
-                          <li key={d} className="flex gap-3 items-start">
-                            <span className="opacity-70">•</span>
-                            <span>{d}</span>
-                          </li>
-                        ))}
-                      </ul>
+            </div>
 
-                      <div className="mt-auto pt-4">
-                        <button
-                          type="button"
-                          onClick={() => scrollToSection("portfolio")}
-                          className={[
-                            "services-contact-btn",
-                            "inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 font-semibold transition",
-                            "border-[#F4F4F4]/20 bg-[#19191A]/70 backdrop-blur-md text-[#F4F4F4] cursor-pointer",
-                            "hover:border-[#F4F4F4]/35 hover:bg-[#19191A]/55",
-                            active ? "border-[#F4F4F4]/35 bg-[#19191A]/55" : "",
-                          ].join(" ")}
-                        >
-                          {copy.services.order}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
             )}
           </div>
         </section>

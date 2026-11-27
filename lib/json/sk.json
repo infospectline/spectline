@@ -6,7 +6,7 @@
   "nav": {
     "home": "Domov",
     "process": "Ako to funguje",
-    "services": "Funkcie",
+    "services": "Core ENGINE",
     "portfolio": "AI Tradingbot",
     "reviews": "Hlavné výhody",
     "contact": "Kontakt",
@@ -111,41 +111,47 @@
       {
         "n": 1,
         "title": "DATASET",
-        "text": "Zadávajte vlastné manuálne obchody a vytvorte dataset pre tréning AI."
+        "text": "Zadávanie manuálnych obchodov a vytvorenie datasetu pre tréning AI."
       },
       {
         "n": 2,
         "title": "TRÉNING",
-        "text": "Natrénujte AI model na vytvorenom datasete, aby sa naučil vaše obchodné vzorce."
+        "text": "Trénovanie AI modelu na datasete, z ktorého sa naučí vaše obchodné myslenie."
       },
       {
         "n": 3,
-        "title": "TESTING",
-        "text": "Otestujte natrénovaný model a vyhodnoťte jeho obchodnú výkonnosť."
+        "title": "TESTOVANIE",
+        "text": "Testovanie natrénovaného modelu a následná kontrola jeho kvality a výkonnosti."
       },
       {
         "n": 4,
-        "title": "EXPORT",
-        "text": "Keď ste spokojní s výsledkami, exportujte model a pripojte ho k MetaTrader 5."
+        "title": "EXPORTOVANIE",
+        "text": "Po testovaní prichádza na rad export modelu a následná implementácia do MetaTrader 5."
       }
     ]
   },
   "services": {
-    "title": "Funkcie",
-    "subtitle": "Všetko, čo potrebujete na premenu vašej obchodnej histórie na automatizovanú AI stratégiu.",
-    "order": "Zistiť viac",
+    "core": "CORE",
+    "engine": "ENGINE",
+    "portfolioButton": "GALÉRIA",
+    "askButton": "OPÝTAŤ SA",
+
     "plans": [
       {
-        "name": "AI Trading Bot & MT4/MT5",
-        "price": "Kompletné riešenie",
-        "desc": "Inteligentný obchodný bot, ktorý sa učí z reálnych SETUP-ov a prepája sa s obchodnou platformou.",
-        "details": [
-          "Databáza obchodov pre strojové učenie.",
-          "Strojové učenie a analýza vzorov.",
-          "Plynulá integrácia s MT4/MT5.",
-          "Automatické obchodovanie autonómneho trading bota.",
-          "Kontrola výsledkov a pasívny príjem."
-        ]
+        "name": "DATASET",
+        "desc": "Proces začína zadávaním manuálnych obchodov a označovaním kľúčových trhových situácií na grafoch. Každý vstup, výstup aj kontext trhu sa automaticky zaznamenáva a ukladá do prehľadnej podoby. Týmto spôsobom postupne vzniká štruktúrovaný dataset pripravený na tréning umelej inteligencie."
+      },
+      {
+        "name": "TRÉNING",
+        "desc": "Trénovanie modelu prebieha na základe vytvoreného datasetu, v ktorom AI analyzuje vzorce obchodných rozhodnutí. Systém sa učí rozpoznávať konkrétne trhové podmienky, pri ktorých dochádza k vstupu do pozície alebo k vyčkávaniu. Výsledkom je model, ktorý verne zachytáva zvolené obchodné myslenie a logiku stratégie."
+      },
+      {
+        "name": "TESTOVANIE",
+        "desc": "Testovanie je proces, pri ktorom sa natrénovaný model overuje na historických dátach mimo tréningovej vzorky. Detailne sa vyhodnocuje jeho úspešnosť, stabilita a správanie v rôznych trhových fázach. Táto fáza zabezpečuje overenie spoľahlivosti modelu ešte pred jeho nasadením do reálnej prevádzky."
+      },
+      {
+        "name": "EXPORTOVANIE",
+        "desc": "Po ukončení testovania nasleduje exportovanie finálneho modelu do kompatibilného formátu (.pth). Model je následne pripravený na priamu implementáciu do platformy MetaTrader 4/5 ako plnohodnotný obchodný nástroj. V reálnom čase potom dokáže sledovať vývoj trhu a vyhodnocovať obchodné príležitosti podľa naučených pravidiel."
       }
     ]
   },
